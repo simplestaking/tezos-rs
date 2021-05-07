@@ -46,7 +46,7 @@ fn message_iter(g: &mut Gen, identity: &Identity) -> impl Iterator<Item = Handsh
     ].into_iter()
 }
 
-fn try_sequence(pm: &mut PeerManager, sequence: &Vec<HandshakeMsg>, counter: &mut u64) -> bool {
+fn try_sequence(pm: &mut P2pManager, sequence: &Vec<HandshakeMsg>, counter: &mut u64) -> bool {
     let peer_id = PeerId::new("peer1".to_string());
 
     for msg in sequence {
@@ -110,8 +110,8 @@ fn random_simulator() {
     for seq_len in 1..=9 {
         println!("trying sequences with length: {}", seq_len);
         for seq in msgs.clone().into_iter().permutations(seq_len) {
-            let mut pm = PeerManager::new(
-                PeerManagerConfig {
+            let mut pm = P2pManager::new(
+                P2pManagerConfig {
                     disable_mempool: false,
                     private_node: false,
                     min_connected_peers: 10,

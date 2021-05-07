@@ -94,16 +94,16 @@ pub struct HandshakeProposal {
     pub message: HandshakeMsg,
 }
 
-pub type PeerManagerResult = Result<(), Error>;
+pub type P2pManagerResult = Result<(), Error>;
 
-pub enum PeerManagerAction {
+pub enum P2pManagerAction {
     SendPeerConnect((PeerId, ConnectionMessage)),
     SendPeerMeta((PeerId, MetadataMessage)),
     SendPeerAck((PeerId, AckMessage)),
 }
 
 #[derive(Debug, Clone)]
-pub struct PeerManagerConfig {
+pub struct P2pManagerConfig {
     pub disable_mempool: bool,
     pub private_node: bool,
     pub min_connected_peers: u8,
@@ -113,14 +113,14 @@ pub struct PeerManagerConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct PeerManagerInner {
-    config: PeerManagerConfig,
+pub struct P2pManagerInner {
+    config: P2pManagerConfig,
     identity: Identity,
     peers: BTreeMap<PeerId, PeerState>,
     newest_time_seen: Instant,
 }
 
-pub enum PeerManager {
+pub enum P2pManager {
     /// Poisoned state.
     ///
     /// Can only happen if panic occures during transition.
@@ -128,29 +128,29 @@ pub enum PeerManager {
 
     /// Minimum number of connected peers **not** reached.
     /// Maximum number of pending connections **not** reached.
-    Pending(PeerManagerInner),
+    Pending(P2pManagerInner),
 
     /// Minimum number of connected peers **not** reached.
     /// Maximum number of pending connections reached.
-    PendingFull(PeerManagerInner),
+    PendingFull(P2pManagerInner),
 
     /// Minimum number of connected peers reached.
     /// Maximum number of pending connections **not** reached.
-    Ready(PeerManagerInner),
+    Ready(P2pManagerInner),
 
     /// Minimum number of connected peers reached.
     /// Maximum number of pending connections reached.
-    ReadyFull(PeerManagerInner),
+    ReadyFull(P2pManagerInner),
 }
 
-impl PeerManager {
+impl P2pManager {
     pub fn new(
-        config: PeerManagerConfig,
+        config: P2pManagerConfig,
         identity: Identity,
         initial_time: Instant,
     ) -> Self
     {
-        Self::Pending(PeerManagerInner {
+        Self::Pending(P2pManagerInner {
             config,
             identity,
             peers: BTreeMap::new(),
@@ -158,7 +158,7 @@ impl PeerManager {
         })
     }
 
-    fn inner(&self) -> &PeerManagerInner {
+    fn inner(&self) -> &P2pManagerInner {
         match self {
             Self::Poisoned => panic!(),
             Self::Pending(inner)
@@ -171,7 +171,7 @@ impl PeerManager {
         }
     }
 
-    fn inner_mut(&mut self) -> &mut PeerManagerInner {
+    fn inner_mut(&mut self) -> &mut P2pManagerInner {
         match self {
             Self::Poisoned => panic!(),
             Self::Pending(inner)
@@ -188,7 +188,7 @@ impl PeerManager {
         self.inner().peers.get(peer_id)
     }
 
-    fn assert_proposal_not_outdated(&self, proposal: &HandshakeProposal) -> PeerManagerResult {
+    fn assert_proposal_not_outdated(&self, proposal: &HandshakeProposal) -> P2pManagerResult {
         let newest_time_seen = match self {
             Self::Poisoned => { return Err(Error::Poisoned); }
             Self::Pending(inner)
@@ -212,7 +212,7 @@ impl PeerManager {
 
     }
 
-    pub fn accept_handshake(&mut self, proposal: &HandshakeProposal) -> PeerManagerResult {
+    pub fn accept_handshake(&mut self, proposal: &HandshakeProposal) -> P2pManagerResult {
         self.assert_proposal_not_outdated(proposal)?;
 
         let this = match self {
@@ -389,7 +389,7 @@ impl PeerManager {
         Ok(())
     }
 
-    pub fn react(&mut self, at: Instant) -> Vec<PeerManagerAction> {
+    pub fn react(&mut self, at: Instant) -> Vec<P2pManagerAction> {
         let mut actions = vec![];
 
         actions
