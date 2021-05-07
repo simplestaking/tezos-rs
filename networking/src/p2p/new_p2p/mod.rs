@@ -10,6 +10,7 @@ use tezos_messages::p2p::encoding::prelude::{
     AckMessage,
 };
 
+#[derive(Debug)]
 pub enum Error {
     Poisoned,
     ProposalOutdated,
@@ -54,43 +55,20 @@ pub enum PeerState {
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum ConnectionStep {
     ConnectionSent(RequestState),
-    ConnectionReceived {
-        at: Instant,
-    },
     MetaSent(RequestState),
-    MetaReceived {
-        at: Instant,
-    },
     AckSent(RequestState),
-    AckReceived {
-        at: Instant,
-    },
 }
 
-#[derive(Getters, Ord, Eq, Clone)]
-pub struct Peer {
-    #[getset(get = "pub")]
-    name: String,
-}
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone)]
+pub struct PeerId(String);
 
-impl Peer {
-    pub fn new(name: String) -> Self {
-        Self { name }
+impl PeerId {
+    pub fn new(id: String) -> Self {
+        Self(id)
     }
 }
 
-impl PartialOrd for Peer {
-    fn partial_cmp(&self, other: &Peer) -> Option<std::cmp::Ordering> {
-        self.name.partial_cmp(&other.name)
-    }
-}
-
-impl PartialEq for Peer {
-    fn eq(&self, other: &Peer) -> bool {
-        self.name == other.name
-    }
-}
-
+#[derive(Debug, Clone)]
 pub enum HandshakeMsg {
     SendConnectPending,
     SendConnectSuccess,
@@ -109,33 +87,36 @@ pub enum HandshakeMsg {
     ReceivedAck(AckMessage),
 }
 
+#[derive(Debug, Clone)]
 pub struct HandshakeProposal {
-    at: Instant,
-    peer: Peer,
-    message: HandshakeMsg,
+    pub at: Instant,
+    pub peer: PeerId,
+    pub message: HandshakeMsg,
 }
 
 pub type PeerManagerResult = Result<(), Error>;
 
 pub enum PeerManagerAction {
-    SendPeerConnect((Peer, ConnectionMessage)),
-    SendPeerMeta((Peer, MetadataMessage)),
-    SendPeerAck((Peer, AckMessage)),
+    SendPeerConnect((PeerId, ConnectionMessage)),
+    SendPeerMeta((PeerId, MetadataMessage)),
+    SendPeerAck((PeerId, AckMessage)),
 }
 
+#[derive(Debug, Clone)]
 pub struct PeerManagerConfig {
-    disable_mempool: bool,
-    private_node: bool,
-    min_connected_peers: u8,
-    max_connected_peers: u8,
-    peer_blacklist_duration: Duration,
-    peer_timeout: Duration,
+    pub disable_mempool: bool,
+    pub private_node: bool,
+    pub min_connected_peers: u8,
+    pub max_connected_peers: u8,
+    pub peer_blacklist_duration: Duration,
+    pub peer_timeout: Duration,
 }
 
+#[derive(Debug, Clone)]
 pub struct PeerManagerInner {
     config: PeerManagerConfig,
     identity: Identity,
-    peers: BTreeMap<Peer, PeerState>,
+    peers: BTreeMap<PeerId, PeerState>,
     newest_time_seen: Instant,
 }
 
@@ -163,6 +144,50 @@ pub enum PeerManager {
 }
 
 impl PeerManager {
+    pub fn new(
+        config: PeerManagerConfig,
+        identity: Identity,
+        initial_time: Instant,
+    ) -> Self
+    {
+        Self::Pending(PeerManagerInner {
+            config,
+            identity,
+            peers: BTreeMap::new(),
+            newest_time_seen: initial_time,
+        })
+    }
+
+    fn inner(&self) -> &PeerManagerInner {
+        match self {
+            Self::Poisoned => panic!(),
+            Self::Pending(inner)
+                | Self::PendingFull(inner)
+                | Self::Ready(inner)
+                | Self::ReadyFull(inner)
+                => {
+                    inner
+                }
+        }
+    }
+
+    fn inner_mut(&mut self) -> &mut PeerManagerInner {
+        match self {
+            Self::Poisoned => panic!(),
+            Self::Pending(inner)
+                | Self::PendingFull(inner)
+                | Self::Ready(inner)
+                | Self::ReadyFull(inner)
+                => {
+                    inner
+                }
+        }
+    }
+
+    pub fn peer_state(&self, peer_id: &PeerId) -> Option<&PeerState> {
+        self.inner().peers.get(peer_id)
+    }
+
     fn assert_proposal_not_outdated(&self, proposal: &HandshakeProposal) -> PeerManagerResult {
         let newest_time_seen = match self {
             Self::Poisoned => { return Err(Error::Poisoned); }
@@ -176,10 +201,15 @@ impl PeerManager {
         };
 
         if newest_time_seen > proposal.at {
-            Ok(())
-        } else {
             Err(Error::ProposalOutdated)
+        } else {
+            Ok(())
         }
+    }
+
+    fn update_newest_time_seen(&mut self, time: Instant) {
+        self.inner_mut().newest_time_seen = time;
+
     }
 
     pub fn accept_handshake(&mut self, proposal: &HandshakeProposal) -> PeerManagerResult {
@@ -210,13 +240,14 @@ impl PeerManager {
             (HandshakeMsg::ReceivedConnect(conn_msg),
                 Some(PeerState::OutgoingConnection(step @ ConnectionStep::ConnectionSent(RequestState::Success { .. })))
             ) => {
-                *step = ConnectionStep::ConnectionReceived { at: proposal.at };
+                *step = ConnectionStep::MetaSent(RequestState::Idle { at: proposal.at });
             }
             (HandshakeMsg::ReceivedConnect(conn_msg),
                 peer_state @ Some(PeerState::Disconnected { .. })
                 | peer_state @ None
             ) => {
-                let new_state = PeerState::IncomingConnection(ConnectionStep::ConnectionReceived { at: proposal.at });
+                let step = ConnectionStep::ConnectionSent(RequestState::Idle { at: proposal.at });
+                let new_state = PeerState::IncomingConnection(step);
                 if let Some(peer_state) = peer_state {
                     *peer_state = new_state;
                 } else {
@@ -230,20 +261,28 @@ impl PeerManager {
             // ReceivedMeta
             (HandshakeMsg::ReceivedMeta(meta_msg),
                 Some(PeerState::OutgoingConnection(step @ ConnectionStep::MetaSent(RequestState::Success { .. })))
-                | Some(PeerState::IncomingConnection(step @ ConnectionStep::ConnectionSent(RequestState::Success { .. })))
             ) => {
-                *step = ConnectionStep::MetaReceived { at: proposal.at };
+                *step = ConnectionStep::AckSent(RequestState::Idle { at: proposal.at });
+            }
+            (HandshakeMsg::ReceivedMeta(meta_msg),
+                Some(PeerState::IncomingConnection(step @ ConnectionStep::ConnectionSent(RequestState::Success { .. })))
+            ) => {
+                *step = ConnectionStep::MetaSent(RequestState::Idle { at: proposal.at });
             }
             (HandshakeMsg::ReceivedMeta(_), _) => {
                 return Err(Error::InvalidMsg)
             },
 
             // ReceivedAck
-            (HandshakeMsg::ReceivedAck(meta_msg),
-                Some(PeerState::OutgoingConnection(step @ ConnectionStep::AckSent(RequestState::Success { .. })))
-                | Some(PeerState::IncomingConnection(step @ ConnectionStep::MetaSent(RequestState::Success { .. })))
+            (HandshakeMsg::ReceivedAck(AckMessage::Ack),
+                Some(peer_state @ PeerState::OutgoingConnection(ConnectionStep::AckSent(RequestState::Success { .. })))
             ) => {
-                *step = ConnectionStep::MetaReceived { at: proposal.at };
+                *peer_state = PeerState::Connected { at: proposal.at };
+            }
+            (HandshakeMsg::ReceivedAck(AckMessage::Ack),
+                Some(PeerState::IncomingConnection(step @ ConnectionStep::MetaSent(RequestState::Success { .. })))
+            ) => {
+                *step = ConnectionStep::AckSent(RequestState::Idle { at: proposal.at });
             }
             (HandshakeMsg::ReceivedAck(_), _) => {
                 return Err(Error::InvalidMsg)
@@ -325,6 +364,7 @@ impl PeerManager {
             (HandshakeMsg::SendAckSuccess,
                 Some(PeerState::OutgoingConnection(ConnectionStep::AckSent(req_state @ RequestState::Pending { .. })))
             ) => {
+                *req_state = RequestState::Success { at: proposal.at };
             }
             (HandshakeMsg::SendAckSuccess,
                 Some(peer_state @ PeerState::IncomingConnection(ConnectionStep::AckSent(RequestState::Pending { .. })))
