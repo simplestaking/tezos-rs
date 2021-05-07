@@ -42,8 +42,8 @@ pub enum PeerState {
     Disconnected {
         at: Instant,
     },
-    IncomingConnection(ConnectionStep),
-    OutgoingConnection(ConnectionStep),
+    IncomingHandshake(HandshakeStep),
+    OutgoingHandshake(HandshakeStep),
     Connected {
         at: Instant,
     },
@@ -53,7 +53,7 @@ pub enum PeerState {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub enum ConnectionStep {
+pub enum HandshakeStep {
     ConnectionSent(RequestState),
     MetaSent(RequestState),
     AckSent(RequestState),
@@ -238,16 +238,16 @@ impl PeerManager {
 
             // ReceivedConnect
             (HandshakeMsg::ReceivedConnect(conn_msg),
-                Some(PeerState::OutgoingConnection(step @ ConnectionStep::ConnectionSent(RequestState::Success { .. })))
+                Some(PeerState::OutgoingHandshake(step @ HandshakeStep::ConnectionSent(RequestState::Success { .. })))
             ) => {
-                *step = ConnectionStep::MetaSent(RequestState::Idle { at: proposal.at });
+                *step = HandshakeStep::MetaSent(RequestState::Idle { at: proposal.at });
             }
             (HandshakeMsg::ReceivedConnect(conn_msg),
                 peer_state @ Some(PeerState::Disconnected { .. })
                 | peer_state @ None
             ) => {
-                let step = ConnectionStep::ConnectionSent(RequestState::Idle { at: proposal.at });
-                let new_state = PeerState::IncomingConnection(step);
+                let step = HandshakeStep::ConnectionSent(RequestState::Idle { at: proposal.at });
+                let new_state = PeerState::IncomingHandshake(step);
                 if let Some(peer_state) = peer_state {
                     *peer_state = new_state;
                 } else {
@@ -260,14 +260,14 @@ impl PeerManager {
 
             // ReceivedMeta
             (HandshakeMsg::ReceivedMeta(meta_msg),
-                Some(PeerState::OutgoingConnection(step @ ConnectionStep::MetaSent(RequestState::Success { .. })))
+                Some(PeerState::OutgoingHandshake(step @ HandshakeStep::MetaSent(RequestState::Success { .. })))
             ) => {
-                *step = ConnectionStep::AckSent(RequestState::Idle { at: proposal.at });
+                *step = HandshakeStep::AckSent(RequestState::Idle { at: proposal.at });
             }
             (HandshakeMsg::ReceivedMeta(meta_msg),
-                Some(PeerState::IncomingConnection(step @ ConnectionStep::ConnectionSent(RequestState::Success { .. })))
+                Some(PeerState::IncomingHandshake(step @ HandshakeStep::ConnectionSent(RequestState::Success { .. })))
             ) => {
-                *step = ConnectionStep::MetaSent(RequestState::Idle { at: proposal.at });
+                *step = HandshakeStep::MetaSent(RequestState::Idle { at: proposal.at });
             }
             (HandshakeMsg::ReceivedMeta(_), _) => {
                 return Err(Error::InvalidMsg)
@@ -275,14 +275,14 @@ impl PeerManager {
 
             // ReceivedAck
             (HandshakeMsg::ReceivedAck(AckMessage::Ack),
-                Some(peer_state @ PeerState::OutgoingConnection(ConnectionStep::AckSent(RequestState::Success { .. })))
+                Some(peer_state @ PeerState::OutgoingHandshake(HandshakeStep::AckSent(RequestState::Success { .. })))
             ) => {
                 *peer_state = PeerState::Connected { at: proposal.at };
             }
             (HandshakeMsg::ReceivedAck(AckMessage::Ack),
-                Some(PeerState::IncomingConnection(step @ ConnectionStep::MetaSent(RequestState::Success { .. })))
+                Some(PeerState::IncomingHandshake(step @ HandshakeStep::MetaSent(RequestState::Success { .. })))
             ) => {
-                *step = ConnectionStep::AckSent(RequestState::Idle { at: proposal.at });
+                *step = HandshakeStep::AckSent(RequestState::Idle { at: proposal.at });
             }
             (HandshakeMsg::ReceivedAck(_), _) => {
                 return Err(Error::InvalidMsg)
@@ -290,8 +290,8 @@ impl PeerManager {
 
             // SendConnect
             (HandshakeMsg::SendConnectPending,
-                Some(PeerState::OutgoingConnection(ConnectionStep::ConnectionSent(req_state @ RequestState::Idle { .. })))
-                | Some(PeerState::IncomingConnection(ConnectionStep::ConnectionSent(req_state @ RequestState::Idle { .. })))
+                Some(PeerState::OutgoingHandshake(HandshakeStep::ConnectionSent(req_state @ RequestState::Idle { .. })))
+                | Some(PeerState::IncomingHandshake(HandshakeStep::ConnectionSent(req_state @ RequestState::Idle { .. })))
             ) => {
                 *req_state = RequestState::Pending { at: proposal.at };
             }
@@ -300,8 +300,8 @@ impl PeerManager {
             },
 
             (HandshakeMsg::SendConnectSuccess,
-                Some(PeerState::OutgoingConnection(ConnectionStep::ConnectionSent(req_state @ RequestState::Pending { .. })))
-                | Some(PeerState::IncomingConnection(ConnectionStep::ConnectionSent(req_state @ RequestState::Pending { .. })))
+                Some(PeerState::OutgoingHandshake(HandshakeStep::ConnectionSent(req_state @ RequestState::Pending { .. })))
+                | Some(PeerState::IncomingHandshake(HandshakeStep::ConnectionSent(req_state @ RequestState::Pending { .. })))
             ) => {
                 *req_state = RequestState::Success { at: proposal.at };
             }
@@ -310,8 +310,8 @@ impl PeerManager {
             },
 
             (HandshakeMsg::SendConnectError,
-                Some(peer_state @ PeerState::OutgoingConnection(ConnectionStep::ConnectionSent(RequestState::Pending { .. })))
-                | Some(peer_state @ PeerState::IncomingConnection(ConnectionStep::ConnectionSent(RequestState::Pending { .. })))
+                Some(peer_state @ PeerState::OutgoingHandshake(HandshakeStep::ConnectionSent(RequestState::Pending { .. })))
+                | Some(peer_state @ PeerState::IncomingHandshake(HandshakeStep::ConnectionSent(RequestState::Pending { .. })))
             ) => {
                 *peer_state = PeerState::Blacklisted { at: proposal.at };
             }
@@ -321,8 +321,8 @@ impl PeerManager {
 
             // SendMeta
             (HandshakeMsg::SendMetaPending,
-                Some(PeerState::OutgoingConnection(ConnectionStep::MetaSent(req_state @ RequestState::Idle { .. })))
-                | Some(PeerState::IncomingConnection(ConnectionStep::MetaSent(req_state @ RequestState::Idle { .. })))
+                Some(PeerState::OutgoingHandshake(HandshakeStep::MetaSent(req_state @ RequestState::Idle { .. })))
+                | Some(PeerState::IncomingHandshake(HandshakeStep::MetaSent(req_state @ RequestState::Idle { .. })))
             ) => {
                 *req_state = RequestState::Pending { at: proposal.at };
             }
@@ -331,8 +331,8 @@ impl PeerManager {
             },
 
             (HandshakeMsg::SendMetaSuccess,
-                Some(PeerState::OutgoingConnection(ConnectionStep::MetaSent(req_state @ RequestState::Pending { .. })))
-                | Some(PeerState::IncomingConnection(ConnectionStep::MetaSent(req_state @ RequestState::Pending { .. })))
+                Some(PeerState::OutgoingHandshake(HandshakeStep::MetaSent(req_state @ RequestState::Pending { .. })))
+                | Some(PeerState::IncomingHandshake(HandshakeStep::MetaSent(req_state @ RequestState::Pending { .. })))
             ) => {
                 *req_state = RequestState::Success { at: proposal.at };
             }
@@ -341,8 +341,8 @@ impl PeerManager {
             },
 
             (HandshakeMsg::SendMetaError,
-                Some(peer_state @ PeerState::OutgoingConnection(ConnectionStep::MetaSent(RequestState::Pending { .. })))
-                | Some(peer_state @ PeerState::IncomingConnection(ConnectionStep::MetaSent(RequestState::Pending { .. })))
+                Some(peer_state @ PeerState::OutgoingHandshake(HandshakeStep::MetaSent(RequestState::Pending { .. })))
+                | Some(peer_state @ PeerState::IncomingHandshake(HandshakeStep::MetaSent(RequestState::Pending { .. })))
             ) => {
                 *peer_state = PeerState::Blacklisted { at: proposal.at };
             }
@@ -352,8 +352,8 @@ impl PeerManager {
 
             // SendAck
             (HandshakeMsg::SendAckPending,
-                Some(PeerState::OutgoingConnection(ConnectionStep::AckSent(req_state @ RequestState::Idle { .. })))
-                | Some(PeerState::IncomingConnection(ConnectionStep::AckSent(req_state @ RequestState::Idle { .. })))
+                Some(PeerState::OutgoingHandshake(HandshakeStep::AckSent(req_state @ RequestState::Idle { .. })))
+                | Some(PeerState::IncomingHandshake(HandshakeStep::AckSent(req_state @ RequestState::Idle { .. })))
             ) => {
                 *req_state = RequestState::Pending { at: proposal.at };
             }
@@ -362,12 +362,12 @@ impl PeerManager {
             },
 
             (HandshakeMsg::SendAckSuccess,
-                Some(PeerState::OutgoingConnection(ConnectionStep::AckSent(req_state @ RequestState::Pending { .. })))
+                Some(PeerState::OutgoingHandshake(HandshakeStep::AckSent(req_state @ RequestState::Pending { .. })))
             ) => {
                 *req_state = RequestState::Success { at: proposal.at };
             }
             (HandshakeMsg::SendAckSuccess,
-                Some(peer_state @ PeerState::IncomingConnection(ConnectionStep::AckSent(RequestState::Pending { .. })))
+                Some(peer_state @ PeerState::IncomingHandshake(HandshakeStep::AckSent(RequestState::Pending { .. })))
             ) => {
                 *peer_state = PeerState::Connected { at: proposal.at }
             }
@@ -376,8 +376,8 @@ impl PeerManager {
             },
 
             (HandshakeMsg::SendAckError,
-                Some(peer_state @ PeerState::OutgoingConnection(ConnectionStep::AckSent(RequestState::Pending { .. })))
-                | Some(peer_state @ PeerState::IncomingConnection(ConnectionStep::AckSent(RequestState::Pending { .. })))
+                Some(peer_state @ PeerState::OutgoingHandshake(HandshakeStep::AckSent(RequestState::Pending { .. })))
+                | Some(peer_state @ PeerState::IncomingHandshake(HandshakeStep::AckSent(RequestState::Pending { .. })))
             ) => {
                 *peer_state = PeerState::Blacklisted { at: proposal.at };
             }
