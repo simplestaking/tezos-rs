@@ -97,7 +97,9 @@ fn sequence_to_str(seq: &Vec<HandshakeMsg>) -> String {
 #[test]
 fn random_simulator() {
     let mut g = Gen::new(10);
+    println!("generating identity for client...");
     let identity = Identity::generate(ProofOfWork::DEFAULT_TARGET).unwrap();
+    println!("generating identity for p2p manager...");
     let node_identity = Identity::generate(ProofOfWork::DEFAULT_TARGET).unwrap();
 
     let mut successful_sequences = vec![];
@@ -106,6 +108,7 @@ fn random_simulator() {
     let mut counter = 0;
 
     for seq_len in 1..=9 {
+        println!("trying sequences with length: {}", seq_len);
         for seq in msgs.clone().into_iter().permutations(seq_len) {
             let mut pm = PeerManager::new(
                 PeerManagerConfig {
