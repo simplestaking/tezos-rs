@@ -12,7 +12,6 @@ use tezos_messages::p2p::encoding::prelude::{
 
 #[derive(Debug)]
 pub enum Error {
-    Poisoned,
     ProposalOutdated,
     MaximumPeersReached,
     PeerBlacklisted {
@@ -158,9 +157,14 @@ impl P2pManager {
         })
     }
 
+    /// Panic since P2pManager::Poisoned
+    fn poisoned_panic(&self) -> ! {
+        panic!("P2pManager is Poisoned")
+    }
+
     fn inner(&self) -> &P2pManagerInner {
         match self {
-            Self::Poisoned => panic!(),
+            Self::Poisoned => self.poisoned_panic(),
             Self::Pending(inner)
                 | Self::PendingFull(inner)
                 | Self::Ready(inner)
@@ -173,7 +177,7 @@ impl P2pManager {
 
     fn inner_mut(&mut self) -> &mut P2pManagerInner {
         match self {
-            Self::Poisoned => panic!(),
+            Self::Poisoned => self.poisoned_panic(),
             Self::Pending(inner)
                 | Self::PendingFull(inner)
                 | Self::Ready(inner)
@@ -190,7 +194,7 @@ impl P2pManager {
 
     fn assert_proposal_not_outdated(&self, proposal: &HandshakeProposal) -> P2pManagerResult {
         let newest_time_seen = match self {
-            Self::Poisoned => { return Err(Error::Poisoned); }
+            Self::Poisoned => self.poisoned_panic(),
             Self::Pending(inner)
                 | Self::PendingFull(inner)
                 | Self::Ready(inner)
@@ -216,9 +220,7 @@ impl P2pManager {
         self.assert_proposal_not_outdated(proposal)?;
 
         let this = match self {
-            Self::Poisoned => {
-                return Err(Error::Poisoned);
-            }
+            Self::Poisoned => self.poisoned_panic(),
             Self::PendingFull(_) | Self::ReadyFull(_) => {
                 return Err(Error::MaximumPeersReached);
             }
