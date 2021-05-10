@@ -1,6 +1,7 @@
 use std::time::{Instant, Duration};
 use std::fmt::{self, Display};
 use std::collections::VecDeque;
+use handshake_acceptor::{HandshakeMsg, HandshakeProposal};
 use hex::FromHex;
 use quickcheck::{Arbitrary, Gen};
 use itertools::Itertools;
@@ -11,6 +12,9 @@ use tezos_messages::p2p::encoding::Message;
 use tezos_identity::Identity;
 use networking::p2p::new_p2p::*;
 
+fn network_version() -> NetworkVersion {
+    NetworkVersion::new("EDONET".to_string(), 0, 0)
+}
 
 fn message_iter(g: &mut Gen, identity: &Identity) -> impl Iterator<Item = HandshakeMsg> {
     vec![
@@ -32,7 +36,7 @@ fn message_iter(g: &mut Gen, identity: &Identity) -> impl Iterator<Item = Handsh
                     &identity.public_key,
                     &identity.proof_of_work_stamp,
                     Nonce::random(),
-                    NetworkVersion::new("EDONET".to_string(), 0, 0)
+                    network_version(),
             ).unwrap(),
         ),
 
@@ -46,21 +50,17 @@ fn message_iter(g: &mut Gen, identity: &Identity) -> impl Iterator<Item = Handsh
     ].into_iter()
 }
 
-fn try_sequence(pm: &mut P2pManager, sequence: &Vec<HandshakeMsg>, counter: &mut u64) -> bool {
+fn try_sequence(pm: &mut TezedgeState, sequence: Vec<HandshakeMsg>, counter: &mut u64) -> bool {
     let peer_id = PeerId::new("peer1".to_string());
 
     for msg in sequence {
         *counter += 1;
 
-        let result = pm.accept_handshake(&HandshakeProposal {
+        let _ = pm.accept(HandshakeProposal {
             at: Instant::now() + Duration::from_millis(*counter),
             peer: peer_id.clone(),
             message: msg.clone(),
         });
-
-        if let Err(_) = result {
-            return false;
-        }
     }
 
     matches!(pm.peer_state(&peer_id), Some(&PeerState::Connected { .. }))
@@ -110,8 +110,9 @@ fn random_simulator() {
     for seq_len in 1..=9 {
         println!("trying sequences with length: {}", seq_len);
         for seq in msgs.clone().into_iter().permutations(seq_len) {
-            let mut pm = P2pManager::new(
-                P2pManagerConfig {
+            let mut pm = TezedgeState::new(
+                TezedgeConfig {
+                    port: 0,
                     disable_mempool: false,
                     private_node: false,
                     min_connected_peers: 10,
@@ -120,9 +121,10 @@ fn random_simulator() {
                     peer_timeout: Duration::from_secs(8),
                 },
                 node_identity.clone(),
+                network_version(),
                 Instant::now(),
             );
-            if try_sequence(&mut pm, &seq, &mut counter) {
+            if try_sequence(&mut pm, seq.clone(), &mut counter) {
                 println!("successful sequence: {}", sequence_to_str(&seq));
                 successful_sequences.push(seq.clone());
             }
