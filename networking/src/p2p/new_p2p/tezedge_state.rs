@@ -39,26 +39,46 @@ pub enum RequestState {
     // },
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub enum PeerState {
-    Disconnected {
-        at: Instant,
+#[derive(Debug, Clone)]
+pub struct ConnectedPeer {
+    pub connected_since: Instant,
+}
+
+#[derive(Debug, Clone)]
+pub enum Handshake {
+    Incoming(HandshakeStep),
+    Outgoing(HandshakeStep),
+}
+
+#[derive(Debug, Clone)]
+pub enum HandshakeStep {
+    Connect {
+        sent: Option<RequestState>,
+        received: Option<ConnectionMessage>,
     },
-    IncomingHandshake(HandshakeStep),
-    OutgoingHandshake(HandshakeStep),
-    Connected {
-        at: Instant,
+    Metadata {
+        conn_msg: ConnectionMessage,
+        sent: Option<RequestState>,
+        received: Option<MetadataMessage>,
     },
-    Blacklisted {
-        at: Instant,
+    Ack {
+        conn_msg: ConnectionMessage,
+        meta_msg: MetadataMessage,
+        sent: Option<RequestState>,
+        received: bool,
     },
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub enum HandshakeStep {
-    ConnectionSent(RequestState),
-    MetaSent(RequestState),
-    AckSent(RequestState),
+impl HandshakeStep {
+    pub(crate) fn set_sent(&mut self, state: RequestState) {
+        match self {
+            Self::Connect { sent, .. }
+            | Self::Metadata { sent, .. }
+            | Self::Ack { sent, .. } => {
+                *sent = Some(state);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone)]
@@ -83,33 +103,59 @@ pub struct TezedgeConfig {
     pub private_node: bool,
     pub min_connected_peers: u8,
     pub max_connected_peers: u8,
+    pub max_pending_peers: u8,
     pub peer_blacklist_duration: Duration,
     pub peer_timeout: Duration,
 }
 
+#[derive(Debug, Clone)]
 pub enum P2pState {
     /// Minimum number of connected peers **not** reached.
     /// Maximum number of pending connections **not** reached.
-    Pending,
+    Pending {
+        pending_peers: BTreeMap<PeerId, Handshake>,
+    },
 
     /// Minimum number of connected peers **not** reached.
     /// Maximum number of pending connections reached.
-    PendingFull,
+    PendingFull {
+        pending_peers: BTreeMap<PeerId, Handshake>,
+    },
 
     /// Minimum number of connected peers reached.
+    /// Maximum number of connected peers **not** reached.
     /// Maximum number of pending connections **not** reached.
-    Ready,
+    Ready {
+        pending_peers: BTreeMap<PeerId, Handshake>,
+    },
 
     /// Minimum number of connected peers reached.
-    /// Maximum number of pending connections reached.
-    ReadyFull,
+    /// Maximum number of connected peers **not** reached.
+    /// Maximum number of pending peers reached.
+    ReadyFull {
+        pending_peers: BTreeMap<PeerId, Handshake>,
+    },
+
+    /// Maximum number of connected peers reached.
+    ReadyMaxed,
 }
 
+impl P2pState {
+    pub fn is_full(&self) -> bool {
+        matches!(self,
+            Self::PendingFull { .. }
+            | Self::ReadyFull { .. }
+            | Self::ReadyMaxed)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct TezedgeState {
     pub config: TezedgeConfig,
     pub identity: Identity,
     pub network_version: NetworkVersion,
-    pub peers: BTreeMap<PeerId, PeerState>,
+    pub available_peers: BTreeMap<PeerId, ()>,
+    pub connected_peers: BTreeMap<PeerId, ConnectedPeer>,
     pub newest_time_seen: Instant,
     pub p2p_state: P2pState,
 }
@@ -136,14 +182,13 @@ impl TezedgeState {
             config,
             identity,
             network_version,
-            peers: BTreeMap::new(),
+            available_peers: BTreeMap::new(),
+            connected_peers: BTreeMap::new(),
             newest_time_seen: initial_time,
-            p2p_state: P2pState::Pending,
+            p2p_state: P2pState::Pending {
+                pending_peers: BTreeMap::new(),
+            },
         }
-    }
-
-    pub fn peer_state(&self, peer_id: &PeerId) -> Option<&PeerState> {
-        self.peers.get(peer_id)
     }
 
     pub fn connection_msg(&self) -> ConnectionMessage {
@@ -161,9 +206,5 @@ impl TezedgeState {
             self.config.disable_mempool,
             self.config.private_node,
         )
-    }
-
-    fn update_newest_time_seen(&mut self, time: Instant) {
-        self.newest_time_seen = time;
     }
 }

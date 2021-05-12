@@ -1,23 +1,20 @@
 use std::time::Instant;
+use std::fmt::Debug;
 
+#[derive(Debug)]
 pub enum InvalidProposalError {
     ProposalOutdated,
 }
 
-pub enum AcceptorError<E> {
+#[derive(Debug)]
+pub enum AcceptorError<E: Debug> {
     InvalidProposal(InvalidProposalError),
     Custom(E),
 }
 
-impl<E> From<InvalidProposalError> for AcceptorError<E> {
+impl<E: Debug> From<InvalidProposalError> for AcceptorError<E> {
     fn from(error: InvalidProposalError) -> Self {
         AcceptorError::InvalidProposal(error)
-    }
-}
-
-impl<E> From<E> for AcceptorError<E> {
-    fn from(error: E) -> Self {
-        AcceptorError::Custom(error)
     }
 }
 
@@ -31,9 +28,12 @@ pub trait NewestTimeSeen {
 }
 
 pub trait Acceptor<P: Proposal>: NewestTimeSeen {
-    type Error;
+    type Error: Debug;
 
     fn accept(&mut self, proposal: P) -> Result<(), AcceptorError<Self::Error>>;
+
+    fn react(&mut self) {
+    }
 
     fn check_and_update_time(&mut self, proposal: &P) -> Result<(), InvalidProposalError> {
         let mut time = self.newest_time_seen_mut();

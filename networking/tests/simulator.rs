@@ -50,20 +50,18 @@ fn message_iter(g: &mut Gen, identity: &Identity) -> impl Iterator<Item = Handsh
     ].into_iter()
 }
 
-fn try_sequence(pm: &mut TezedgeState, sequence: Vec<HandshakeMsg>, counter: &mut u64) -> bool {
+fn try_sequence(pm: &mut TezedgeState, sequence: Vec<HandshakeMsg>) -> bool {
     let peer_id = PeerId::new("peer1".to_string());
 
     for msg in sequence {
-        *counter += 1;
-
         let _ = pm.accept(HandshakeProposal {
-            at: Instant::now() + Duration::from_millis(*counter),
+            at: Instant::now(),
             peer: peer_id.clone(),
             message: msg.clone(),
         });
     }
 
-    matches!(pm.peer_state(&peer_id), Some(&PeerState::Connected { .. }))
+    pm.connected_peers.contains_key(&peer_id)
 }
 
 fn sequence_to_str(seq: &Vec<HandshakeMsg>) -> String {
@@ -105,29 +103,34 @@ fn random_simulator() {
     let mut successful_sequences = vec![];
 
     let msgs = message_iter(&mut g, &identity).collect::<Vec<_>>();
-    let mut counter = 0;
+
+    let tezedge_state = TezedgeState::new(
+        TezedgeConfig {
+            port: 0,
+            disable_mempool: false,
+            private_node: false,
+            min_connected_peers: 10,
+            max_connected_peers: 20,
+            max_pending_peers: 20,
+            peer_blacklist_duration: Duration::from_secs(30 * 60),
+            peer_timeout: Duration::from_secs(8),
+        },
+        node_identity.clone(),
+        network_version(),
+        Instant::now(),
+    );
 
     for seq_len in 1..=9 {
         println!("trying sequences with length: {}", seq_len);
+        let mut count = 0;
         for seq in msgs.clone().into_iter().permutations(seq_len) {
-            let mut pm = TezedgeState::new(
-                TezedgeConfig {
-                    port: 0,
-                    disable_mempool: false,
-                    private_node: false,
-                    min_connected_peers: 10,
-                    max_connected_peers: 20,
-                    peer_blacklist_duration: Duration::from_secs(30 * 60),
-                    peer_timeout: Duration::from_secs(8),
-                },
-                node_identity.clone(),
-                network_version(),
-                Instant::now(),
-            );
-            if try_sequence(&mut pm, seq.clone(), &mut counter) {
+            count += 1;
+            let mut pm = tezedge_state.clone();
+            if try_sequence(&mut pm, seq.clone()) {
                 println!("successful sequence: {}", sequence_to_str(&seq));
                 successful_sequences.push(seq.clone());
             }
         }
+        println!("tried permutations: {}", count);
     }
 }
