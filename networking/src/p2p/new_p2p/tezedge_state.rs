@@ -90,12 +90,6 @@ impl PeerId {
     }
 }
 
-pub enum P2pManagerAction {
-    SendPeerConnect((PeerId, ConnectionMessage)),
-    SendPeerMeta((PeerId, MetadataMessage)),
-    SendPeerAck((PeerId, AckMessage)),
-}
-
 #[derive(Debug, Clone)]
 pub struct TezedgeConfig {
     pub port: u16,

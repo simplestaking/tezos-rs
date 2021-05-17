@@ -10,7 +10,7 @@ use tezos_messages::p2p::encoding::prelude::{
     MetadataMessage,
     AckMessage,
 };
-use super::acceptor::{Acceptor, AcceptorError, Proposal, NewestTimeSeen};
+use super::{GetRequests, acceptor::{Acceptor, AcceptorError, Proposal, NewestTimeSeen}};
 use super::{ConnectedPeer, Handshake, HandshakeStep, P2pState, PeerId, RequestState, TezedgeState};
 
 #[derive(Debug)]
@@ -61,6 +61,14 @@ impl Proposal for HandshakeProposal {
     fn time(&self) -> Instant {
         self.at
     }
+}
+
+/// Requests which may be made after accepting handshake proposal.
+#[derive(Debug, Clone)]
+pub enum HandshakeRequest {
+    SendPeerConnect((PeerId, ConnectionMessage)),
+    SendPeerMeta((PeerId, MetadataMessage)),
+    SendPeerAck((PeerId, AckMessage)),
 }
 
 fn connect_to_peer(
@@ -581,6 +589,65 @@ impl Acceptor<HandshakeProposal> for TezedgeState {
     }
 }
 
+impl GetRequests<HandshakeProposal> for TezedgeState {
+    type Request = HandshakeRequest;
+
+    fn get_requests(&self) -> Vec<Self::Request> {
+        use Handshake::*;
+        use HandshakeStep::*;
+        use RequestState::*;
+
+        let mut requests = vec![];
+
+        match &self.p2p_state {
+            P2pState::ReadyMaxed => {}
+            P2pState::Ready { pending_peers }
+            | P2pState::ReadyFull { pending_peers }
+            | P2pState::Pending { pending_peers }
+            | P2pState::PendingFull { pending_peers } => {
+                for (peer_id, handshake_step) in pending_peers.iter() {
+                    match handshake_step {
+                        Incoming(Connect { sent: Some(Idle { .. }), .. })
+                        | Outgoing(Connect { sent: Some(Idle { .. }), .. }) => {
+                            requests.push(
+                                HandshakeRequest::SendPeerConnect((
+                                    peer_id.clone(),
+                                    self.connection_msg(),
+                                ))
+                            );
+                        }
+                        Incoming(Connect { .. }) | Outgoing(Connect { .. }) => {}
+
+                        Incoming(Metadata { sent: Some(Idle { .. }), .. })
+                        | Outgoing(Metadata { sent: Some(Idle { .. }), .. }) => {
+                            requests.push(
+                                HandshakeRequest::SendPeerMeta((
+                                    peer_id.clone(),
+                                    self.meta_msg(),
+                                ))
+                            )
+                        }
+                        Incoming(Metadata { .. }) | Outgoing(Metadata { .. }) => {}
+
+                        Incoming(Ack { sent: Some(Idle { .. }), .. })
+                        | Outgoing(Ack { sent: Some(Idle { .. }), .. }) => {
+                            requests.push(
+                                HandshakeRequest::SendPeerAck((
+                                    peer_id.clone(),
+                                    AckMessage::Ack,
+                                ))
+                            )
+                        }
+                        Incoming(Ack { .. }) | Outgoing(Ack { .. }) => {}
+                    }
+                }
+            }
+        }
+
+        requests
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{Instant, Duration};
@@ -634,32 +701,13 @@ mod tests {
         let client_identity = identity_1();
         let node_identity = identity_2();
 
-        let correct_sequence = vec![
-            HandshakeMsg::ReceivedConnect(
-                ConnectionMessage::try_new(
-                        0,
-                        &client_identity.public_key,
-                        &client_identity.proof_of_work_stamp,
-                        Nonce::random(),
-                        network_version(),
-                ).unwrap(),
-            ),
-
-            HandshakeMsg::SendConnectPending,
-            HandshakeMsg::SendConnectSuccess,
-
-            HandshakeMsg::ReceivedMeta(
-                MetadataMessage::new(false, true),
-            ),
-
-            HandshakeMsg::SendMetaPending,
-            HandshakeMsg::SendMetaSuccess,
-
-            HandshakeMsg::ReceivedAck(AckMessage::Ack),
-
-            HandshakeMsg::SendAckPending,
-            HandshakeMsg::SendAckSuccess,
-        ];
+        let build_proposal = |msg: HandshakeMsg| -> HandshakeProposal {
+            HandshakeProposal {
+                at: Instant::now(),
+                peer: client_peer_id.clone(),
+                message: msg,
+            }
+        };
 
         let mut tezedge_state = TezedgeState::new(
             TezedgeConfig {
@@ -677,14 +725,74 @@ mod tests {
             Instant::now(),
         );
 
-        for msg in correct_sequence {
-            println!("sending message: {:?}", msg);
-            tezedge_state.accept(HandshakeProposal {
-                at: Instant::now(),
-                peer: client_peer_id.clone(),
-                message: msg,
-            }).unwrap();
-        }
+        let conn_msg = ConnectionMessage::try_new(
+                0,
+                &client_identity.public_key,
+                &client_identity.proof_of_work_stamp,
+                Nonce::random(),
+                network_version(),
+        ).unwrap();
+
+        tezedge_state.accept(dbg!(build_proposal(
+            HandshakeMsg::ReceivedConnect(conn_msg),
+        ))).unwrap();
+
+        assert!(dbg!(tezedge_state.get_requests()).iter().any(|req| {
+            match req {
+                HandshakeRequest::SendPeerConnect((peer_id, _)) => {
+                    peer_id == &client_peer_id
+                }
+                _ => false
+            }
+        }));
+
+        tezedge_state.accept(dbg!(build_proposal(HandshakeMsg::SendConnectPending))).unwrap();
+        assert_eq!(tezedge_state.get_requests().len(), 0);
+
+        tezedge_state.accept(dbg!(build_proposal(HandshakeMsg::SendConnectSuccess))).unwrap();
+        assert_eq!(tezedge_state.get_requests().len(), 0);
+
+        let meta_msg = MetadataMessage::new(false, true);
+
+        tezedge_state.accept(dbg!(build_proposal(
+            HandshakeMsg::ReceivedMeta(meta_msg),
+        ))).unwrap();
+
+        assert!(dbg!(tezedge_state.get_requests()).iter().any(|req| {
+            match req {
+                HandshakeRequest::SendPeerMeta((peer_id, _)) => {
+                    peer_id == &client_peer_id
+                }
+                _ => false
+            }
+        }));
+
+        tezedge_state.accept(dbg!(build_proposal(HandshakeMsg::SendMetaPending))).unwrap();
+        assert_eq!(tezedge_state.get_requests().len(), 0);
+
+        tezedge_state.accept(dbg!(build_proposal(HandshakeMsg::SendMetaSuccess))).unwrap();
+        assert_eq!(tezedge_state.get_requests().len(), 0);
+
+        tezedge_state.accept(dbg!(build_proposal(
+            HandshakeMsg::ReceivedAck(AckMessage::Ack),
+        ))).unwrap();
+
+        assert!(dbg!(tezedge_state.get_requests()).iter().any(|req| {
+            match req {
+                HandshakeRequest::SendPeerAck((peer_id, _)) => {
+                    peer_id == &client_peer_id
+                }
+                _ => false
+            }
+        }));
+
+        tezedge_state.accept(dbg!(build_proposal(HandshakeMsg::SendAckPending))).unwrap();
+        assert_eq!(tezedge_state.get_requests().len(), 0);
+
+        tezedge_state.accept(dbg!(build_proposal(HandshakeMsg::SendAckSuccess))).unwrap();
+        assert_eq!(tezedge_state.get_requests().len(), 0);
+
+        // verify that peer got connected.
         assert_eq!(tezedge_state.connected_peers.len(), 1);
         assert!(tezedge_state.connected_peers.contains_key(&client_peer_id));
     }
