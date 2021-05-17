@@ -10,8 +10,8 @@ use tezos_messages::p2p::encoding::prelude::{
     MetadataMessage,
     AckMessage,
 };
-use super::{GetRequests, acceptor::{Acceptor, AcceptorError, Proposal, NewestTimeSeen}};
-use super::{ConnectedPeer, Handshake, HandshakeStep, P2pState, PeerId, RequestState, TezedgeState};
+use super::{GetRequests, acceptor::{Acceptor, AcceptorError, React, Proposal, NewestTimeSeen}};
+use super::{ConnectedPeer, Handshake, HandshakeStep, P2pState, PeerAddress, RequestState, TezedgeState};
 
 #[derive(Debug)]
 pub enum HandshakeError {
@@ -53,7 +53,7 @@ pub enum HandshakeMsg {
 #[derive(Debug, Clone)]
 pub struct HandshakeProposal {
     pub at: Instant,
-    pub peer: PeerId,
+    pub peer: PeerAddress,
     pub message: HandshakeMsg,
 }
 
@@ -63,22 +63,14 @@ impl Proposal for HandshakeProposal {
     }
 }
 
-/// Requests which may be made after accepting handshake proposal.
-#[derive(Debug, Clone)]
-pub enum HandshakeRequest {
-    SendPeerConnect((PeerId, ConnectionMessage)),
-    SendPeerMeta((PeerId, MetadataMessage)),
-    SendPeerAck((PeerId, AckMessage)),
-}
-
 fn connect_to_peer(
     state: &mut TezedgeState,
     at: Instant,
-    peer_id: PeerId,
+    peer_address: PeerAddress,
     conn_msg: ConnectionMessage,
     meta_msg: MetadataMessage,
 ) {
-    state.connected_peers.insert(peer_id, ConnectedPeer {
+    state.connected_peers.insert(peer_address, ConnectedPeer {
         connected_since: at,
     });
 }
@@ -86,7 +78,7 @@ fn connect_to_peer(
 fn handle_receive_connect(
     state: &mut TezedgeState,
     at: Instant,
-    peer_id: PeerId,
+    peer_address: PeerAddress,
     conn_msg: ConnectionMessage,
 ) -> Result<(), HandshakeError>
 {
@@ -104,7 +96,7 @@ fn handle_receive_connect(
         | P2pState::PendingFull { pending_peers }
         | P2pState::Ready { pending_peers }
         | P2pState::ReadyFull { pending_peers } => {
-            match pending_peers.get_mut(&peer_id) {
+            match pending_peers.get_mut(&peer_address) {
                 Some(Outgoing(step @ Connect { sent: Some(Success { .. }), .. })) => {
                     *step = Metadata {
                         conn_msg,
@@ -119,7 +111,7 @@ fn handle_receive_connect(
                 }
                 None if !p2p_is_full => {
                     pending_peers.insert(
-                        peer_id.clone(),
+                        peer_address.clone(),
                         Incoming(Connect {
                             sent: Some(Idle { at }),
                             received: Some(conn_msg),
@@ -136,7 +128,7 @@ fn handle_receive_connect(
 fn handle_receive_metadata(
     state: &mut TezedgeState,
     at: Instant,
-    peer_id: PeerId,
+    peer_address: PeerAddress,
     meta_msg: MetadataMessage,
 ) -> Result<(), HandshakeError>
 {
@@ -152,7 +144,7 @@ fn handle_receive_metadata(
         | P2pState::PendingFull { pending_peers }
         | P2pState::Ready { pending_peers }
         | P2pState::ReadyFull { pending_peers } => {
-            match pending_peers.get_mut(&peer_id) {
+            match pending_peers.get_mut(&peer_address) {
                 Some(Outgoing(step @ Metadata { sent: Some(Success { .. }), .. })) => {
                     let conn_msg = match step {
                         Metadata { conn_msg, .. } => conn_msg.clone(),
@@ -195,7 +187,7 @@ fn handle_receive_metadata(
 fn handle_receive_ack(
     state: &mut TezedgeState,
     at: Instant,
-    peer_id: PeerId,
+    peer_address: PeerAddress,
     ack_message: AckMessage,
 ) -> Result<(), HandshakeError>
 {
@@ -224,13 +216,13 @@ fn handle_receive_ack(
         | P2pState::PendingFull { pending_peers }
         | P2pState::Ready { pending_peers }
         | P2pState::ReadyFull { pending_peers } => {
-            match pending_peers.remove(&peer_id) {
+            match pending_peers.remove(&peer_address) {
                 Some(Outgoing(Ack { sent: Some(Success { .. }), conn_msg, meta_msg, .. })) => {
-                    connect_to_peer(state, at, peer_id, conn_msg, meta_msg);
+                    connect_to_peer(state, at, peer_address, conn_msg, meta_msg);
                     Ok(())
                 }
                 Some(Incoming(Metadata { sent: Some(Success { .. }), conn_msg, received })) => {
-                    pending_peers.insert(peer_id, Incoming(Ack {
+                    pending_peers.insert(peer_address, Incoming(Ack {
                         conn_msg,
                         meta_msg: match received {
                             Some(msg) => msg,
@@ -253,7 +245,7 @@ fn handle_receive_ack(
 fn handle_send_connect_pending(
     state: &mut TezedgeState,
     at: Instant,
-    peer_id: PeerId,
+    peer_address: PeerAddress,
 ) -> Result<(), HandshakeError>
 {
     use Handshake::*;
@@ -268,7 +260,7 @@ fn handle_send_connect_pending(
         | P2pState::PendingFull { pending_peers }
         | P2pState::Ready { pending_peers }
         | P2pState::ReadyFull { pending_peers } => {
-            match pending_peers.get_mut(&peer_id) {
+            match pending_peers.get_mut(&peer_address) {
                 Some(Outgoing(Connect { sent: Some(status @ Idle { .. }), .. }))
                 | Some(Incoming(Connect { sent: Some(status @ Idle { .. }), .. })) => {
                     *status = Pending { at };
@@ -286,7 +278,7 @@ fn handle_send_connect_pending(
 fn handle_send_meta_pending(
     state: &mut TezedgeState,
     at: Instant,
-    peer_id: PeerId,
+    peer_address: PeerAddress,
 ) -> Result<(), HandshakeError>
 {
     use Handshake::*;
@@ -301,7 +293,7 @@ fn handle_send_meta_pending(
         | P2pState::PendingFull { pending_peers }
         | P2pState::Ready { pending_peers }
         | P2pState::ReadyFull { pending_peers } => {
-            match pending_peers.get_mut(&peer_id) {
+            match pending_peers.get_mut(&peer_address) {
                 Some(Outgoing(Metadata { sent: Some(status @ Idle { .. }), .. }))
                 | Some(Incoming(Metadata { sent: Some(status @ Idle { .. }), .. })) => {
                     *status = Pending { at };
@@ -319,7 +311,7 @@ fn handle_send_meta_pending(
 fn handle_send_ack_pending(
     state: &mut TezedgeState,
     at: Instant,
-    peer_id: PeerId,
+    peer_address: PeerAddress,
 ) -> Result<(), HandshakeError>
 {
     use Handshake::*;
@@ -334,7 +326,7 @@ fn handle_send_ack_pending(
         | P2pState::PendingFull { pending_peers }
         | P2pState::Ready { pending_peers }
         | P2pState::ReadyFull { pending_peers } => {
-            match pending_peers.get_mut(&peer_id) {
+            match pending_peers.get_mut(&peer_address) {
                 Some(Outgoing(Ack { sent: Some(status @ Idle { .. }), .. }))
                 | Some(Incoming(Ack { sent: Some(status @ Idle { .. }), .. })) => {
                     *status = Pending { at };
@@ -352,7 +344,7 @@ fn handle_send_ack_pending(
 fn handle_send_connect_success(
     state: &mut TezedgeState,
     at: Instant,
-    peer_id: PeerId,
+    peer_address: PeerAddress,
 ) -> Result<(), HandshakeError>
 {
     use Handshake::*;
@@ -367,7 +359,7 @@ fn handle_send_connect_success(
         | P2pState::PendingFull { pending_peers }
         | P2pState::Ready { pending_peers }
         | P2pState::ReadyFull { pending_peers } => {
-            match pending_peers.get_mut(&peer_id) {
+            match pending_peers.get_mut(&peer_address) {
                 Some(Outgoing(Connect { sent: Some(status @ Pending { .. }), .. }))
                 | Some(Incoming(Connect { sent: Some(status @ Pending { .. }), .. })) => {
                     *status = Success { at };
@@ -385,7 +377,7 @@ fn handle_send_connect_success(
 fn handle_send_meta_success(
     state: &mut TezedgeState,
     at: Instant,
-    peer_id: PeerId,
+    peer_address: PeerAddress,
 ) -> Result<(), HandshakeError>
 {
     use Handshake::*;
@@ -400,7 +392,7 @@ fn handle_send_meta_success(
         | P2pState::PendingFull { pending_peers }
         | P2pState::Ready { pending_peers }
         | P2pState::ReadyFull { pending_peers } => {
-            match pending_peers.get_mut(&peer_id) {
+            match pending_peers.get_mut(&peer_address) {
                 Some(Outgoing(Metadata { sent: Some(status @ Pending { .. }), .. }))
                 | Some(Incoming(Metadata { sent: Some(status @ Pending { .. }), .. })) => {
                     *status = Success { at };
@@ -418,7 +410,7 @@ fn handle_send_meta_success(
 fn handle_send_ack_success(
     state: &mut TezedgeState,
     at: Instant,
-    peer_id: PeerId,
+    peer_address: PeerAddress,
 ) -> Result<(), HandshakeError>
 {
     use Handshake::*;
@@ -433,14 +425,14 @@ fn handle_send_ack_success(
         | P2pState::PendingFull { pending_peers }
         | P2pState::Ready { pending_peers }
         | P2pState::ReadyFull { pending_peers } => {
-            match pending_peers.remove(&peer_id) {
+            match pending_peers.remove(&peer_address) {
                 Some(Outgoing(mut step @ Ack { sent: Some(Pending { .. }), .. })) => {
                     step.set_sent(Success { at });
-                    pending_peers.insert(peer_id, Outgoing(step));
+                    pending_peers.insert(peer_address, Outgoing(step));
                     Ok(())
                 }
                 Some(Incoming(Ack { sent: Some(Pending { .. }), conn_msg, meta_msg, .. })) => {
-                    connect_to_peer(state, at, peer_id, conn_msg, meta_msg);
+                    connect_to_peer(state, at, peer_address, conn_msg, meta_msg);
                     Ok(())
 
                 }
@@ -456,7 +448,7 @@ fn handle_send_ack_success(
 fn handle_send_connect_error(
     state: &mut TezedgeState,
     at: Instant,
-    peer_id: PeerId,
+    peer_address: PeerAddress,
 ) -> Result<(), HandshakeError>
 {
     /// TODO: retry
@@ -466,7 +458,7 @@ fn handle_send_connect_error(
 fn handle_send_meta_error(
     state: &mut TezedgeState,
     at: Instant,
-    peer_id: PeerId,
+    peer_address: PeerAddress,
 ) -> Result<(), HandshakeError>
 {
     /// TODO: retry
@@ -476,7 +468,7 @@ fn handle_send_meta_error(
 fn handle_send_ack_error(
     state: &mut TezedgeState,
     at: Instant,
-    peer_id: PeerId,
+    peer_address: PeerAddress,
 ) -> Result<(), HandshakeError>
 {
     /// TODO: retry
@@ -540,112 +532,6 @@ impl Acceptor<HandshakeProposal> for TezedgeState {
         self.react();
         Ok(())
     }
-
-    fn react(&mut self) {
-        use P2pState::*;
-
-        let min_connected = self.config.min_connected_peers as usize;
-        let max_connected = self.config.max_connected_peers as usize;
-        let max_pending = self.config.max_pending_peers as usize;
-
-        if self.connected_peers.len() == max_connected {
-            // TODO: write handling pending_peers, e.g. sending them nack.
-            self.p2p_state = ReadyMaxed;
-        } else if self.connected_peers.len() < min_connected {
-            self.p2p_state = match &mut self.p2p_state {
-                ReadyMaxed => {
-                    Pending { pending_peers: BTreeMap::new() }
-                }
-                Ready { pending_peers }
-                | ReadyFull { pending_peers }
-                | Pending { pending_peers }
-                | PendingFull { pending_peers } => {
-                    let pending_peers = mem::replace(pending_peers, BTreeMap::new());
-                    if pending_peers.len() == max_pending {
-                        PendingFull { pending_peers }
-                    } else {
-                        Pending { pending_peers }
-                    }
-                }
-            };
-        } else {
-            self.p2p_state = match &mut self.p2p_state {
-                ReadyMaxed => {
-                    Ready { pending_peers: BTreeMap::new() }
-                }
-                Ready { pending_peers }
-                | ReadyFull { pending_peers }
-                | Pending { pending_peers }
-                | PendingFull { pending_peers } => {
-                    let pending_peers = mem::replace(pending_peers, BTreeMap::new());
-                    if pending_peers.len() == max_pending {
-                        ReadyFull { pending_peers }
-                    } else {
-                        Ready { pending_peers }
-                    }
-                }
-            };
-        }
-    }
-}
-
-impl GetRequests<HandshakeProposal> for TezedgeState {
-    type Request = HandshakeRequest;
-
-    fn get_requests(&self) -> Vec<Self::Request> {
-        use Handshake::*;
-        use HandshakeStep::*;
-        use RequestState::*;
-
-        let mut requests = vec![];
-
-        match &self.p2p_state {
-            P2pState::ReadyMaxed => {}
-            P2pState::Ready { pending_peers }
-            | P2pState::ReadyFull { pending_peers }
-            | P2pState::Pending { pending_peers }
-            | P2pState::PendingFull { pending_peers } => {
-                for (peer_id, handshake_step) in pending_peers.iter() {
-                    match handshake_step {
-                        Incoming(Connect { sent: Some(Idle { .. }), .. })
-                        | Outgoing(Connect { sent: Some(Idle { .. }), .. }) => {
-                            requests.push(
-                                HandshakeRequest::SendPeerConnect((
-                                    peer_id.clone(),
-                                    self.connection_msg(),
-                                ))
-                            );
-                        }
-                        Incoming(Connect { .. }) | Outgoing(Connect { .. }) => {}
-
-                        Incoming(Metadata { sent: Some(Idle { .. }), .. })
-                        | Outgoing(Metadata { sent: Some(Idle { .. }), .. }) => {
-                            requests.push(
-                                HandshakeRequest::SendPeerMeta((
-                                    peer_id.clone(),
-                                    self.meta_msg(),
-                                ))
-                            )
-                        }
-                        Incoming(Metadata { .. }) | Outgoing(Metadata { .. }) => {}
-
-                        Incoming(Ack { sent: Some(Idle { .. }), .. })
-                        | Outgoing(Ack { sent: Some(Idle { .. }), .. }) => {
-                            requests.push(
-                                HandshakeRequest::SendPeerAck((
-                                    peer_id.clone(),
-                                    AckMessage::Ack,
-                                ))
-                            )
-                        }
-                        Incoming(Ack { .. }) | Outgoing(Ack { .. }) => {}
-                    }
-                }
-            }
-        }
-
-        requests
-    }
 }
 
 #[cfg(test)]
@@ -670,7 +556,7 @@ mod tests {
 
     fn identity(pkh: &[u8], pk: &[u8], sk: &[u8], pow: &[u8]) -> Identity {
         Identity {
-            peer_id: CryptoboxPublicKeyHash::try_from_bytes(pkh).unwrap(),
+            peer_address: CryptoboxPublicKeyHash::try_from_bytes(pkh).unwrap(),
             public_key: PublicKey::from_bytes(pk).unwrap(),
             secret_key: SecretKey::from_bytes(sk).unwrap(),
             proof_of_work_stamp: ProofOfWork::from_hex(hex::encode(pow)).unwrap(),
@@ -697,14 +583,14 @@ mod tests {
 
     #[test]
     fn correct_sequence_results_in_successful_peer_connection() {
-        let client_peer_id = PeerId::new("peer1".to_string());
+        let client_peer_address = PeerAddress::new("peer1".to_string());
         let client_identity = identity_1();
         let node_identity = identity_2();
 
         let build_proposal = |msg: HandshakeMsg| -> HandshakeProposal {
             HandshakeProposal {
                 at: Instant::now(),
-                peer: client_peer_id.clone(),
+                peer: client_peer_address.clone(),
                 message: msg,
             }
         };
@@ -717,6 +603,7 @@ mod tests {
                 min_connected_peers: 10,
                 max_connected_peers: 20,
                 max_pending_peers: 20,
+                max_potential_peers: 100,
                 peer_blacklist_duration: Duration::from_secs(30 * 60),
                 peer_timeout: Duration::from_secs(8),
             },
@@ -739,8 +626,8 @@ mod tests {
 
         assert!(dbg!(tezedge_state.get_requests()).iter().any(|req| {
             match req {
-                HandshakeRequest::SendPeerConnect((peer_id, _)) => {
-                    peer_id == &client_peer_id
+                HandshakeRequest::SendPeerConnect((peer_address, _)) => {
+                    peer_address == &client_peer_address
                 }
                 _ => false
             }
@@ -760,8 +647,8 @@ mod tests {
 
         assert!(dbg!(tezedge_state.get_requests()).iter().any(|req| {
             match req {
-                HandshakeRequest::SendPeerMeta((peer_id, _)) => {
-                    peer_id == &client_peer_id
+                HandshakeRequest::SendPeerMeta((peer_address, _)) => {
+                    peer_address == &client_peer_address
                 }
                 _ => false
             }
@@ -779,8 +666,8 @@ mod tests {
 
         assert!(dbg!(tezedge_state.get_requests()).iter().any(|req| {
             match req {
-                HandshakeRequest::SendPeerAck((peer_id, _)) => {
-                    peer_id == &client_peer_id
+                HandshakeRequest::SendPeerAck((peer_address, _)) => {
+                    peer_address == &client_peer_address
                 }
                 _ => false
             }
@@ -794,6 +681,6 @@ mod tests {
 
         // verify that peer got connected.
         assert_eq!(tezedge_state.connected_peers.len(), 1);
-        assert!(tezedge_state.connected_peers.contains_key(&client_peer_id));
+        assert!(tezedge_state.connected_peers.contains_key(&client_peer_address));
     }
 }

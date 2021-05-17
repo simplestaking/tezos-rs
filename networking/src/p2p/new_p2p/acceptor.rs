@@ -32,9 +32,6 @@ pub trait Acceptor<P: Proposal>: NewestTimeSeen {
 
     fn accept(&mut self, proposal: P) -> Result<(), AcceptorError<Self::Error>>;
 
-    fn react(&mut self) {
-    }
-
     fn check_and_update_time(&mut self, proposal: &P) -> Result<(), InvalidProposalError> {
         let mut time = self.newest_time_seen_mut();
         if proposal.time() >= *time {
@@ -50,4 +47,15 @@ pub trait Acceptor<P: Proposal>: NewestTimeSeen {
 
         Ok(())
     }
+}
+
+pub trait React {
+    fn react(&mut self) {
+    }
+}
+
+pub trait GetRequests {
+    type Request: Debug;
+
+    fn get_requests(&self) -> Vec<Self::Request>;
 }

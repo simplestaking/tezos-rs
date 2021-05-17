@@ -1,3 +1,4 @@
+use std::mem;
 use std::time::{Duration, Instant};
 use std::sync::Arc;
 use std::collections::BTreeMap;
@@ -11,7 +12,7 @@ use tezos_messages::p2p::encoding::prelude::{
     MetadataMessage,
     AckMessage,
 };
-use super::NewestTimeSeen;
+use super::{GetRequests, NewestTimeSeen, React};
 
 #[derive(Debug)]
 pub enum Error {
@@ -37,11 +38,6 @@ pub enum RequestState {
     // Error {
     //     at: Instant,
     // },
-}
-
-#[derive(Debug, Clone)]
-pub struct ConnectedPeer {
-    pub connected_since: Instant,
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +86,20 @@ impl PeerId {
     }
 }
 
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone)]
+pub struct PeerAddress(String);
+
+impl PeerAddress {
+    pub fn new(addr: String) -> Self {
+        Self(addr)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ConnectedPeer {
+    pub connected_since: Instant,
+}
+
 #[derive(Debug, Clone)]
 pub struct TezedgeConfig {
     pub port: u16,
@@ -98,6 +108,7 @@ pub struct TezedgeConfig {
     pub min_connected_peers: u8,
     pub max_connected_peers: u8,
     pub max_pending_peers: u8,
+    pub max_potential_peers: usize,
     pub peer_blacklist_duration: Duration,
     pub peer_timeout: Duration,
 }
@@ -107,27 +118,27 @@ pub enum P2pState {
     /// Minimum number of connected peers **not** reached.
     /// Maximum number of pending connections **not** reached.
     Pending {
-        pending_peers: BTreeMap<PeerId, Handshake>,
+        pending_peers: BTreeMap<PeerAddress, Handshake>,
     },
 
     /// Minimum number of connected peers **not** reached.
     /// Maximum number of pending connections reached.
     PendingFull {
-        pending_peers: BTreeMap<PeerId, Handshake>,
+        pending_peers: BTreeMap<PeerAddress, Handshake>,
     },
 
     /// Minimum number of connected peers reached.
     /// Maximum number of connected peers **not** reached.
     /// Maximum number of pending connections **not** reached.
     Ready {
-        pending_peers: BTreeMap<PeerId, Handshake>,
+        pending_peers: BTreeMap<PeerAddress, Handshake>,
     },
 
     /// Minimum number of connected peers reached.
     /// Maximum number of connected peers **not** reached.
     /// Maximum number of pending peers reached.
     ReadyFull {
-        pending_peers: BTreeMap<PeerId, Handshake>,
+        pending_peers: BTreeMap<PeerAddress, Handshake>,
     },
 
     /// Maximum number of connected peers reached.
@@ -148,8 +159,8 @@ pub struct TezedgeState {
     pub config: TezedgeConfig,
     pub identity: Identity,
     pub network_version: NetworkVersion,
-    pub available_peers: BTreeMap<PeerId, ()>,
-    pub connected_peers: BTreeMap<PeerId, ConnectedPeer>,
+    pub potential_peers: Vec<PeerAddress>,
+    pub connected_peers: BTreeMap<PeerAddress, ConnectedPeer>,
     pub newest_time_seen: Instant,
     pub p2p_state: P2pState,
 }
@@ -176,7 +187,7 @@ impl TezedgeState {
             config,
             identity,
             network_version,
-            available_peers: BTreeMap::new(),
+            potential_peers: Vec::new(),
             connected_peers: BTreeMap::new(),
             newest_time_seen: initial_time,
             p2p_state: P2pState::Pending {
@@ -200,5 +211,121 @@ impl TezedgeState {
             self.config.disable_mempool,
             self.config.private_node,
         )
+    }
+}
+
+impl React for TezedgeState {
+    fn react(&mut self) {
+        use P2pState::*;
+
+        let min_connected = self.config.min_connected_peers as usize;
+        let max_connected = self.config.max_connected_peers as usize;
+        let max_pending = self.config.max_pending_peers as usize;
+
+        if self.connected_peers.len() == max_connected {
+            // TODO: write handling pending_peers, e.g. sending them nack.
+            self.p2p_state = ReadyMaxed;
+        } else if self.connected_peers.len() < min_connected {
+            self.p2p_state = match &mut self.p2p_state {
+                ReadyMaxed => {
+                    Pending { pending_peers: BTreeMap::new() }
+                }
+                Ready { pending_peers }
+                | ReadyFull { pending_peers }
+                | Pending { pending_peers }
+                | PendingFull { pending_peers } => {
+                    let pending_peers = mem::replace(pending_peers, BTreeMap::new());
+                    if pending_peers.len() == max_pending {
+                        PendingFull { pending_peers }
+                    } else {
+                        Pending { pending_peers }
+                    }
+                }
+            };
+        } else {
+            self.p2p_state = match &mut self.p2p_state {
+                ReadyMaxed => {
+                    Ready { pending_peers: BTreeMap::new() }
+                }
+                Ready { pending_peers }
+                | ReadyFull { pending_peers }
+                | Pending { pending_peers }
+                | PendingFull { pending_peers } => {
+                    let pending_peers = mem::replace(pending_peers, BTreeMap::new());
+                    if pending_peers.len() == max_pending {
+                        ReadyFull { pending_peers }
+                    } else {
+                        Ready { pending_peers }
+                    }
+                }
+            };
+        }
+    }
+}
+
+/// Requests which may be made after accepting handshake proposal.
+#[derive(Debug, Clone)]
+pub enum TezedgeRequest {
+    SendPeerConnect((PeerAddress, ConnectionMessage)),
+    SendPeerMeta((PeerAddress, MetadataMessage)),
+    SendPeerAck((PeerAddress, AckMessage)),
+}
+
+impl GetRequests for TezedgeState {
+    type Request = TezedgeRequest;
+
+    fn get_requests(&self) -> Vec<TezedgeRequest> {
+        use Handshake::*;
+        use HandshakeStep::*;
+        use RequestState::*;
+
+        let mut requests = vec![];
+
+        match &self.p2p_state {
+            P2pState::ReadyMaxed => {}
+            P2pState::Ready { pending_peers }
+            | P2pState::ReadyFull { pending_peers }
+            | P2pState::Pending { pending_peers }
+            | P2pState::PendingFull { pending_peers } => {
+                for (peer_address, handshake_step) in pending_peers.iter() {
+                    match handshake_step {
+                        Incoming(Connect { sent: Some(Idle { .. }), .. })
+                        | Outgoing(Connect { sent: Some(Idle { .. }), .. }) => {
+                            requests.push(
+                                TezedgeRequest::SendPeerConnect((
+                                    peer_address.clone(),
+                                    self.connection_msg(),
+                                ))
+                            );
+                        }
+                        Incoming(Connect { .. }) | Outgoing(Connect { .. }) => {}
+
+                        Incoming(Metadata { sent: Some(Idle { .. }), .. })
+                        | Outgoing(Metadata { sent: Some(Idle { .. }), .. }) => {
+                            requests.push(
+                                TezedgeRequest::SendPeerMeta((
+                                    peer_address.clone(),
+                                    self.meta_msg(),
+                                ))
+                            )
+                        }
+                        Incoming(Metadata { .. }) | Outgoing(Metadata { .. }) => {}
+
+                        Incoming(Ack { sent: Some(Idle { .. }), .. })
+                        | Outgoing(Ack { sent: Some(Idle { .. }), .. }) => {
+                            requests.push(
+                                TezedgeRequest::SendPeerAck((
+                                    peer_address.clone(),
+                                    AckMessage::Ack,
+                                ))
+                            )
+                        }
+                        Incoming(Ack { .. }) | Outgoing(Ack { .. }) => {}
+                    }
+                }
+            }
+        }
+
+        requests
     }
 }
