@@ -6,18 +6,6 @@ pub enum InvalidProposalError {
     ProposalOutdated,
 }
 
-#[derive(Debug)]
-pub enum AcceptorError<E: Debug> {
-    InvalidProposal(InvalidProposalError),
-    Custom(E),
-}
-
-impl<E: Debug> From<InvalidProposalError> for AcceptorError<E> {
-    fn from(error: InvalidProposalError) -> Self {
-        AcceptorError::InvalidProposal(error)
-    }
-}
-
 pub trait Proposal {
     fn time(&self) -> Instant;
 }
@@ -28,9 +16,7 @@ pub trait NewestTimeSeen {
 }
 
 pub trait Acceptor<P: Proposal>: NewestTimeSeen {
-    type Error: Debug;
-
-    fn accept(&mut self, proposal: P) -> Result<(), AcceptorError<Self::Error>>;
+    fn accept(&mut self, proposal: P);
 
     fn check_and_update_time(&mut self, proposal: &P) -> Result<(), InvalidProposalError> {
         let mut time = self.newest_time_seen_mut();
@@ -50,7 +36,7 @@ pub trait Acceptor<P: Proposal>: NewestTimeSeen {
 }
 
 pub trait React {
-    fn react(&mut self) {
+    fn react(&mut self, at: Instant) {
     }
 }
 

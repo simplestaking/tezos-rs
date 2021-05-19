@@ -1,8 +1,8 @@
 use std::mem;
 use std::time::{Duration, Instant};
-use std::sync::Arc;
-use std::collections::BTreeMap;
-use getset::Getters;
+use std::collections::HashMap;
+use getset::{Getters, CopyGetters};
+
 
 use crypto::nonce::Nonce;
 use tezos_identity::Identity;
@@ -46,6 +46,20 @@ pub enum Handshake {
     Outgoing(HandshakeStep),
 }
 
+pub struct HandshakeResult {
+    pub conn_msg: ConnectionMessage,
+    pub meta_msg: MetadataMessage,
+}
+
+impl Handshake {
+    pub fn to_result(self) -> Option<HandshakeResult> {
+        match self {
+            Self::Incoming(step) => step.to_result(),
+            Self::Outgoing(step) => step.to_result(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum HandshakeStep {
     Connect {
@@ -63,6 +77,17 @@ pub enum HandshakeStep {
         sent: Option<RequestState>,
         received: bool,
     },
+}
+
+impl HandshakeStep {
+    pub fn to_result(self) -> Option<HandshakeResult> {
+        match self {
+            Self::Ack { conn_msg, meta_msg, .. } => {
+                Some(HandshakeResult { conn_msg, meta_msg })
+            }
+            _ => None,
+        }
+    }
 }
 
 impl HandshakeStep {
@@ -86,8 +111,8 @@ impl PeerId {
     }
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone)]
-pub struct PeerAddress(String);
+#[derive(Debug, Hash, Ord, PartialOrd, Eq, PartialEq, Clone)]
+pub struct PeerAddress(pub String);
 
 impl PeerAddress {
     pub fn new(addr: String) -> Self {
@@ -95,9 +120,35 @@ impl PeerAddress {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Getters, CopyGetters, Debug, Clone)]
 pub struct ConnectedPeer {
+    // #[get_copy = "pub"]
+    pub port: u16,
+
+    // #[get = "pub"]
+    pub version: NetworkVersion,
+
+    // #[get = "pub"]
+    pub public_key: Vec<u8>,
+
+    pub proof_of_work_stamp: Vec<u8>,
+
+    // #[get = "pub"]
+    pub message_nonce: Vec<u8>,
+
+    // #[get_copy = "pub"]
+    pub disable_mempool: bool,
+
+    // #[get_copy = "pub"]
+    pub private_node: bool,
+
+    // #[get_copy = "pub"]
     pub connected_since: Instant,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlacklistedPeer {
+    since: Instant,
 }
 
 #[derive(Debug, Clone)]
@@ -118,27 +169,27 @@ pub enum P2pState {
     /// Minimum number of connected peers **not** reached.
     /// Maximum number of pending connections **not** reached.
     Pending {
-        pending_peers: BTreeMap<PeerAddress, Handshake>,
+        pending_peers: HashMap<PeerAddress, Handshake>,
     },
 
     /// Minimum number of connected peers **not** reached.
     /// Maximum number of pending connections reached.
     PendingFull {
-        pending_peers: BTreeMap<PeerAddress, Handshake>,
+        pending_peers: HashMap<PeerAddress, Handshake>,
     },
 
     /// Minimum number of connected peers reached.
     /// Maximum number of connected peers **not** reached.
     /// Maximum number of pending connections **not** reached.
     Ready {
-        pending_peers: BTreeMap<PeerAddress, Handshake>,
+        pending_peers: HashMap<PeerAddress, Handshake>,
     },
 
     /// Minimum number of connected peers reached.
     /// Maximum number of connected peers **not** reached.
     /// Maximum number of pending peers reached.
     ReadyFull {
-        pending_peers: BTreeMap<PeerAddress, Handshake>,
+        pending_peers: HashMap<PeerAddress, Handshake>,
     },
 
     /// Maximum number of connected peers reached.
@@ -160,7 +211,8 @@ pub struct TezedgeState {
     pub identity: Identity,
     pub network_version: NetworkVersion,
     pub potential_peers: Vec<PeerAddress>,
-    pub connected_peers: BTreeMap<PeerAddress, ConnectedPeer>,
+    pub connected_peers: HashMap<PeerAddress, ConnectedPeer>,
+    pub blacklisted_peers: HashMap<PeerAddress, BlacklistedPeer>,
     pub newest_time_seen: Instant,
     pub p2p_state: P2pState,
 }
@@ -188,10 +240,11 @@ impl TezedgeState {
             identity,
             network_version,
             potential_peers: Vec::new(),
-            connected_peers: BTreeMap::new(),
+            connected_peers: HashMap::new(),
+            blacklisted_peers: HashMap::new(),
             newest_time_seen: initial_time,
             p2p_state: P2pState::Pending {
-                pending_peers: BTreeMap::new(),
+                pending_peers: HashMap::new(),
             },
         }
     }
@@ -201,6 +254,7 @@ impl TezedgeState {
             self.config.port,
             &self.identity.public_key,
             &self.identity.proof_of_work_stamp,
+            // TODO: this introduces non-determinism
             Nonce::random(),
             self.network_version.clone(),
         ).unwrap()
@@ -212,10 +266,43 @@ impl TezedgeState {
             self.config.private_node,
         )
     }
+
+    pub fn extend_potential_peers<I>(&mut self, peers: I)
+        where I: IntoIterator<Item = PeerAddress>,
+    {
+        // Return if maximum number of potential peers is already reached.
+        if self.potential_peers.len() >= self.config.max_potential_peers {
+            return;
+        }
+
+        let limit = self.config.max_potential_peers - self.potential_peers.len();
+
+        self.potential_peers.extend(peers.into_iter().take(limit));
+    }
+
+    pub(crate) fn set_peer_connected(
+        &mut self,
+        at: Instant,
+        peer_address: PeerAddress,
+        conn_msg: ConnectionMessage,
+        meta_msg: MetadataMessage,
+    ) {
+        self.connected_peers.insert(peer_address, ConnectedPeer {
+            connected_since: at,
+            port: conn_msg.port,
+            version: conn_msg.version,
+            public_key: conn_msg.public_key,
+            proof_of_work_stamp: conn_msg.proof_of_work_stamp,
+            message_nonce: conn_msg.message_nonce,
+            disable_mempool: meta_msg.disable_mempool(),
+            private_node: meta_msg.private_node(),
+        });
+    }
+
 }
 
 impl React for TezedgeState {
-    fn react(&mut self) {
+    fn react(&mut self, at: Instant) {
         use P2pState::*;
 
         let min_connected = self.config.min_connected_peers as usize;
@@ -228,13 +315,13 @@ impl React for TezedgeState {
         } else if self.connected_peers.len() < min_connected {
             self.p2p_state = match &mut self.p2p_state {
                 ReadyMaxed => {
-                    Pending { pending_peers: BTreeMap::new() }
+                    Pending { pending_peers: HashMap::new() }
                 }
                 Ready { pending_peers }
                 | ReadyFull { pending_peers }
                 | Pending { pending_peers }
                 | PendingFull { pending_peers } => {
-                    let pending_peers = mem::replace(pending_peers, BTreeMap::new());
+                    let pending_peers = mem::replace(pending_peers, HashMap::new());
                     if pending_peers.len() == max_pending {
                         PendingFull { pending_peers }
                     } else {
@@ -245,13 +332,13 @@ impl React for TezedgeState {
         } else {
             self.p2p_state = match &mut self.p2p_state {
                 ReadyMaxed => {
-                    Ready { pending_peers: BTreeMap::new() }
+                    Ready { pending_peers: HashMap::new() }
                 }
                 Ready { pending_peers }
                 | ReadyFull { pending_peers }
                 | Pending { pending_peers }
                 | PendingFull { pending_peers } => {
-                    let pending_peers = mem::replace(pending_peers, BTreeMap::new());
+                    let pending_peers = mem::replace(pending_peers, HashMap::new());
                     if pending_peers.len() == max_pending {
                         ReadyFull { pending_peers }
                     } else {
@@ -260,15 +347,67 @@ impl React for TezedgeState {
                 }
             };
         }
+
+        let whitelist_peers = self.blacklisted_peers.iter()
+            .filter(|(_, blacklisted)| {
+                at.duration_since(blacklisted.since) >= self.config.peer_blacklist_duration
+            })
+            .map(|(address, _)| address.clone())
+            .collect::<Vec<_>>();
+
+        for address in whitelist_peers {
+            self.blacklisted_peers.remove(&address);
+            self.extend_potential_peers(
+                std::iter::once(address.clone()),
+            );
+        }
+
+        let potential_peers = &mut self.potential_peers;
+
+        match &mut self.p2p_state {
+            ReadyMaxed | ReadyFull { .. } | PendingFull { .. } => {}
+            Pending { pending_peers }
+            | Ready { pending_peers } => {
+                let len = potential_peers.len().min(
+                    max_pending - pending_peers.len(),
+                );
+                let end = potential_peers.len();
+                let start = end - len;
+
+                for peer in potential_peers.drain(start..end) {
+                    pending_peers.insert(peer, Handshake::Outgoing(
+                        HandshakeStep::Connect {
+                            sent: Some(RequestState::Idle { at }),
+                            received: None,
+                        }
+                    ));
+                }
+
+                if len > 0 {
+                    return self.react(at);
+                }
+            }
+        }
+
     }
 }
 
 /// Requests which may be made after accepting handshake proposal.
 #[derive(Debug, Clone)]
 pub enum TezedgeRequest {
-    SendPeerConnect((PeerAddress, ConnectionMessage)),
-    SendPeerMeta((PeerAddress, MetadataMessage)),
-    SendPeerAck((PeerAddress, AckMessage)),
+    SendPeerConnect {
+        peer: PeerAddress,
+        message: ConnectionMessage,
+    },
+    SendPeerMeta {
+        peer: PeerAddress,
+
+        message: MetadataMessage,
+    },
+    SendPeerAck {
+        peer: PeerAddress,
+        message: AckMessage,
+    },
 }
 
 impl GetRequests for TezedgeState {
@@ -292,21 +431,21 @@ impl GetRequests for TezedgeState {
                         Incoming(Connect { sent: Some(Idle { .. }), .. })
                         | Outgoing(Connect { sent: Some(Idle { .. }), .. }) => {
                             requests.push(
-                                TezedgeRequest::SendPeerConnect((
-                                    peer_address.clone(),
-                                    self.connection_msg(),
-                                ))
+                                TezedgeRequest::SendPeerConnect {
+                                    peer: peer_address.clone(),
+                                    message: self.connection_msg(),
+                                }
                             );
                         }
                         Incoming(Connect { .. }) | Outgoing(Connect { .. }) => {}
 
-                        Incoming(Metadata { sent: Some(Idle { .. }), .. })
-                        | Outgoing(Metadata { sent: Some(Idle { .. }), .. }) => {
+                        Incoming(Metadata { sent: Some(Idle { .. }), conn_msg, .. })
+                        | Outgoing(Metadata { sent: Some(Idle { .. }), conn_msg, .. }) => {
                             requests.push(
-                                TezedgeRequest::SendPeerMeta((
-                                    peer_address.clone(),
-                                    self.meta_msg(),
-                                ))
+                                TezedgeRequest::SendPeerMeta {
+                                    peer: peer_address.clone(),
+                                    message: self.meta_msg(),
+                                }
                             )
                         }
                         Incoming(Metadata { .. }) | Outgoing(Metadata { .. }) => {}
@@ -314,10 +453,10 @@ impl GetRequests for TezedgeState {
                         Incoming(Ack { sent: Some(Idle { .. }), .. })
                         | Outgoing(Ack { sent: Some(Idle { .. }), .. }) => {
                             requests.push(
-                                TezedgeRequest::SendPeerAck((
-                                    peer_address.clone(),
-                                    AckMessage::Ack,
-                                ))
+                                TezedgeRequest::SendPeerAck {
+                                    peer: peer_address.clone(),
+                                    message: AckMessage::Ack,
+                                }
                             )
                         }
                         Incoming(Ack { .. }) | Outgoing(Ack { .. }) => {}

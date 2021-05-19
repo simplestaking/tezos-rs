@@ -1,0 +1,37 @@
+[package]
+name = "new-node"
+version = "0.0.0"
+authors = ["Tomas Sedlak <tomas.sedlak@simplestaking.com>"]
+edition = "2018"
+default-run = "new-node"
+
+[dependencies]
+clap = "2.33"
+bytes = "1"
+failure = "0.1"
+futures = "0.3"
+jemallocator = "0.3.2"
+riker = "0.4"
+hex = "0.4"
+rlimit = "0.5"
+serde_json = "1.0"
+slog = { version = "2.7", features = ["max_level_trace", "release_max_level_debug"] }
+slog-async = "2.6"
+slog-json = "2.3"
+slog-term = "2.6"
+strum = "0.20"
+strum_macros = "0.20"
+# Local dependencies
+crypto = { path = "../crypto" }
+logging = { path = "../logging" }
+# tezos_api = { path = "../tezos/api" }
+tezos_identity = { path = "../tezos/identity" }
+tezos_messages = { path = "../tezos/messages" }
+tezos_encoding = { path = "../tezos/encoding" }
+# tezos_wrapper = { path = "../tezos/wrapper" }
+networking = { path = "../networking" }
+# storage = { path = "../storage" }
+# shell = { path = "../shell" }
+# monitoring = { path = "../monitoring" }
+# rpc = { path = "../rpc" }
+mio = { version = "0.7.11", features = ["os-poll", "net"] }
