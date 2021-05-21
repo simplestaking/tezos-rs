@@ -88,6 +88,7 @@ impl Nonce {
 }
 
 /// Pair of local/remote nonces
+#[derive(Debug, Clone)]
 pub struct NoncePair {
     pub local: Nonce,
     pub remote: Nonce,

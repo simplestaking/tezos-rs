@@ -1,18 +1,20 @@
 use std::mem;
+use std::fmt::{self, Debug};
 use std::time::{Duration, Instant};
 use std::collections::HashMap;
 use getset::{Getters, CopyGetters};
 
 
-use crypto::nonce::Nonce;
+use crypto::{crypto_box::{CryptoKey, PrecomputedKey, PublicKey}, nonce::{Nonce, NoncePair, generate_nonces}};
 use tezos_identity::Identity;
-use tezos_messages::p2p::encoding::prelude::{
+use tezos_messages::p2p::{binary_message::BinaryMessage, encoding::prelude::{
     NetworkVersion,
     ConnectionMessage,
     MetadataMessage,
     AckMessage,
-};
-use super::{GetRequests, NewestTimeSeen, React};
+}};
+
+use super::{GetRequests, NewestTimeSeen, React, crypto::Crypto};
 
 #[derive(Debug)]
 pub enum Error {
@@ -49,6 +51,7 @@ pub enum Handshake {
 pub struct HandshakeResult {
     pub conn_msg: ConnectionMessage,
     pub meta_msg: MetadataMessage,
+    pub crypto: Crypto,
 }
 
 impl Handshake {
@@ -65,15 +68,18 @@ pub enum HandshakeStep {
     Connect {
         sent: Option<RequestState>,
         received: Option<ConnectionMessage>,
+        sent_conn_msg: ConnectionMessage,
     },
     Metadata {
         conn_msg: ConnectionMessage,
+        crypto: Crypto,
         sent: Option<RequestState>,
         received: Option<MetadataMessage>,
     },
     Ack {
         conn_msg: ConnectionMessage,
         meta_msg: MetadataMessage,
+        crypto: Crypto,
         sent: Option<RequestState>,
         received: bool,
     },
@@ -82,15 +88,13 @@ pub enum HandshakeStep {
 impl HandshakeStep {
     pub fn to_result(self) -> Option<HandshakeResult> {
         match self {
-            Self::Ack { conn_msg, meta_msg, .. } => {
-                Some(HandshakeResult { conn_msg, meta_msg })
+            Self::Ack { conn_msg, meta_msg, crypto, .. } => {
+                Some(HandshakeResult { conn_msg, meta_msg, crypto })
             }
             _ => None,
         }
     }
-}
 
-impl HandshakeStep {
     pub(crate) fn set_sent(&mut self, state: RequestState) {
         match self {
             Self::Connect { sent, .. }
@@ -134,7 +138,7 @@ pub struct ConnectedPeer {
     pub proof_of_work_stamp: Vec<u8>,
 
     // #[get = "pub"]
-    pub message_nonce: Vec<u8>,
+    pub crypto: Crypto,
 
     // #[get_copy = "pub"]
     pub disable_mempool: bool,
@@ -280,22 +284,48 @@ impl TezedgeState {
         self.potential_peers.extend(peers.into_iter().take(limit));
     }
 
+    pub fn get_peer_crypto(&mut self, peer_address: &PeerAddress) -> Option<&mut Crypto> {
+        if let Some(peer) = self.connected_peers.get_mut(peer_address) {
+            return Some(&mut peer.crypto);
+        }
+        use Handshake::*;
+        use HandshakeStep::*;
+
+        match &mut self.p2p_state {
+            P2pState::ReadyMaxed => None,
+            P2pState::Pending { pending_peers }
+            | P2pState::PendingFull { pending_peers }
+            | P2pState::Ready { pending_peers }
+            | P2pState::ReadyFull { pending_peers } => {
+                match pending_peers.get_mut(peer_address) {
+                    Some(Incoming(Metadata { crypto, .. }))
+                    | Some(Outgoing(Metadata { crypto, .. }))
+                    | Some(Incoming(Ack { crypto, .. }))
+                    | Some(Outgoing(Ack { crypto, .. })) => {
+                        Some(crypto)
+                    }
+                    _ => None,
+                }
+            }
+
+        }
+    }
+
     pub(crate) fn set_peer_connected(
         &mut self,
         at: Instant,
         peer_address: PeerAddress,
-        conn_msg: ConnectionMessage,
-        meta_msg: MetadataMessage,
+        result: HandshakeResult,
     ) {
         self.connected_peers.insert(peer_address, ConnectedPeer {
             connected_since: at,
-            port: conn_msg.port,
-            version: conn_msg.version,
-            public_key: conn_msg.public_key,
-            proof_of_work_stamp: conn_msg.proof_of_work_stamp,
-            message_nonce: conn_msg.message_nonce,
-            disable_mempool: meta_msg.disable_mempool(),
-            private_node: meta_msg.private_node(),
+            port: result.conn_msg.port,
+            version: result.conn_msg.version,
+            public_key: result.conn_msg.public_key,
+            proof_of_work_stamp: result.conn_msg.proof_of_work_stamp,
+            crypto: result.crypto,
+            disable_mempool: result.meta_msg.disable_mempool(),
+            private_node: result.meta_msg.private_node(),
         });
     }
 
@@ -361,7 +391,6 @@ impl React for TezedgeState {
                 std::iter::once(address.clone()),
             );
         }
-
         let potential_peers = &mut self.potential_peers;
 
         match &mut self.p2p_state {
@@ -377,6 +406,15 @@ impl React for TezedgeState {
                 for peer in potential_peers.drain(start..end) {
                     pending_peers.insert(peer, Handshake::Outgoing(
                         HandshakeStep::Connect {
+                            // sent_conn_msg: self.connection_msg(),
+                            sent_conn_msg: ConnectionMessage::try_new(
+                                self.config.port,
+                                &self.identity.public_key,
+                                &self.identity.proof_of_work_stamp,
+                                // TODO: this introduces non-determinism
+                                Nonce::random(),
+                                self.network_version.clone(),
+                            ).unwrap(),
                             sent: Some(RequestState::Idle { at }),
                             received: None,
                         }
@@ -428,12 +466,12 @@ impl GetRequests for TezedgeState {
             | P2pState::PendingFull { pending_peers } => {
                 for (peer_address, handshake_step) in pending_peers.iter() {
                     match handshake_step {
-                        Incoming(Connect { sent: Some(Idle { .. }), .. })
-                        | Outgoing(Connect { sent: Some(Idle { .. }), .. }) => {
+                        Incoming(Connect { sent: Some(Idle { .. }), sent_conn_msg, .. })
+                        | Outgoing(Connect { sent: Some(Idle { .. }), sent_conn_msg, .. }) => {
                             requests.push(
                                 TezedgeRequest::SendPeerConnect {
                                     peer: peer_address.clone(),
-                                    message: self.connection_msg(),
+                                    message: sent_conn_msg.clone(),
                                 }
                             );
                         }

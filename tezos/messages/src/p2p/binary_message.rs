@@ -118,10 +118,30 @@ pub(crate) fn map_nom_error(input: NomInput, error: NomError) -> BinaryReaderErr
 ///
 /// Difference from [`BinaryMessage`] is that it also contains [`CONTENT_LENGTH_FIELD_BYTES`] bytes
 /// of information about how many bytes is the actual encoding.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BinaryChunk(Vec<u8>);
 
 impl BinaryChunk {
+    pub fn from_raw(raw: Vec<u8>) -> Result<BinaryChunk, BinaryChunkError> {
+        if raw.len() < CONTENT_LENGTH_FIELD_BYTES {
+            return Err(BinaryChunkError::MissingSizeInformation);
+        }
+
+        let expected_len = (&raw[..]).get_u16() as usize;
+        let found_len = raw.len() - CONTENT_LENGTH_FIELD_BYTES;
+
+        if expected_len != found_len {
+            Err(BinaryChunkError::IncorrectSizeInformation {
+                expected: expected_len,
+                actual: found_len,
+            })
+        } else if raw.len() > CONTENT_LENGTH_MAX + CONTENT_LENGTH_FIELD_BYTES {
+            Err(BinaryChunkError::OverflowError)
+        } else {
+            Ok(BinaryChunk(raw))
+        }
+    }
+
     /// Create new `BinaryChunk` from input content.
     pub fn from_content(content: &[u8]) -> Result<BinaryChunk, BinaryChunkError> {
         if content.len() <= CONTENT_LENGTH_MAX {

@@ -3,7 +3,7 @@ use std::{convert::TryFrom, error::Error, time::{Duration, Instant}};
 use std::fmt::Debug;
 use std::collections::HashMap;
 
-use crypto::{crypto_box::{CryptoKey, PublicKey, SecretKey}, hash::{CryptoboxPublicKeyHash, HashTrait}, proof_of_work::ProofOfWork};
+use crypto::{crypto_box::{CryptoKey, PrecomputedKey, PublicKey, SecretKey}, hash::{CryptoboxPublicKeyHash, HashTrait}, nonce::NoncePair, proof_of_work::ProofOfWork};
 use hex::FromHex;
 use mio::net::{SocketAddr, TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
@@ -17,10 +17,7 @@ use tezos_messages::p2p::{binary_message::BinaryMessage, encoding::{ack::AckMess
 use tezos_messages::p2p::binary_message::{
     BinaryChunk, BinaryChunkError, CONTENT_LENGTH_FIELD_BYTES,
 };
-use networking::p2p::new_p2p::*;
-use handshake_acceptor::{HandshakeMsg, HandshakeProposal};
-use raw_acceptor::{RawMessage, RawProposal};
-use extend_potential_peers_acceptor::ExtendPotentialPeersProposal;
+use networking::p2p::new_p2p::{Acceptor, GetRequests, PeerAddress, React, TezedgeConfig, TezedgeRequest, TezedgeState, crypto::Crypto, extend_potential_peers_acceptor::ExtendPotentialPeersProposal, handshake_acceptor::{HandshakeMsg, HandshakeProposal}, raw_acceptor::RawProposal, raw_binary_message::RawBinaryMessage};
 
 fn network_version() -> NetworkVersion {
     NetworkVersion::new("TEZOS_MAINNET".to_string(), 0, 1)
@@ -57,6 +54,15 @@ trait AsSendMessage {
     type Error;
 
     fn as_send_message(&self) -> Result<SendMessage, Self::Error>;
+}
+
+trait AsEncryptedSendMessage {
+    type Error;
+
+    fn as_encrypted_send_message(
+        &self,
+        crypto: &mut Crypto,
+    ) -> Result<SendMessage, Self::Error>;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -118,15 +124,8 @@ impl SendMessageResult {
 #[derive(Debug)]
 enum ReadMessageError {
     IO(io::Error),
+    BinaryChunk(BinaryChunkError),
     DecodeFailed,
-}
-
-#[derive(Debug)]
-enum ReadMessageResult {
-    Empty,
-    Pending,
-    Ok(Vec<u8>),
-    Err(ReadMessageError),
 }
 
 impl From<io::Error> for ReadMessageError {
@@ -135,15 +134,39 @@ impl From<io::Error> for ReadMessageError {
     }
 }
 
+impl From<BinaryChunkError> for ReadMessageError {
+    fn from(err: BinaryChunkError) -> Self {
+        Self::BinaryChunk(err)
+    }
+}
+
+#[derive(Debug)]
+enum ReadMessageResult {
+    Empty,
+    Pending,
+    Ok(BinaryChunk),
+    Err(ReadMessageError),
+}
+
+impl From<ReadMessageError> for ReadMessageResult {
+    fn from(err: ReadMessageError) -> Self {
+        ReadMessageResult::Err(err)
+    }
+}
+
 struct SendMessage {
-    bytes: Vec<u8>,
+    bytes: BinaryChunk,
     message_type: SendMessageType,
 }
 
 impl SendMessage {
+    fn new(message_type: SendMessageType, bytes: BinaryChunk) -> Self {
+        Self { message_type, bytes }
+    }
+
     #[inline]
     fn bytes(&self) -> &[u8] {
-        &self.bytes
+        self.bytes.raw()
     }
 
     #[inline]
@@ -182,11 +205,31 @@ impl GetMessageType for AckMessage {
 impl<M> AsSendMessage for M
     where M: BinaryMessage + GetMessageType
 {
-    type Error = BinaryWriterError;
+    type Error = failure::Error;
 
     fn as_send_message(&self) -> Result<SendMessage, Self::Error> {
         Ok(SendMessage {
-            bytes: self.as_bytes()?,
+            bytes: BinaryChunk::from_content(&self.as_bytes()?)?,
+            message_type: self.get_message_type(),
+        })
+    }
+}
+
+impl<M> AsEncryptedSendMessage for M
+    where M: BinaryMessage + GetMessageType
+{
+    type Error = failure::Error;
+
+    fn as_encrypted_send_message(
+        &self,
+        crypto: &mut Crypto,
+    ) -> Result<SendMessage, Self::Error>
+    {
+        let encrypted = crypto.encrypt(
+            &self.as_bytes()?,
+        )?;
+        Ok(SendMessage {
+            bytes: BinaryChunk::from_content(&encrypted)?,
             message_type: self.get_message_type(),
         })
     }
@@ -234,14 +277,21 @@ impl ReadQueue {
 
     fn advance(&mut self, by: usize) {
         match self {
-            Self::ReadLen { buf, index, .. } => {
+            Self::ReadLen { buf: expected_len_bytes, index, .. } => {
                 *index = (*index + by).min(CONTENT_LENGTH_FIELD_BYTES - 1);
                 if *index == CONTENT_LENGTH_FIELD_BYTES - 1 {
-                    let expected_len = (&buf[..]).get_u16() as usize;
+                    let expected_len = CONTENT_LENGTH_FIELD_BYTES
+                        + (&expected_len_bytes[..]).get_u16() as usize;
+                    let mut buf = vec![0; expected_len];
+
+                    for i in 0..CONTENT_LENGTH_FIELD_BYTES {
+                        buf[i] = expected_len_bytes[i];
+                    }
+
                     *self = ReadQueue::ReadContent {
                         expected_len,
-                        index: 0,
-                        buf: vec![0; expected_len],
+                        buf,
+                        index: CONTENT_LENGTH_FIELD_BYTES,
                     };
                 }
             }
@@ -251,10 +301,10 @@ impl ReadQueue {
         }
     }
 
-    fn take(self) -> Vec<u8> {
+    fn take(self) -> Result<BinaryChunk, BinaryChunkError> {
         match self {
-            Self::ReadLen { buf, .. } => buf.to_vec(),
-            Self::ReadContent { buf, .. } => buf,
+            Self::ReadLen { buf, .. } => BinaryChunk::from_raw(buf.to_vec()),
+            Self::ReadContent { buf, .. } => BinaryChunk::from_raw(buf),
         }
     }
 }
@@ -366,7 +416,7 @@ impl Connection {
                     match err.kind() {
                         io::ErrorKind::WouldBlock => break,
                         _ => {
-                            self.write_queue.take();
+                            self.read_queue.take();
                             return ReadMessageResult::Err(ReadMessageError::IO(err));
                         }
                     }
@@ -376,15 +426,32 @@ impl Connection {
 
         if queue.is_finished() {
             let queue = self.read_queue.take().unwrap();
-            let bytes = queue.take();
-            self.read_queue = None;
-            ReadMessageResult::Ok(bytes)
+            match queue.take() {
+                Ok(bytes) => ReadMessageResult::Ok(bytes),
+                Err(err) => ReadMessageResult::Err(err.into()),
+            }
         } else {
             ReadMessageResult::Pending
         }
     }
 
     pub fn write(&mut self, msg: SendMessage) -> SendMessageResult {
+        match self.write_queue.as_mut() {
+            Some(queue) => {
+                SendMessageResult::err(msg.message_type(), SendMessageError::QueueFull)
+            }
+            None => {
+                self.write_queue.replace(WriteQueue::new(msg));
+                self.try_flush()
+            }
+        }
+    }
+
+    pub fn encrypted_write(
+        &mut self,
+        msg: SendMessage,
+    ) -> SendMessageResult
+    {
         match self.write_queue.as_mut() {
             Some(queue) => {
                 SendMessageResult::err(msg.message_type(), SendMessageError::QueueFull)
@@ -484,6 +551,36 @@ impl ConnectionManager {
             }
         }
     }
+
+    pub fn try_send_msg_encrypted<M, E>(
+        &mut self,
+        addr: &PeerAddress,
+        crypto: &mut Crypto,
+        msg: M,
+    ) -> SendMessageResult
+        where M: GetMessageType + AsEncryptedSendMessage<Error = E>,
+              E: Debug,
+    {
+        let msg = match msg.as_encrypted_send_message(crypto) {
+            Ok(msg) => msg,
+            Err(err) => {
+                eprintln!("failed to encode message: {:?}", err);
+                return SendMessageResult::err(
+                    msg.get_message_type(),
+                    SendMessageError::EncodeFailed,
+                );
+            }
+        };
+        match self.get_or_connect_mut(addr) {
+            Ok(conn) => conn.write(msg),
+            Err(err) => {
+                SendMessageResult::err(
+                    msg.get_message_type(),
+                    SendMessageError::EncodeFailed,
+                )
+            }
+        }
+    }
 }
 
 fn handle_send_message_result(
@@ -508,7 +605,8 @@ fn handle_send_message_result(
                 message: msg,
             });
         }
-        Err { message_type, .. } => {
+        Err { message_type, error } => {
+            dbg!(error);
             let msg = match message_type {
                 SendMessageType::Connect => HandshakeMsg::SendConnectError,
                 SendMessageType::Meta => HandshakeMsg::SendMetaError,
@@ -559,13 +657,14 @@ fn main() {
     let _ = tezedge_state.accept(ExtendPotentialPeersProposal {
         at: Instant::now(),
         peers: vec![
-            // PeerAddress::new("3.8.82.29:9732".to_string())
-            // PeerAddress::new("5.199.136.120:9732".to_string())
-            PeerAddress::new("51.107.4.89:9732".to_string())
+            // PeerAddress::new("35.234.10.226:9732".to_string())
+            // PeerAddress::new("18.182.168.120:9732".to_string())
+            PeerAddress::new("99.23.145.152:9732".to_string())
+            // PeerAddress::new("135.181.153.118:9732".to_string())
+            // PeerAddress::new("51.161.84.62:9732".to_string())
         ],
     });
 
-    // dbg!(ConnectionMessage::from_bytes(&[ 0, 103, 38, 4, 134, 101, 72, 110, 234, 138, 81, 95, 103, 25, 197, 212, 28, 132, 192, 119, 184, 251, 54, 180, 179, 58, 53, 72, 133, 26, 144, 203, 22, 196, 226, 40, 12, 125, 129, 218, 69, 145, 54, 104, 124, 7, 54, 35, 149, 11, 178, 147, 90, 132, 146, 196, 40, 212, 23, 29, 39, 237, 98, 228, 68, 68, 109, 243, 127, 43, 175, 193, 150, 27, 243, 119, 23, 4, 174, 231, 113, 37, 147, 139, 0, 0, 0, 13, 84, 69, 90, 79, 83, 95, 77, 65, 73, 78, 78, 69, 84, 0, 0, 0, 1, ][2..])); 
     let mut server = TcpListener::bind(addr).unwrap();
     mgr.poll.registry()
         .register(&mut server, SERVER, Interest::READABLE).unwrap();
@@ -604,7 +703,7 @@ fn main() {
                         tezedge_state.accept(RawProposal {
                             at: Instant::now(),
                             peer: conn.address.clone(),
-                            message: RawMessage::new(&msg_bytes),
+                            message: RawBinaryMessage::new(msg_bytes),
                         });
                     }
                     ReadMessageResult::Err(err) => {
@@ -637,22 +736,26 @@ fn main() {
                     handle_send_message_result(&mut tezedge_state, peer, result);
                 }
                 TezedgeRequest::SendPeerMeta { peer, message } => {
-                    let result = mgr.try_send_msg(&peer, message);
-                    tezedge_state.accept(HandshakeProposal {
-                        at: Instant::now(),
-                        peer: peer.clone(),
-                        message: HandshakeMsg::SendMetaPending,
-                    });
-                    handle_send_message_result(&mut tezedge_state, peer, result);
+                    if let Some(crypto) = tezedge_state.get_peer_crypto(&peer) {
+                        let result = mgr.try_send_msg_encrypted(&peer, crypto, message);
+                        tezedge_state.accept(HandshakeProposal {
+                            at: Instant::now(),
+                            peer: peer.clone(),
+                            message: HandshakeMsg::SendMetaPending,
+                        });
+                        handle_send_message_result(&mut tezedge_state, peer, result);
+                    }
                 }
                 TezedgeRequest::SendPeerAck { peer, message } => {
-                    let result = mgr.try_send_msg(&peer, message);
-                    tezedge_state.accept(HandshakeProposal {
-                        at: Instant::now(),
-                        peer: peer.clone(),
-                        message: HandshakeMsg::SendAckPending,
-                    });
-                    handle_send_message_result(&mut tezedge_state, peer, result);
+                    if let Some(crypto) = tezedge_state.get_peer_crypto(&peer) {
+                        let result = mgr.try_send_msg_encrypted(&peer,crypto, message);
+                        tezedge_state.accept(HandshakeProposal {
+                            at: Instant::now(),
+                            peer: peer.clone(),
+                            message: HandshakeMsg::SendAckPending,
+                        });
+                        handle_send_message_result(&mut tezedge_state, peer, result);
+                    }
                 }
             }
         }

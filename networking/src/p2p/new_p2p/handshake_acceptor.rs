@@ -41,25 +41,6 @@ impl Proposal for HandshakeProposal {
     }
 }
 
-fn connect_to_peer(
-    state: &mut TezedgeState,
-    at: Instant,
-    peer_address: PeerAddress,
-    conn_msg: ConnectionMessage,
-    meta_msg: MetadataMessage,
-) {
-    state.connected_peers.insert(peer_address, ConnectedPeer {
-        connected_since: at,
-        port: conn_msg.port,
-        version: conn_msg.version,
-        public_key: conn_msg.public_key,
-        proof_of_work_stamp: conn_msg.proof_of_work_stamp,
-        message_nonce: conn_msg.message_nonce,
-        disable_mempool: meta_msg.disable_mempool(),
-        private_node: meta_msg.private_node(),
-    });
-}
-
 fn handle_send_connect_pending(
     state: &mut TezedgeState,
     at: Instant,
@@ -226,9 +207,9 @@ fn handle_send_ack_success(
                     step.set_sent(Success { at });
                     pending_peers.insert(peer_address, Outgoing(step));
                 }
-                Some(Incoming(Ack { sent: Some(Pending { .. }), conn_msg, meta_msg, .. })) => {
-                    connect_to_peer(state, at, peer_address, conn_msg, meta_msg);
-
+                Some(handshake @ Incoming(Ack { sent: Some(Pending { .. }), .. })) => {
+                    let result = handshake.to_result().unwrap();
+                    state.set_peer_connected(at, peer_address, result);
                 }
                 Some(Outgoing(_)) | Some(Incoming(_)) | None => {
                     // maybe remove from pending and ban here?
