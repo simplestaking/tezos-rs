@@ -160,9 +160,9 @@ pub struct TezedgeConfig {
     pub port: u16,
     pub disable_mempool: bool,
     pub private_node: bool,
-    pub min_connected_peers: u8,
-    pub max_connected_peers: u8,
-    pub max_pending_peers: u8,
+    pub min_connected_peers: u32,
+    pub max_connected_peers: u32,
+    pub max_pending_peers: u32,
     pub max_potential_peers: usize,
     pub peer_blacklist_duration: Duration,
     pub peer_timeout: Duration,
@@ -219,6 +219,7 @@ pub struct TezedgeState {
     pub blacklisted_peers: HashMap<PeerAddress, BlacklistedPeer>,
     pub newest_time_seen: Instant,
     pub p2p_state: P2pState,
+    pub requests: slab::Slab<PendingRequest>,
 }
 
 impl NewestTimeSeen for TezedgeState {
@@ -250,6 +251,7 @@ impl TezedgeState {
             p2p_state: P2pState::Pending {
                 pending_peers: HashMap::new(),
             },
+            requests: slab::Slab::new(),
         }
     }
 
@@ -328,7 +330,6 @@ impl TezedgeState {
             private_node: result.meta_msg.private_node(),
         });
     }
-
 }
 
 impl React for TezedgeState {
@@ -338,7 +339,74 @@ impl React for TezedgeState {
         let min_connected = self.config.min_connected_peers as usize;
         let max_connected = self.config.max_connected_peers as usize;
         let max_pending = self.config.max_pending_peers as usize;
+        let peer_timeout = self.config.peer_timeout;
 
+        // check timeouts
+        match &mut self.p2p_state {
+            ReadyMaxed => {}
+            Ready { pending_peers }
+            | ReadyFull { pending_peers }
+            | Pending { pending_peers }
+            | PendingFull { pending_peers } => {
+                use Handshake::*;
+                use HandshakeStep::*;
+                use RequestState::*;
+
+                let now = at;
+
+                let end_handshake = pending_peers.iter_mut()
+                    .filter_map(|(peer_address, handshake)| {
+                        match handshake {
+                            Incoming(Connect { sent: Some(Pending { at, .. }), .. })
+                            | Incoming(Metadata { sent: Some(Pending { at, .. }), .. })
+                            | Incoming(Ack { sent: Some(Pending { at, .. }), .. })
+                            | Outgoing(Connect { sent: Some(Pending { at, .. }), .. })
+                            | Outgoing(Metadata { sent: Some(Pending { at, .. }), .. })
+                            | Outgoing(Ack { sent: Some(Pending { at, .. }), .. })
+                            => {
+                                if now.duration_since(*at) >= peer_timeout {
+                                    // sending timed out
+                                    Some(peer_address.clone())
+                                } else {
+                                    None
+                                }
+                            }
+                            Incoming(Connect { sent: Some(Success { at, .. }), .. })
+                            | Incoming(Metadata { sent: Some(Success { at, .. }), .. })
+                            | Outgoing(Connect { received: None, sent: Some(Success { at, .. }), .. })
+                            | Outgoing(Metadata { received: None, sent: Some(Success { at, .. }), .. })
+                            | Outgoing(Ack { received: false, sent: Some(Success { at, .. }), .. })
+                            => {
+                                if now.duration_since(*at) >= peer_timeout {
+                                    // receiving timed out
+                                    Some(peer_address.clone())
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                for peer in end_handshake.iter() {
+                    pending_peers.remove(peer);
+                }
+
+                for peer in end_handshake.into_iter() {
+                    self.blacklisted_peers.insert(peer.clone(), BlacklistedPeer {
+                        since: now,
+                    });
+                    let entry = self.requests.vacant_entry();
+                    let req_id = entry.key();
+
+                    entry.insert(PendingRequest {
+                        request: TezedgeRequest::BlacklistPeer { req_id, peer },
+                        status: RequestState::Idle { at: now },
+                    });
+                }
+            }
+        }
         if self.connected_peers.len() == max_connected {
             // TODO: write handling pending_peers, e.g. sending them nack.
             self.p2p_state = ReadyMaxed;
@@ -446,6 +514,20 @@ pub enum TezedgeRequest {
         peer: PeerAddress,
         message: AckMessage,
     },
+    DisconnectPeer {
+        req_id: usize,
+        peer: PeerAddress,
+    },
+    BlacklistPeer {
+        req_id: usize,
+        peer: PeerAddress,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingRequest {
+    pub request: TezedgeRequest,
+    pub status: RequestState,
 }
 
 impl GetRequests for TezedgeState {
@@ -477,8 +559,8 @@ impl GetRequests for TezedgeState {
                         }
                         Incoming(Connect { .. }) | Outgoing(Connect { .. }) => {}
 
-                        Incoming(Metadata { sent: Some(Idle { .. }), conn_msg, .. })
-                        | Outgoing(Metadata { sent: Some(Idle { .. }), conn_msg, .. }) => {
+                        Incoming(Metadata { sent: Some(Idle { .. }), .. })
+                        | Outgoing(Metadata { sent: Some(Idle { .. }), .. }) => {
                             requests.push(
                                 TezedgeRequest::SendPeerMeta {
                                     peer: peer_address.clone(),
@@ -500,6 +582,12 @@ impl GetRequests for TezedgeState {
                         Incoming(Ack { .. }) | Outgoing(Ack { .. }) => {}
                     }
                 }
+            }
+        }
+
+        for (_, req) in self.requests.iter() {
+            if let RequestState::Idle { .. } = req.status {
+                requests.push(req.request.clone());
             }
         }
 
