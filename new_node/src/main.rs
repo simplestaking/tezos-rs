@@ -3,6 +3,7 @@ use std::{convert::TryInto, io::{self, Read, Write}};
 use std::{convert::TryFrom, error::Error, time::{Duration, Instant}};
 use std::fmt::Debug;
 use std::collections::{HashMap, HashSet};
+use tla_sm::{Proposal, Acceptor, GetRequests};
 
 use crypto::{crypto_box::{CryptoKey, PrecomputedKey, PublicKey, SecretKey}, hash::{CryptoboxPublicKeyHash, HashTrait}, nonce::NoncePair, proof_of_work::ProofOfWork};
 use hex::FromHex;
@@ -18,7 +19,15 @@ use tezos_messages::p2p::{binary_message::BinaryMessage, encoding::{ack::AckMess
 use tezos_messages::p2p::binary_message::{
     BinaryChunk, BinaryChunkError, CONTENT_LENGTH_FIELD_BYTES,
 };
-use networking::p2p::new_p2p::{Acceptor, GetRequests, PeerAddress, React, TezedgeConfig, TezedgeRequest, TezedgeState, crypto::Crypto, extend_potential_peers_acceptor::ExtendPotentialPeersProposal, handshake_acceptor::{HandshakeMsg, HandshakeProposal}, raw_acceptor::RawProposal, raw_binary_message::RawBinaryMessage, pending_request_acceptor::{PendingRequestProposal, PendingRequestMsg}};
+use tezedge_state::{TezedgeState, TezedgeRequest, TezedgeConfig, PeerCrypto, PeerAddress};
+use tezedge_state::proposals::{
+    TickProposal,
+    ExtendPotentialPeersProposal,
+    HandshakeProposal, HandshakeMsg,
+    PeerProposal, PeerMessage,
+    PendingRequestProposal, PendingRequestMsg,
+};
+use tezedge_state::proposals::peer_message::PeerBinaryMessage;
 
 fn network_version() -> NetworkVersion {
     NetworkVersion::new("TEZOS_MAINNET".to_string(), 0, 1)
@@ -62,7 +71,7 @@ trait AsEncryptedSendMessage {
 
     fn as_encrypted_send_message(
         &self,
-        crypto: &mut Crypto,
+        crypto: &mut PeerCrypto,
     ) -> Result<SendMessage, Self::Error>;
 }
 
@@ -224,7 +233,7 @@ impl<M> AsEncryptedSendMessage for M
 
     fn as_encrypted_send_message(
         &self,
-        crypto: &mut Crypto,
+        crypto: &mut PeerCrypto,
     ) -> Result<SendMessage, Self::Error>
     {
         let encrypted = crypto.encrypt(
@@ -560,7 +569,7 @@ impl ConnectionManager {
     pub fn try_send_msg_encrypted<M, E>(
         &mut self,
         addr: &PeerAddress,
-        crypto: &mut Crypto,
+        crypto: &mut PeerCrypto,
         msg: M,
     ) -> SendMessageResult
         where M: GetMessageType + AsEncryptedSendMessage<Error = E>,
@@ -650,6 +659,7 @@ fn main() {
             max_connected_peers: 1000,
             max_pending_peers: 1000,
             max_potential_peers: 100000,
+            periodic_react_interval: Duration::from_millis(250),
             peer_blacklist_duration: Duration::from_secs(30 * 60),
             peer_timeout: Duration::from_secs(8),
         },
@@ -696,7 +706,7 @@ fn main() {
 
         // Process each event.
         for event in events.iter() {
-            dbg!(event);
+            // dbg!(event);
             // We can use the token we previously provided to `register` to
             // determine for which socket the event is.
             if event.token() == SERVER {
@@ -706,16 +716,17 @@ fn main() {
             }
 
             let conn = mgr.get_by_token_mut(event.token());
+            // dbg!((&conn.address, event.is_readable(), event.is_writable()));
 
             if event.is_readable() {
                 match conn.read() {
                     ReadMessageResult::Empty => {}
                     ReadMessageResult::Pending => {}
                     ReadMessageResult::Ok(msg_bytes) => {
-                        tezedge_state.accept(RawProposal {
+                        tezedge_state.accept(PeerProposal {
                             at: Instant::now(),
                             peer: conn.address.clone(),
-                            message: RawBinaryMessage::new(msg_bytes),
+                            message: PeerBinaryMessage::new(msg_bytes),
                         });
                     }
                     ReadMessageResult::Err(err) => {
@@ -734,13 +745,16 @@ fn main() {
             }
         }
 
-        tezedge_state.react(Instant::now());
+        tezedge_state.accept(TickProposal {
+            at: Instant::now(),
+        });
+
 
         for req in tezedge_state.get_requests() {
             match req {
                 TezedgeRequest::SendPeerConnect { peer, message } => {
                     eprintln!("sending connection message to peer: {:?}", peer);
-                    let result = mgr.try_send_msg(&peer, message);
+                    let result = dbg!(mgr.try_send_msg(&peer, message));
                     tezedge_state.accept(HandshakeProposal {
                         at: Instant::now(),
                         peer: peer.clone(),

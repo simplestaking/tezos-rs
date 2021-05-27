@@ -22,6 +22,8 @@ slog-term = "2.6"
 strum = "0.20"
 strum_macros = "0.20"
 # Local dependencies
+tla-sm = { path = "../tla_sm" }
+tezedge-state = { path = "../tezedge_state" }
 crypto = { path = "../crypto" }
 logging = { path = "../logging" }
 # tezos_api = { path = "../tezos/api" }

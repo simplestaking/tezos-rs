@@ -4,26 +4,25 @@ use std::time::{Duration, Instant};
 use std::collections::HashMap;
 use getset::{Getters, CopyGetters};
 
-
-use crypto::{crypto_box::{CryptoKey, PrecomputedKey, PublicKey}, nonce::{Nonce, NoncePair, generate_nonces}};
+pub use tla_sm::{Proposal, GetRequests};
+use crypto::nonce::Nonce;
 use tezos_identity::Identity;
-use tezos_messages::p2p::{binary_message::BinaryMessage, encoding::prelude::{
+use tezos_messages::p2p::encoding::{ack::NackMotive, prelude::{
     NetworkVersion,
     ConnectionMessage,
     MetadataMessage,
     AckMessage,
 }};
 
-use super::{GetRequests, NewestTimeSeen, React, crypto::Crypto};
+mod peer_crypto;
+pub use peer_crypto::PeerCrypto;
+
+pub mod proposals;
+pub mod acceptors;
 
 #[derive(Debug)]
-pub enum Error {
+pub enum InvalidProposalError {
     ProposalOutdated,
-    MaximumPeersReached,
-    PeerBlacklisted {
-        till: Instant,
-    },
-    InvalidMsg,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -51,7 +50,7 @@ pub enum Handshake {
 pub struct HandshakeResult {
     pub conn_msg: ConnectionMessage,
     pub meta_msg: MetadataMessage,
-    pub crypto: Crypto,
+    pub crypto: PeerCrypto,
 }
 
 impl Handshake {
@@ -72,14 +71,14 @@ pub enum HandshakeStep {
     },
     Metadata {
         conn_msg: ConnectionMessage,
-        crypto: Crypto,
+        crypto: PeerCrypto,
         sent: Option<RequestState>,
         received: Option<MetadataMessage>,
     },
     Ack {
         conn_msg: ConnectionMessage,
         meta_msg: MetadataMessage,
-        crypto: Crypto,
+        crypto: PeerCrypto,
         sent: Option<RequestState>,
         received: bool,
     },
@@ -138,7 +137,7 @@ pub struct ConnectedPeer {
     pub proof_of_work_stamp: Vec<u8>,
 
     // #[get = "pub"]
-    pub crypto: Crypto,
+    pub crypto: PeerCrypto,
 
     // #[get_copy = "pub"]
     pub disable_mempool: bool,
@@ -164,6 +163,7 @@ pub struct TezedgeConfig {
     pub max_connected_peers: u32,
     pub max_pending_peers: u32,
     pub max_potential_peers: usize,
+    pub periodic_react_interval: Duration,
     pub peer_blacklist_duration: Duration,
     pub peer_timeout: Duration,
 }
@@ -211,25 +211,16 @@ impl P2pState {
 
 #[derive(Debug, Clone)]
 pub struct TezedgeState {
-    pub config: TezedgeConfig,
-    pub identity: Identity,
-    pub network_version: NetworkVersion,
-    pub potential_peers: Vec<PeerAddress>,
-    pub connected_peers: HashMap<PeerAddress, ConnectedPeer>,
-    pub blacklisted_peers: HashMap<PeerAddress, BlacklistedPeer>,
-    pub newest_time_seen: Instant,
-    pub p2p_state: P2pState,
-    pub requests: slab::Slab<PendingRequest>,
-}
-
-impl NewestTimeSeen for TezedgeState {
-    fn newest_time_seen(&self) -> Instant {
-        self.newest_time_seen
-    }
-
-    fn newest_time_seen_mut(&mut self) -> &mut Instant {
-       &mut self.newest_time_seen
-    }
+    pub(crate) newest_time_seen: Instant,
+    pub(crate) last_periodic_react: Instant,
+    pub(crate) config: TezedgeConfig,
+    pub(crate) identity: Identity,
+    pub(crate) network_version: NetworkVersion,
+    pub(crate) potential_peers: Vec<PeerAddress>,
+    pub(crate) connected_peers: HashMap<PeerAddress, ConnectedPeer>,
+    pub(crate) blacklisted_peers: HashMap<PeerAddress, BlacklistedPeer>,
+    pub(crate) p2p_state: P2pState,
+    pub(crate) requests: slab::Slab<PendingRequest>,
 }
 
 impl TezedgeState {
@@ -240,6 +231,8 @@ impl TezedgeState {
         initial_time: Instant,
     ) -> Self
     {
+        let periodic_react_interval = config.periodic_react_interval;
+
         Self {
             config,
             identity,
@@ -247,12 +240,36 @@ impl TezedgeState {
             potential_peers: Vec::new(),
             connected_peers: HashMap::new(),
             blacklisted_peers: HashMap::new(),
-            newest_time_seen: initial_time,
             p2p_state: P2pState::Pending {
                 pending_peers: HashMap::new(),
             },
             requests: slab::Slab::new(),
+            newest_time_seen: initial_time,
+            last_periodic_react: initial_time - periodic_react_interval,
         }
+    }
+
+    pub(crate) fn check_and_update_time<P: Proposal>(
+        &mut self,
+        proposal: &P,
+    ) -> Result<(), InvalidProposalError>
+    {
+        if proposal.time() >= self.newest_time_seen {
+            self.newest_time_seen = proposal.time();
+            Ok(())
+        } else {
+            Err(InvalidProposalError::ProposalOutdated)
+        }
+    }
+
+    fn validate_proposal<P: Proposal>(
+        &mut self,
+        proposal: &P,
+    ) -> Result<(), InvalidProposalError>
+    {
+        self.check_and_update_time(proposal)?;
+
+        Ok(())
     }
 
     pub fn connection_msg(&self) -> ConnectionMessage {
@@ -286,7 +303,7 @@ impl TezedgeState {
         self.potential_peers.extend(peers.into_iter().take(limit));
     }
 
-    pub fn get_peer_crypto(&mut self, peer_address: &PeerAddress) -> Option<&mut Crypto> {
+    pub fn get_peer_crypto(&mut self, peer_address: &PeerAddress) -> Option<&mut PeerCrypto> {
         if let Some(peer) = self.connected_peers.get_mut(peer_address) {
             return Some(&mut peer.crypto);
         }
@@ -330,18 +347,62 @@ impl TezedgeState {
             private_node: result.meta_msg.private_node(),
         });
     }
-}
 
-impl React for TezedgeState {
-    fn react(&mut self, at: Instant) {
+    pub(crate) fn adjust_p2p_state(&mut self, at: Instant) {
         use P2pState::*;
-
         let min_connected = self.config.min_connected_peers as usize;
         let max_connected = self.config.max_connected_peers as usize;
         let max_pending = self.config.max_pending_peers as usize;
+
+        if self.connected_peers.len() == max_connected {
+            // TODO: write handling pending_peers, e.g. sending them nack.
+            self.p2p_state = ReadyMaxed;
+        } else if self.connected_peers.len() < min_connected {
+            match &mut self.p2p_state {
+                ReadyMaxed => {
+                    self.p2p_state = Pending { pending_peers: HashMap::new() };
+                    self.initiate_handshakes(at);
+                }
+                Ready { pending_peers }
+                | ReadyFull { pending_peers }
+                | Pending { pending_peers }
+                | PendingFull { pending_peers } => {
+                    let pending_peers = mem::replace(pending_peers, HashMap::new());
+                    if pending_peers.len() == max_pending {
+                        self.p2p_state = PendingFull { pending_peers };
+                    } else {
+                        self.p2p_state = Pending { pending_peers };
+                        self.initiate_handshakes(at);
+                    }
+                }
+            };
+        } else {
+            match &mut self.p2p_state {
+                ReadyMaxed => {
+                    self.p2p_state = Ready { pending_peers: HashMap::new() };
+                    self.initiate_handshakes(at);
+                }
+                Ready { pending_peers }
+                | ReadyFull { pending_peers }
+                | Pending { pending_peers }
+                | PendingFull { pending_peers } => {
+                    let pending_peers = mem::replace(pending_peers, HashMap::new());
+                    if pending_peers.len() == max_pending {
+                        self.p2p_state = ReadyFull { pending_peers };
+                    } else {
+                        self.p2p_state = Ready { pending_peers };
+                        self.initiate_handshakes(at);
+                    }
+                }
+            };
+        }
+
+    }
+
+    pub(crate) fn check_timeouts(&mut self, at: Instant) {
+        use P2pState::*;
         let peer_timeout = self.config.peer_timeout;
 
-        // check timeouts
         match &mut self.p2p_state {
             ReadyMaxed => {}
             Ready { pending_peers }
@@ -354,7 +415,7 @@ impl React for TezedgeState {
 
                 let now = at;
 
-                let end_handshake = pending_peers.iter_mut()
+                let end_handshakes = pending_peers.iter_mut()
                     .filter_map(|(peer_address, handshake)| {
                         match handshake {
                             Incoming(Connect { sent: Some(Pending { at, .. }), .. })
@@ -389,11 +450,15 @@ impl React for TezedgeState {
                     })
                     .collect::<Vec<_>>();
 
-                for peer in end_handshake.iter() {
+                if end_handshakes.len() == 0 {
+                    return;
+                }
+
+                for peer in end_handshakes.iter() {
                     pending_peers.remove(peer);
                 }
 
-                for peer in end_handshake.into_iter() {
+                for peer in end_handshakes.into_iter() {
                     self.blacklisted_peers.insert(peer.clone(), BlacklistedPeer {
                         since: now,
                     });
@@ -405,47 +470,12 @@ impl React for TezedgeState {
                         status: RequestState::Idle { at: now },
                     });
                 }
+                self.initiate_handshakes(now);
             }
         }
-        if self.connected_peers.len() == max_connected {
-            // TODO: write handling pending_peers, e.g. sending them nack.
-            self.p2p_state = ReadyMaxed;
-        } else if self.connected_peers.len() < min_connected {
-            self.p2p_state = match &mut self.p2p_state {
-                ReadyMaxed => {
-                    Pending { pending_peers: HashMap::new() }
-                }
-                Ready { pending_peers }
-                | ReadyFull { pending_peers }
-                | Pending { pending_peers }
-                | PendingFull { pending_peers } => {
-                    let pending_peers = mem::replace(pending_peers, HashMap::new());
-                    if pending_peers.len() == max_pending {
-                        PendingFull { pending_peers }
-                    } else {
-                        Pending { pending_peers }
-                    }
-                }
-            };
-        } else {
-            self.p2p_state = match &mut self.p2p_state {
-                ReadyMaxed => {
-                    Ready { pending_peers: HashMap::new() }
-                }
-                Ready { pending_peers }
-                | ReadyFull { pending_peers }
-                | Pending { pending_peers }
-                | PendingFull { pending_peers } => {
-                    let pending_peers = mem::replace(pending_peers, HashMap::new());
-                    if pending_peers.len() == max_pending {
-                        ReadyFull { pending_peers }
-                    } else {
-                        Ready { pending_peers }
-                    }
-                }
-            };
-        }
+    }
 
+    pub(crate) fn check_blacklisted_peers(&mut self, at: Instant) {
         let whitelist_peers = self.blacklisted_peers.iter()
             .filter(|(_, blacklisted)| {
                 at.duration_since(blacklisted.since) >= self.config.peer_blacklist_duration
@@ -459,7 +489,12 @@ impl React for TezedgeState {
                 std::iter::once(address.clone()),
             );
         }
+    }
+
+    pub(crate) fn initiate_handshakes(&mut self, at: Instant) {
+        use P2pState::*;
         let potential_peers = &mut self.potential_peers;
+        let max_pending = self.config.max_pending_peers as usize;
 
         match &mut self.p2p_state {
             ReadyMaxed | ReadyFull { .. } | PendingFull { .. } => {}
@@ -474,7 +509,6 @@ impl React for TezedgeState {
                 for peer in potential_peers.drain(start..end) {
                     pending_peers.insert(peer, Handshake::Outgoing(
                         HandshakeStep::Connect {
-                            // sent_conn_msg: self.connection_msg(),
                             sent_conn_msg: ConnectionMessage::try_new(
                                 self.config.port,
                                 &self.identity.public_key,
@@ -490,11 +524,31 @@ impl React for TezedgeState {
                 }
 
                 if len > 0 {
-                    return self.react(at);
+                    self.adjust_p2p_state(at);
                 }
             }
         }
+    }
 
+    pub(crate) fn periodic_react(&mut self, at: Instant) {
+        let dur_since_last_periodic_react = at.duration_since(self.last_periodic_react);
+        if  dur_since_last_periodic_react > self.config.periodic_react_interval {
+            self.last_periodic_react = at;
+            self.check_timeouts(at);
+            self.check_blacklisted_peers(at);
+            self.initiate_handshakes(at);
+        }
+    }
+
+    pub(crate) fn nack_peer(
+        &mut self,
+        at: Instant,
+        peer: PeerAddress,
+        motive: NackMotive
+    ) {
+        unimplemented!()
+        // TODO: depending on motive, blacklist them, but if we have
+        // to much connections, but only till we need more connections.
     }
 }
 

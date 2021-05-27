@@ -6,5 +6,3 @@
 pub mod network_channel;
 pub mod peer;
 pub mod stream;
-
-pub mod new_p2p;

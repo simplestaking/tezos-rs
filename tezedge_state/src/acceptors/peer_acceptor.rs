@@ -1,54 +1,17 @@
-use std::mem;
-use std::fmt::Debug;
-use std::time::Instant;
-use std::collections::BTreeMap;
+use tla_sm::{Proposal, Acceptor};
+use crypto::crypto_box::{CryptoKey, PrecomputedKey, PublicKey};
+use crypto::nonce::{Nonce, generate_nonces};
+use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryMessage};
+use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, AckMessage};
+use tezos_messages::p2p::encoding::ack::NackMotive;
 
-use crypto::{crypto_box::{CryptoKey, PrecomputedKey, PublicKey}, nonce::{Nonce, generate_nonces}};
-use tezos_encoding::binary_reader::BinaryReaderError;
-use tezos_identity::Identity;
-use tezos_messages::p2p::{binary_message::{BinaryChunk, BinaryMessage}, encoding::prelude::{
-    NetworkVersion,
-    ConnectionMessage,
-    MetadataMessage,
-    AckMessage,
-}};
+use crate::{Handshake, HandshakeStep, P2pState, PeerCrypto, RequestState, TezedgeState};
+use crate::proposals::{PeerProposal, PeerMessage};
 
-use super::{GetRequests, acceptor::{Acceptor, React, Proposal}};
-use super::crypto::Crypto;
-use super::{ConnectedPeer, Handshake, HandshakeStep, P2pState, PeerAddress, RequestState, TezedgeState};
-
-#[derive(Debug)]
-pub enum RawMessageError {
-    InvalidMessage,
-}
-
-pub trait RawMessage: Debug {
-    fn take_binary_chunk(self) -> BinaryChunk;
-    fn binary_chunk(&self) -> &BinaryChunk;
-    fn as_connection_msg(&mut self) -> Result<ConnectionMessage, RawMessageError>;
-    fn as_metadata_msg(&mut self, crypto: &mut Crypto) -> Result<MetadataMessage, RawMessageError>;
-    fn as_ack_msg(&mut self, crypto: &mut Crypto) -> Result<AckMessage, RawMessageError>;
-}
-
-#[derive(Debug, Clone)]
-pub struct RawProposal<M> {
-    pub at: Instant,
-    pub peer: PeerAddress,
-    pub message: M,
-}
-
-impl<M> Proposal for RawProposal<M> {
-    fn time(&self) -> Instant {
-        self.at
-    }
-}
-
-// TODO: detect and handle timeouts
-impl<M> Acceptor<RawProposal<M>> for TezedgeState
-    where M: RawMessage,
+impl<M> Acceptor<PeerProposal<M>> for TezedgeState
+    where M: PeerMessage,
 {
-    fn accept(&mut self, mut proposal: RawProposal<M>) {
-        dbg!(&proposal);
+    fn accept(&mut self, mut proposal: PeerProposal<M>) {
         if let Err(_) = self.validate_proposal(&proposal) {
             return;
         }
@@ -64,8 +27,7 @@ impl<M> Acceptor<RawProposal<M>> for TezedgeState
 
             let (pending_peers, allow_new_peers) = match &mut self.p2p_state {
                 P2pState::ReadyMaxed => {
-                    // TODO: if message is connection message
-                    // nack and send potential peers.
+                    self.nack_peer(proposal.at, proposal.peer, NackMotive::TooManyConnections);
                     return;
                 }
                 P2pState::PendingFull { pending_peers }
@@ -94,7 +56,7 @@ impl<M> Acceptor<RawProposal<M>> for TezedgeState
                             &PublicKey::from_bytes(conn_msg.public_key()).unwrap(),
                             &self.identity.secret_key,
                         );
-                        let crypto = Crypto::new(precomputed_key, nonce_pair);
+                        let crypto = PeerCrypto::new(precomputed_key, nonce_pair);
                         *step = Metadata {
                             conn_msg,
                             crypto,
@@ -165,7 +127,7 @@ impl<M> Acceptor<RawProposal<M>> for TezedgeState
                             &PublicKey::from_bytes(conn_msg.public_key()).unwrap(),
                             &self.identity.secret_key,
                         );
-                        let crypto = Crypto::new(precomputed_key, nonce_pair);
+                        let crypto = PeerCrypto::new(precomputed_key, nonce_pair);
 
                         *step = Metadata {
                             conn_msg,
@@ -206,8 +168,7 @@ impl<M> Acceptor<RawProposal<M>> for TezedgeState
                 }
                 None => {
                     if !allow_new_peers {
-                        // TODO: if message is connection message
-                        // nack and send potential peers.
+                        self.nack_peer(proposal.at, proposal.peer, NackMotive::TooManyConnections);
                         return;
                     }
 
@@ -233,6 +194,7 @@ impl<M> Acceptor<RawProposal<M>> for TezedgeState
             }
         }
 
-        self.react(proposal.at);
+        self.adjust_p2p_state(proposal.at);
+        self.periodic_react(proposal.at);
     }
 }

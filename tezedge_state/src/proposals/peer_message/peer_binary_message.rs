@@ -1,27 +1,30 @@
 use crypto::CryptoError;
 use tezos_encoding::binary_reader::BinaryReaderError;
-use tezos_messages::p2p::{binary_message::{BinaryChunk, BinaryMessage}, encoding::{ack::AckMessage, connection::ConnectionMessage, prelude::MetadataMessage}};
-use super::{crypto::Crypto, raw_acceptor::{RawMessage, RawMessageError}};
+use tezos_messages::p2p::binary_message::{BinaryMessage, BinaryChunk};
+use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, MetadataMessage, AckMessage};
 
-impl From<BinaryReaderError> for RawMessageError {
+use crate::PeerCrypto;
+use super::{PeerMessage, PeerMessageError};
+
+impl From<BinaryReaderError> for PeerMessageError {
     fn from(_: BinaryReaderError) -> Self {
         Self::InvalidMessage
     }
 }
 
-impl From<CryptoError> for RawMessageError {
+impl From<CryptoError> for PeerMessageError {
     fn from(_: CryptoError) -> Self {
         Self::InvalidMessage
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct RawBinaryMessage {
+pub struct PeerBinaryMessage {
     bytes: BinaryChunk,
     decrypted: Option<Vec<u8>>,
 }
 
-impl RawMessage for RawBinaryMessage {
+impl PeerMessage for PeerBinaryMessage {
     fn take_binary_chunk(self) -> BinaryChunk {
         self.bytes
     }
@@ -30,11 +33,11 @@ impl RawMessage for RawBinaryMessage {
         &self.bytes
     }
 
-    fn as_connection_msg(&mut self) -> Result<ConnectionMessage, RawMessageError> {
+    fn as_connection_msg(&mut self) -> Result<ConnectionMessage, PeerMessageError> {
         Ok(ConnectionMessage::from_bytes(self.bytes.content())?)
     }
 
-    fn as_metadata_msg(&mut self, crypto: &mut Crypto) -> Result<MetadataMessage, RawMessageError> {
+    fn as_metadata_msg(&mut self, crypto: &mut PeerCrypto) -> Result<MetadataMessage, PeerMessageError> {
         if let Some(decrypted) = self.decrypted.as_ref() {
             Ok(MetadataMessage::from_bytes(decrypted)?)
         } else {
@@ -43,7 +46,7 @@ impl RawMessage for RawBinaryMessage {
         }
     }
 
-    fn as_ack_msg(&mut self, crypto: &mut Crypto) -> Result<AckMessage, RawMessageError> {
+    fn as_ack_msg(&mut self, crypto: &mut PeerCrypto) -> Result<AckMessage, PeerMessageError> {
         if let Some(decrypted) = self.decrypted.as_ref() {
             Ok(AckMessage::from_bytes(decrypted)?)
         } else {
@@ -53,7 +56,7 @@ impl RawMessage for RawBinaryMessage {
     }
 }
 
-impl RawBinaryMessage {
+impl PeerBinaryMessage {
     pub fn new(bytes: BinaryChunk) -> Self {
         Self { bytes, decrypted: None }
     }

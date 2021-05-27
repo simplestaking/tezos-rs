@@ -3,7 +3,7 @@ use crypto::crypto_box::PrecomputedKey;
 use crypto::nonce::{Nonce, NoncePair};
 
 #[derive(Debug, Clone)]
-pub struct Crypto {
+pub struct PeerCrypto {
     /// Precomputed key is created from merge of peer public key and our secret key.
     /// It's used to speedup of crypto operations.
     precomputed_key: PrecomputedKey,
@@ -11,7 +11,7 @@ pub struct Crypto {
     nonce_pair: NoncePair,
 }
 
-impl Crypto {
+impl PeerCrypto {
     #[inline]
     pub fn new(precomputed_key: PrecomputedKey, nonce_pair: NoncePair) -> Self {
         Self {

@@ -1,39 +1,7 @@
-use std::mem;
-use std::time::Instant;
-use std::collections::BTreeMap;
+use tla_sm::{Proposal, Acceptor};
 
-use crypto::nonce::Nonce;
-use tezos_identity::Identity;
-use tezos_messages::p2p::encoding::prelude::{
-    NetworkVersion,
-    ConnectionMessage,
-    MetadataMessage,
-    AckMessage,
-};
-use super::{GetRequests, acceptor::{Acceptor, React, Proposal, NewestTimeSeen}};
-use super::{ConnectedPeer, Handshake, HandshakeStep, P2pState, PeerAddress, RequestState, TezedgeState, TezedgeRequest};
-
-#[derive(Debug, Clone)]
-pub enum PendingRequestMsg {
-    DisconnectPeerPending,
-    DisconnectPeerSuccess,
-
-    BlacklistPeerPending,
-    BlacklistPeerSuccess,
-}
-
-#[derive(Debug, Clone)]
-pub struct PendingRequestProposal {
-    pub at: Instant,
-    pub req_id: usize,
-    pub message: PendingRequestMsg,
-}
-
-impl Proposal for PendingRequestProposal {
-    fn time(&self) -> Instant {
-        self.at
-    }
-}
+use crate::{RequestState, TezedgeState, TezedgeRequest};
+use crate::proposals::{PendingRequestProposal, PendingRequestMsg};
 
 impl Acceptor<PendingRequestProposal> for TezedgeState {
     fn accept(&mut self, proposal: PendingRequestProposal) {
@@ -76,6 +44,7 @@ impl Acceptor<PendingRequestProposal> for TezedgeState {
             eprintln!("req not found");
         }
 
-        self.react(proposal.at);
+        self.adjust_p2p_state(proposal.at);
+        self.periodic_react(proposal.at);
     }
 }
