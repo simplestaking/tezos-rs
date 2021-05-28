@@ -3,6 +3,9 @@ use tla_sm::Proposal;
 
 #[derive(Debug, Clone)]
 pub enum PendingRequestMsg {
+    SendPeerAckPending,
+    SendPeerAckSuccess,
+
     DisconnectPeerPending,
     DisconnectPeerSuccess,
 

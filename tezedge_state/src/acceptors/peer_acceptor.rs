@@ -27,7 +27,7 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
 
             let (pending_peers, allow_new_peers) = match &mut self.p2p_state {
                 P2pState::ReadyMaxed => {
-                    self.nack_peer(proposal.at, proposal.peer, NackMotive::TooManyConnections);
+                    self.nack_peer_handshake(proposal.at, proposal.peer, NackMotive::TooManyConnections);
                     return;
                 }
                 P2pState::PendingFull { pending_peers }
@@ -168,7 +168,7 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
                 }
                 None => {
                     if !allow_new_peers {
-                        self.nack_peer(proposal.at, proposal.peer, NackMotive::TooManyConnections);
+                        self.nack_peer_handshake(proposal.at, proposal.peer, NackMotive::TooManyConnections);
                         return;
                     }
 

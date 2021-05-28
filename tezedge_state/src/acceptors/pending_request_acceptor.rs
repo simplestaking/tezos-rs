@@ -1,6 +1,6 @@
 use tla_sm::{Proposal, Acceptor};
 
-use crate::{RequestState, TezedgeState, TezedgeRequest};
+use crate::{RequestState, TezedgeState, PendingRequest, PendingRequestState};
 use crate::proposals::{PendingRequestProposal, PendingRequestMsg};
 
 impl Acceptor<PendingRequestProposal> for TezedgeState {
@@ -11,7 +11,23 @@ impl Acceptor<PendingRequestProposal> for TezedgeState {
 
         if let Some(req) = self.requests.get_mut(proposal.req_id) {
             match &req.request {
-                TezedgeRequest::DisconnectPeer { peer, .. } => {
+                PendingRequest::NackAndDisconnectPeer { peer, .. } => {
+                    match proposal.message {
+                        PendingRequestMsg::SendPeerAckPending => {
+                            req.status = RequestState::Pending { at: proposal.at };
+                        }
+                        PendingRequestMsg::SendPeerAckSuccess => {
+                            *req = PendingRequestState {
+                                request: PendingRequest::DisconnectPeer {
+                                    peer: peer.clone(),
+                                },
+                                status: RequestState::Idle { at: proposal.at },
+                            };
+                        }
+                        _ => eprintln!("unexpected request type"),
+                    }
+                }
+                PendingRequest::DisconnectPeer { peer, .. } => {
                     match proposal.message {
                         PendingRequestMsg::DisconnectPeerPending => {
                             req.status = RequestState::Pending { at: proposal.at };
@@ -25,7 +41,7 @@ impl Acceptor<PendingRequestProposal> for TezedgeState {
                         _ => eprintln!("unexpected request type"),
                     }
                 }
-                TezedgeRequest::BlacklistPeer { .. } => {
+                PendingRequest::BlacklistPeer { .. } => {
                     match proposal.message {
                         PendingRequestMsg::BlacklistPeerPending => {
                             req.status = RequestState::Pending { at: proposal.at };

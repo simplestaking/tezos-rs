@@ -7,12 +7,13 @@ use getset::{Getters, CopyGetters};
 pub use tla_sm::{Proposal, GetRequests};
 use crypto::nonce::Nonce;
 use tezos_identity::Identity;
-use tezos_messages::p2p::encoding::{ack::NackMotive, prelude::{
+use tezos_messages::p2p::encoding::ack::{NackInfo, NackMotive};
+use tezos_messages::p2p::encoding::prelude::{
     NetworkVersion,
     ConnectionMessage,
     MetadataMessage,
     AckMessage,
-}};
+};
 
 mod peer_crypto;
 pub use peer_crypto::PeerCrypto;
@@ -220,7 +221,7 @@ pub struct TezedgeState {
     pub(crate) connected_peers: HashMap<PeerAddress, ConnectedPeer>,
     pub(crate) blacklisted_peers: HashMap<PeerAddress, BlacklistedPeer>,
     pub(crate) p2p_state: P2pState,
-    pub(crate) requests: slab::Slab<PendingRequest>,
+    pub(crate) requests: slab::Slab<PendingRequestState>,
 }
 
 impl TezedgeState {
@@ -463,10 +464,8 @@ impl TezedgeState {
                         since: now,
                     });
                     let entry = self.requests.vacant_entry();
-                    let req_id = entry.key();
-
-                    entry.insert(PendingRequest {
-                        request: TezedgeRequest::BlacklistPeer { req_id, peer },
+                    self.requests.insert(PendingRequestState {
+                        request: PendingRequest::BlacklistPeer { peer },
                         status: RequestState::Idle { at: now },
                     });
                 }
@@ -540,13 +539,34 @@ impl TezedgeState {
         }
     }
 
-    pub(crate) fn nack_peer(
+    pub(crate) fn nack_peer_handshake(
         &mut self,
         at: Instant,
         peer: PeerAddress,
         motive: NackMotive
     ) {
-        unimplemented!()
+        use P2pState::*;
+
+        match &mut self.p2p_state {
+            ReadyMaxed => {}
+            Pending { pending_peers }
+            | PendingFull { pending_peers }
+            | Ready { pending_peers }
+            | ReadyFull { pending_peers } => {
+                if let Some((peer_address, _)) = pending_peers.remove_entry(&peer) {
+                    self.potential_peers.push(peer_address);
+                    let entry = self.requests.vacant_entry();
+                    entry.insert(PendingRequestState {
+                        request: PendingRequest::NackAndDisconnectPeer {
+                            peer,
+                            // TODO: include potential peers.
+                            nack_info: NackInfo::new(motive, &[]),
+                        },
+                        status: RequestState::Idle { at },
+                    });
+                }
+            }
+        }
         // TODO: depending on motive, blacklist them, but if we have
         // to much connections, but only till we need more connections.
     }
@@ -579,8 +599,22 @@ pub enum TezedgeRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct PendingRequest {
-    pub request: TezedgeRequest,
+pub enum PendingRequest {
+    NackAndDisconnectPeer {
+        peer: PeerAddress,
+        nack_info: NackInfo,
+    },
+    DisconnectPeer {
+        peer: PeerAddress,
+    },
+    BlacklistPeer {
+        peer: PeerAddress,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingRequestState {
+    pub request: PendingRequest,
     pub status: RequestState,
 }
 
@@ -639,9 +673,24 @@ impl GetRequests for TezedgeState {
             }
         }
 
-        for (_, req) in self.requests.iter() {
+        for (req_id, req) in self.requests.iter() {
             if let RequestState::Idle { .. } = req.status {
-                requests.push(req.request.clone());
+                requests.push(match &req.request {
+                    PendingRequest::NackAndDisconnectPeer { peer, nack_info } => {
+                        TezedgeRequest::SendPeerAck {
+                            peer: peer.clone(),
+                            message: AckMessage::Nack(nack_info.clone()),
+                        }
+                    }
+                    PendingRequest::DisconnectPeer { peer } => {
+                        let peer = peer.clone();
+                        TezedgeRequest::DisconnectPeer { req_id, peer }
+                    }
+                    PendingRequest::BlacklistPeer { peer } => {
+                        let peer = peer.clone();
+                        TezedgeRequest::BlacklistPeer { req_id, peer }
+                    }
+                })
             }
         }
 
