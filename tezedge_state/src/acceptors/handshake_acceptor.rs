@@ -26,7 +26,6 @@ fn handle_send_connect_pending(
                     *status = Pending { at };
                 }
                 Some(Outgoing(_)) | Some(Incoming(_)) | None => {
-                    // maybe remove from pending and ban here?
                 }
             }
         }
@@ -55,7 +54,6 @@ fn handle_send_meta_pending(
                     *status = Pending { at };
                 }
                 Some(Outgoing(_)) | Some(Incoming(_)) | None => {
-                    // maybe remove from pending and ban here?
                 }
             }
         }
@@ -84,7 +82,6 @@ fn handle_send_ack_pending(
                     *status = Pending { at };
                 }
                 Some(Outgoing(_)) | Some(Incoming(_)) | None => {
-                    // maybe remove from pending and ban here?
                 }
             }
         }
@@ -113,7 +110,6 @@ fn handle_send_connect_success(
                     *status = Success { at };
                 }
                 Some(Outgoing(_)) | Some(Incoming(_)) | None => {
-                    // maybe remove from pending and ban here?
                 }
             }
         }
@@ -142,7 +138,6 @@ fn handle_send_meta_success(
                     *status = Success { at };
                 }
                 Some(Outgoing(_)) | Some(Incoming(_)) | None => {
-                    // maybe remove from pending and ban here?
                 }
             }
         }
@@ -175,7 +170,6 @@ fn handle_send_ack_success(
                     state.set_peer_connected(at, peer_address, result);
                 }
                 Some(Outgoing(_)) | Some(Incoming(_)) | None => {
-                    // maybe remove from pending and ban here?
                 }
             }
         }
@@ -188,6 +182,7 @@ fn handle_send_connect_error(
     peer_address: PeerAddress,
 ) {
     // TODO: retry
+    state.blacklist_peer(at, peer_address);
 }
 
 fn handle_send_meta_error(
@@ -196,6 +191,7 @@ fn handle_send_meta_error(
     peer_address: PeerAddress,
 ) {
     // TODO: retry
+    state.blacklist_peer(at, peer_address);
 }
 
 fn handle_send_ack_error(
@@ -204,6 +200,7 @@ fn handle_send_ack_error(
     peer_address: PeerAddress,
 ) {
     // TODO: retry
+    state.blacklist_peer(at, peer_address);
 }
 
 impl Acceptor<HandshakeProposal> for TezedgeState {
