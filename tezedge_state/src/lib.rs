@@ -459,19 +459,8 @@ impl TezedgeState {
                     return;
                 }
 
-                for peer in end_handshakes.iter() {
-                    pending_peers.remove(peer);
-                }
-
                 for peer in end_handshakes.into_iter() {
-                    self.blacklisted_peers.insert(peer.clone(), BlacklistedPeer {
-                        since: now,
-                    });
-                    let entry = self.requests.vacant_entry();
-                    self.requests.insert(PendingRequestState {
-                        request: PendingRequest::BlacklistPeer { peer },
-                        status: RequestState::Idle { at: now },
-                    });
+                    self.blacklist_peer(now, peer);
                 }
                 self.initiate_handshakes(now);
             }
@@ -560,6 +549,9 @@ impl TezedgeState {
             }
         }
         self.connected_peers.remove(&peer);
+        self.blacklisted_peers.insert(peer.clone(), BlacklistedPeer {
+            since: at,
+        });
 
         self.requests.insert(PendingRequestState {
             request: PendingRequest::BlacklistPeer {
