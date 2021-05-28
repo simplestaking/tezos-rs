@@ -1,0 +1,195 @@
+use std::time::{Instant, Duration};
+use hex::FromHex;
+use quickcheck::{Arbitrary, Gen};
+use itertools::Itertools;
+
+use crypto::nonce::Nonce;
+use crypto::proof_of_work::ProofOfWork;
+use crypto::hash::{HashTrait, CryptoboxPublicKeyHash};
+use crypto::crypto_box::{CryptoKey, PublicKey, SecretKey};
+use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryMessage};
+use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, MetadataMessage, NetworkVersion};
+use tezos_messages::p2p::encoding::ack::{AckMessage, NackInfo};
+use tezos_identity::Identity;
+use tezedge_state::*;
+use tezedge_state::proposals::*;
+use tezedge_state::proposals::peer_message::*;
+use tezedge_state::acceptors::*;
+
+fn network_version() -> NetworkVersion {
+    NetworkVersion::new("EDONET".to_string(), 0, 0)
+}
+
+fn identity(pkh: &[u8], pk: &[u8], sk: &[u8], pow: &[u8]) -> Identity {
+    Identity {
+        peer_id: CryptoboxPublicKeyHash::try_from_bytes(pkh).unwrap(),
+        public_key: PublicKey::from_bytes(pk).unwrap(),
+        secret_key: SecretKey::from_bytes(sk).unwrap(),
+        proof_of_work_stamp: ProofOfWork::from_hex(hex::encode(pow)).unwrap(),
+    }
+}
+
+fn identity_1() -> Identity {
+    identity(
+        &[86, 205, 231, 178, 152, 146, 2, 157, 213, 131, 90, 117, 83, 132, 177, 84],
+        &[148, 73, 141, 148, 22, 20, 15, 188, 69, 132, 149, 51, 61, 170, 193, 180, 200, 126, 65, 159, 87, 38, 113, 122, 84, 249, 182, 198, 116, 118, 174, 28],
+        &[172, 122, 207, 58, 254, 215, 99, 123, 225, 15, 143, 199, 106, 46, 182, 179, 53, 156, 120, 173, 177, 216, 19, 180, 28, 186, 179, 250, 233, 84, 244, 177],
+        &[187, 194, 48, 1, 73, 36, 158, 28, 204, 132, 165, 67, 98, 35, 108, 60, 187, 194, 204, 47, 251, 211, 182, 234],
+    )
+}
+
+#[derive(Debug, Clone)]
+enum Messages {
+    Handshake(HandshakeMsg),
+    PeerMessage(PeerDecodedMessage),
+}
+
+impl From<HandshakeMsg> for Messages {
+    fn from(msg: HandshakeMsg) -> Self {
+        Messages::Handshake(msg)
+    }
+}
+
+impl From<PeerDecodedMessage> for Messages {
+    fn from(msg: PeerDecodedMessage) -> Self {
+        Messages::PeerMessage(msg)
+    }
+}
+
+fn to_binary_chunk<M: BinaryMessage>(msg: &M) -> BinaryChunk {
+    BinaryChunk::from_content(&msg.as_bytes().unwrap()).unwrap()
+}
+
+fn message_iter(g: &mut Gen, identity: &Identity) -> impl Iterator<Item = Messages> {
+    let conn_msg = ConnectionMessage::try_new(
+            0,
+            &identity.public_key,
+            &identity.proof_of_work_stamp,
+            Nonce::random(),
+            network_version(),
+    ).unwrap();
+    let meta_msg = MetadataMessage::new(false, true);
+    let ack_msg = AckMessage::Ack;
+    let nack_v0_msg = AckMessage::NackV0;
+    let nack_msg = AckMessage::Nack(NackInfo::arbitrary(g));
+
+    vec![
+        HandshakeMsg::SendConnectPending.into(),
+        HandshakeMsg::SendConnectSuccess.into(),
+        HandshakeMsg::SendConnectError.into(),
+
+        HandshakeMsg::SendMetaPending.into(),
+        HandshakeMsg::SendMetaSuccess.into(),
+        HandshakeMsg::SendMetaError.into(),
+
+        HandshakeMsg::SendAckPending.into(),
+        HandshakeMsg::SendAckSuccess.into(),
+        HandshakeMsg::SendAckError.into(),
+
+
+        PeerDecodedMessage::new(to_binary_chunk(&conn_msg), conn_msg.into()).into(),
+        PeerDecodedMessage::new(to_binary_chunk(&meta_msg), meta_msg.into()).into(),
+        PeerDecodedMessage::new(to_binary_chunk(&ack_msg), ack_msg.into()).into(),
+        PeerDecodedMessage::new(to_binary_chunk(&nack_v0_msg), nack_v0_msg.into()).into(),
+        PeerDecodedMessage::new(to_binary_chunk(&nack_msg), nack_msg.into()).into(),
+    ].into_iter()
+}
+
+fn try_sequence(state: &mut TezedgeState, sequence: Vec<Messages>) -> bool {
+    let peer = PeerAddress::new("peer-1".to_string());
+
+    for msg in sequence {
+        match msg {
+            Messages::Handshake(msg) => {
+                state.accept(HandshakeProposal {
+                    at: Instant::now(),
+                    peer: peer.clone(),
+                    message: msg.clone(),
+                })
+            }
+            Messages::PeerMessage(msg) => {
+                state.accept(PeerProposal {
+                    at: Instant::now(),
+                    peer: peer.clone(),
+                    message: msg.clone(),
+                })
+            }
+        };
+    }
+
+    state.is_peer_connected(&peer)
+}
+
+fn sequence_to_str(seq: &Vec<Messages>) -> String {
+    let seq_str = seq.iter()
+        .map(|msg| match msg {
+            Messages::Handshake(msg) => match msg {
+                HandshakeMsg::SendConnectPending => "send_connect_pending",
+                HandshakeMsg::SendConnectSuccess => "send_connect_success",
+                HandshakeMsg::SendConnectError => "send_connect_error",
+
+                HandshakeMsg::SendMetaPending => "send_meta_pending",
+                HandshakeMsg::SendMetaSuccess => "send_meta_success",
+                HandshakeMsg::SendMetaError => "send_meta_error",
+
+                HandshakeMsg::SendAckPending => "send_ack_pending",
+                HandshakeMsg::SendAckSuccess => "send_ack_success",
+                HandshakeMsg::SendAckError => "send_ack_error",
+            },
+            Messages::PeerMessage(msg) => match msg.message_type() {
+                PeerDecodedMessageType::Connection(_) => "receive_connect",
+                PeerDecodedMessageType::Metadata(_) => "receive_metadata",
+                PeerDecodedMessageType::Ack(AckMessage::Ack) => "receive_ack",
+                PeerDecodedMessageType::Ack(AckMessage::NackV0) => "receive_nack_v0",
+                PeerDecodedMessageType::Ack(AckMessage::Nack(_)) => "receive_nack",
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("[{}]", seq_str)
+}
+
+#[test]
+fn simulate_one_peer_all_message_sequences() {
+    let mut g = Gen::new(10);
+    println!("generating identity for client...");
+    let identity = identity_1();
+    println!("generating identity for p2p manager...");
+    let node_identity = Identity::generate(ProofOfWork::DEFAULT_TARGET).unwrap();
+
+    let mut successful_sequences = vec![];
+
+    let msgs = message_iter(&mut g, &identity).collect::<Vec<_>>();
+
+    let tezedge_state = TezedgeState::new(
+        TezedgeConfig {
+            port: 0,
+            disable_mempool: false,
+            private_node: false,
+            min_connected_peers: 10,
+            max_connected_peers: 20,
+            max_potential_peers: 100,
+            max_pending_peers: 20,
+            periodic_react_interval: Duration::from_millis(1),
+            peer_blacklist_duration: Duration::from_secs(30 * 60),
+            peer_timeout: Duration::from_secs(8),
+        },
+        node_identity.clone(),
+        network_version(),
+        Instant::now(),
+    );
+
+    for seq_len in 1..=9 {
+        println!("trying sequences with length: {}", seq_len);
+        let mut count = 0;
+        for seq in msgs.clone().into_iter().permutations(seq_len) {
+            count += 1;
+            let mut pm = tezedge_state.clone();
+            if try_sequence(&mut pm, seq.clone()) {
+                println!("successful sequence: {}", sequence_to_str(&seq));
+                successful_sequences.push(seq.clone());
+            }
+        }
+        println!("tried permutations: {}", count);
+    }
+}

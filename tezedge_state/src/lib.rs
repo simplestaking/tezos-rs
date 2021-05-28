@@ -331,6 +331,10 @@ impl TezedgeState {
         }
     }
 
+    pub fn is_peer_connected(&self, peer: &PeerAddress) -> bool {
+        self.connected_peers.contains_key(peer)
+    }
+
     pub(crate) fn set_peer_connected(
         &mut self,
         at: Instant,
@@ -537,6 +541,32 @@ impl TezedgeState {
             self.check_blacklisted_peers(at);
             self.initiate_handshakes(at);
         }
+    }
+
+    pub(crate) fn blacklist_peer(
+        &mut self,
+        at: Instant,
+        peer: PeerAddress,
+    ) {
+        use P2pState::*;
+
+        match &mut self.p2p_state {
+            ReadyMaxed => {}
+            Pending { pending_peers }
+            | PendingFull { pending_peers }
+            | Ready { pending_peers }
+            | ReadyFull { pending_peers } => {
+                pending_peers.remove(&peer);
+            }
+        }
+        self.connected_peers.remove(&peer);
+
+        self.requests.insert(PendingRequestState {
+            request: PendingRequest::BlacklistPeer {
+                peer,
+            },
+            status: RequestState::Idle { at },
+        });
     }
 
     pub(crate) fn nack_peer_handshake(

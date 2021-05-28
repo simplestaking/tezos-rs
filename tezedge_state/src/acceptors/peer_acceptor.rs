@@ -63,6 +63,8 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
                             sent: Some(Idle { at: proposal.at }),
                             received: None,
                         };
+                    } else {
+                        self.blacklist_peer(proposal.at, proposal.peer);
                     }
                 }
                 Some(Outgoing(step @ Metadata { sent: Some(Success { .. }), .. })) => {
@@ -85,6 +87,8 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
                             sent: Some(Idle { at: proposal.at }),
                             received: false,
                         };
+                    } else {
+                        self.blacklist_peer(proposal.at, proposal.peer);
                     }
                 }
                 Some(Outgoing(Ack { sent: Some(Success { .. }), crypto, .. })) => {
@@ -100,41 +104,42 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
                                 result,
                             );
                         }
-                        Ok(AckMessage::NackV0) => {}
-                        Ok(AckMessage::Nack(_)) => {}
-                        Err(_) => {}
+                        Ok(AckMessage::NackV0) => self.blacklist_peer(proposal.at, proposal.peer),
+                        Ok(AckMessage::Nack(_)) => self.blacklist_peer(proposal.at, proposal.peer),
+                        Err(_) => self.blacklist_peer(proposal.at, proposal.peer),
                     }
                 }
                 Some(Incoming(step @ Connect { sent: Some(Success { .. }), .. })) => {
-                    let crypto = match step {
-                        Ack { crypto, .. } => Some(crypto),
+                    let (conn_msg, sent_conn_msg) = match step {
+                        Connect { sent_conn_msg, received, .. } => {
+                            if let None = received {
+                                dbg!(&self);
+                                panic!();
+                            }
+                            received.take().map(|x| (x, sent_conn_msg))
+                        }
                         _ => None,
                     }.unwrap();
-
-                    if let Ok(meta_msg) = proposal.message.as_metadata_msg(crypto) {
-                        let (conn_msg, sent_conn_msg) = match step {
-                            Connect { sent_conn_msg, received, .. } => {
-                                received.take().map(|x| (x, sent_conn_msg))
-                            }
-                            _ => None,
-                        }.unwrap();
-                        let nonce_pair = generate_nonces(
-                            &sent_conn_msg.as_bytes().unwrap(),
-                            proposal.message.take_binary_chunk().raw(),
-                            false,
+                    let nonce_pair = generate_nonces(
+                        &sent_conn_msg.as_bytes().unwrap(),
+                        &conn_msg.as_bytes().unwrap(),
+                        false,
                         ).unwrap();
-                        let precomputed_key = PrecomputedKey::precompute(
-                            &PublicKey::from_bytes(conn_msg.public_key()).unwrap(),
-                            &self.identity.secret_key,
+                    let precomputed_key = PrecomputedKey::precompute(
+                        &PublicKey::from_bytes(conn_msg.public_key()).unwrap(),
+                        &self.identity.secret_key,
                         );
-                        let crypto = PeerCrypto::new(precomputed_key, nonce_pair);
+                    let mut crypto = PeerCrypto::new(precomputed_key, nonce_pair);
 
+                    if let Ok(meta_msg) = proposal.message.as_metadata_msg(&mut crypto) {
                         *step = Metadata {
                             conn_msg,
                             crypto,
                             sent: Some(Idle { at: proposal.at }),
                             received: Some(meta_msg),
                         };
+                    } else {
+                        self.blacklist_peer(proposal.at, proposal.peer);
                     }
                 }
                 Some(Incoming(step @ Metadata { sent: Some(Success { .. }), .. })) => {
@@ -161,9 +166,9 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
                                 received: true,
                             }
                         }
-                        Ok(AckMessage::NackV0) => {}
-                        Ok(AckMessage::Nack(_)) => {}
-                        Err(_) => {}
+                        Ok(AckMessage::NackV0) => self.blacklist_peer(proposal.at, proposal.peer),
+                        Ok(AckMessage::Nack(_)) => self.blacklist_peer(proposal.at, proposal.peer),
+                        Err(_) => self.blacklist_peer(proposal.at, proposal.peer),
                     }
                 }
                 None => {
@@ -190,7 +195,9 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
                         );
                     }
                 }
-                _ => {}
+                _ => {
+                    self.blacklist_peer(proposal.at, proposal.peer);
+                }
             }
         }
 

@@ -6,6 +6,9 @@ use crate::PeerCrypto;
 mod peer_binary_message;
 pub use peer_binary_message::*;
 
+mod peer_decoded_message;
+pub use peer_decoded_message::*;
+
 pub enum PeerMessageError {
     InvalidMessage,
 }
