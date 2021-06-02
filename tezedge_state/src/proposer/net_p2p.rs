@@ -65,9 +65,6 @@ impl NetP2pManager {
             peers: Slab::new(),
         }
     }
-
-    fn listen_on(&mut self, port: u16) {
-    }
 }
 
 impl P2pManager for NetP2pManager {

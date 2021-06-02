@@ -93,7 +93,6 @@ fn build_tezedge_state() -> TezedgeState {
 
 fn main() {
     let mut p2p_manager = NetP2pManager::new(SERVER_PORT);
-    p2p_manager.listen_on(SERVER_PORT);
 
     let mut proposer = TezedgeProposer::new(
         TezedgeProposerConfig {
