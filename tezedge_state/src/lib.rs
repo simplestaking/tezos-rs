@@ -599,6 +599,7 @@ impl TezedgeState {
             self.check_blacklisted_peers(at);
             self.initiate_handshakes(at);
         }
+    }
 
     pub(crate) fn disconnect_peer(
         &mut self,
