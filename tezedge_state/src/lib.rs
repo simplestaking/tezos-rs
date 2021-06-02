@@ -22,6 +22,8 @@ pub mod proposals;
 pub mod proposer;
 pub mod acceptors;
 
+pub mod sample_tezedge_state;
+
 #[derive(Debug)]
 pub enum InvalidProposalError {
     ProposalOutdated,
@@ -271,15 +273,29 @@ impl TezedgeState {
         Ok(())
     }
 
-    pub fn connection_msg(&self) -> ConnectionMessage {
-        ConnectionMessage::try_new(
-            self.config.port,
-            &self.identity.public_key,
-            &self.identity.proof_of_work_stamp,
-            // TODO: this introduces non-determinism
-            Nonce::random(),
-            self.network_version.clone(),
-        ).unwrap()
+    pub fn pending_peers(&self) -> Option<&HashMap<PeerAddress, Handshake>> {
+        use P2pState::*;
+
+        match &self.p2p_state {
+            Pending { pending_peers }
+            | PendingFull { pending_peers }
+            | Ready { pending_peers }
+            | ReadyFull { pending_peers } => Some(pending_peers),
+            ReadyMaxed => None,
+        }
+    }
+
+    pub fn blacklisted_peers(&self) -> &HashMap<PeerAddress, BlacklistedPeer> {
+        &self.blacklisted_peers
+    }
+
+    pub fn request_states(&self) -> &slab::Slab<PendingRequestState> {
+        &self.requests
+    }
+
+    #[inline(always)]
+    pub fn pending_peers_len(&self) -> usize {
+        self.pending_peers().map(|x| x.len()).unwrap_or(0)
     }
 
     pub fn meta_msg(&self) -> MetadataMessage {
@@ -666,6 +682,29 @@ impl TezedgeState {
         // TODO: depending on motive, blacklist them, but if we have
         // to much connections, but only till we need more connections.
     }
+
+    pub fn stats(&self) -> TezedgeStats {
+        TezedgeStats {
+            newest_time_seen: self.newest_time_seen,
+            last_periodic_react: self.last_periodic_react,
+            potential_peers_len: self.potential_peers.len(),
+            connected_peers_len: self.connected_peers.len(),
+            blacklisted_peers_len: self.blacklisted_peers.len(),
+            pending_peers_len: self.pending_peers_len(),
+            requests_len: self.requests.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TezedgeStats {
+    pub newest_time_seen: Instant,
+    pub last_periodic_react: Instant,
+    pub potential_peers_len: usize,
+    pub connected_peers_len: usize,
+    pub blacklisted_peers_len: usize,
+    pub pending_peers_len: usize,
+    pub requests_len: usize,
 }
 
 /// Requests which may be made after accepting handshake proposal.
