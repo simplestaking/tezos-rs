@@ -109,6 +109,24 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
                         Err(_) => self.blacklist_peer(proposal.at, proposal.peer),
                     }
                 }
+                Some(Incoming(step @ Initiated { .. })) => {
+                    if let Ok(conn_msg) = proposal.message.as_connection_msg() {
+                        *step = Connect {
+                            sent: Some(Idle { at: proposal.at }),
+                            received: Some(conn_msg),
+                            sent_conn_msg: ConnectionMessage::try_new(
+                                self.config.port,
+                                &self.identity.public_key,
+                                &self.identity.proof_of_work_stamp,
+                                // TODO: this introduces non-determinism
+                                Nonce::random(),
+                                self.network_version.clone(),
+                            ).unwrap(),
+                        };
+                    } else {
+                        self.blacklist_peer(proposal.at, proposal.peer);
+                    }
+                }
                 Some(Incoming(step @ Connect { sent: Some(Success { .. }), .. })) => {
                     let (conn_msg, sent_conn_msg) = match step {
                         Connect { sent_conn_msg, received, .. } => {

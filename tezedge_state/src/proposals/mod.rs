@@ -6,6 +6,9 @@ pub use tick_proposal::*;
 mod extend_potential_peers_proposal;
 pub use extend_potential_peers_proposal::*;
 
+mod new_peer_connect_proposal;
+pub use new_peer_connect_proposal::*;
+
 mod handshake_proposal;
 pub use handshake_proposal::*;
 

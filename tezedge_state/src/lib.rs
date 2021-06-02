@@ -65,6 +65,7 @@ impl Handshake {
 
 #[derive(Debug, Clone)]
 pub enum HandshakeStep {
+    Initiated { at: Instant },
     Connect {
         sent: Option<RequestState>,
         received: Option<ConnectionMessage>,
@@ -437,7 +438,8 @@ impl TezedgeState {
                                     None
                                 }
                             }
-                            Incoming(Connect { sent: Some(Success { at, .. }), .. })
+                            Incoming(Initiated { at })
+                            | Incoming(Connect { sent: Some(Success { at, .. }), .. })
                             | Incoming(Metadata { sent: Some(Success { at, .. }), .. })
                             | Outgoing(Connect { received: None, sent: Some(Success { at, .. }), .. })
                             | Outgoing(Metadata { received: None, sent: Some(Success { at, .. }), .. })
@@ -658,6 +660,8 @@ impl GetRequests for TezedgeState {
             | P2pState::PendingFull { pending_peers } => {
                 for (peer_address, handshake_step) in pending_peers.iter() {
                     match handshake_step {
+                        Incoming(Initiated { .. }) | Outgoing(Initiated { .. }) => {}
+
                         Incoming(Connect { sent: Some(Idle { .. }), sent_conn_msg, .. })
                         | Outgoing(Connect { sent: Some(Idle { .. }), sent_conn_msg, .. }) => {
                             requests.push(
