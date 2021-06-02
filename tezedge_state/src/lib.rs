@@ -19,6 +19,7 @@ mod peer_crypto;
 pub use peer_crypto::PeerCrypto;
 
 pub mod proposals;
+pub mod proposer;
 pub mod acceptors;
 
 #[derive(Debug)]
@@ -93,16 +94,6 @@ impl HandshakeStep {
                 Some(HandshakeResult { conn_msg, meta_msg, crypto })
             }
             _ => None,
-        }
-    }
-
-    pub(crate) fn set_sent(&mut self, state: RequestState) {
-        match self {
-            Self::Connect { sent, .. }
-            | Self::Metadata { sent, .. }
-            | Self::Ack { sent, .. } => {
-                *sent = Some(state);
-            }
         }
     }
 }
@@ -213,6 +204,7 @@ impl P2pState {
 
 #[derive(Debug, Clone)]
 pub struct TezedgeState {
+    pub(crate) listening_for_connection_requests: bool,
     pub(crate) newest_time_seen: Instant,
     pub(crate) last_periodic_react: Instant,
     pub(crate) config: TezedgeConfig,
@@ -239,6 +231,7 @@ impl TezedgeState {
             config,
             identity,
             network_version,
+            listening_for_connection_requests: false,
             potential_peers: Vec::new(),
             connected_peers: HashMap::new(),
             blacklisted_peers: HashMap::new(),
@@ -249,6 +242,10 @@ impl TezedgeState {
             newest_time_seen: initial_time,
             last_periodic_react: initial_time - periodic_react_interval,
         }
+    }
+
+    pub fn newest_time_seen(&self) -> Instant {
+        self.newest_time_seen
     }
 
     pub(crate) fn check_and_update_time<P: Proposal>(
@@ -292,7 +289,7 @@ impl TezedgeState {
         )
     }
 
-    pub fn extend_potential_peers<I>(&mut self, peers: I)
+    pub(crate) fn extend_potential_peers<I>(&mut self, peers: I)
         where I: IntoIterator<Item = PeerAddress>,
     {
         // Return if maximum number of potential peers is already reached.
@@ -362,10 +359,36 @@ impl TezedgeState {
 
         if self.connected_peers.len() == max_connected {
             // TODO: write handling pending_peers, e.g. sending them nack.
+            match &mut self.p2p_state {
+                ReadyMaxed => {}
+                Ready { pending_peers }
+                | ReadyFull { pending_peers }
+                | Pending { pending_peers }
+                | PendingFull { pending_peers } => {
+                    let pending_peers = mem::replace(pending_peers, HashMap::new());
+                    self.requests.insert(PendingRequestState {
+                        request: PendingRequest::StopListeningForNewPeers,
+                        status: RequestState::Idle { at },
+                    });
+
+                    for (peer, _) in pending_peers.into_iter() {
+                        // TODO: send them nack
+                        self.requests.insert(PendingRequestState {
+                            request: PendingRequest::DisconnectPeer { peer },
+                            status: RequestState::Idle { at },
+                        });
+                    }
+                }
+            };
+
             self.p2p_state = ReadyMaxed;
         } else if self.connected_peers.len() < min_connected {
             match &mut self.p2p_state {
                 ReadyMaxed => {
+                    self.requests.insert(PendingRequestState {
+                        request: PendingRequest::StartListeningForNewPeers,
+                        status: RequestState::Idle { at },
+                    });
                     self.p2p_state = Pending { pending_peers: HashMap::new() };
                     self.initiate_handshakes(at);
                 }
@@ -376,8 +399,22 @@ impl TezedgeState {
                     let pending_peers = mem::replace(pending_peers, HashMap::new());
                     if pending_peers.len() == max_pending {
                         self.p2p_state = PendingFull { pending_peers };
+                        if self.listening_for_connection_requests {
+                            self.requests.insert(PendingRequestState {
+                                request: PendingRequest::StopListeningForNewPeers,
+                                status: RequestState::Idle { at },
+                            });
+                            self.listening_for_connection_requests = false;
+                        }
                     } else {
                         self.p2p_state = Pending { pending_peers };
+                        if !self.listening_for_connection_requests {
+                            self.requests.insert(PendingRequestState {
+                                request: PendingRequest::StartListeningForNewPeers,
+                                status: RequestState::Idle { at },
+                            });
+                            self.listening_for_connection_requests = true;
+                        }
                         self.initiate_handshakes(at);
                     }
                 }
@@ -395,8 +432,22 @@ impl TezedgeState {
                     let pending_peers = mem::replace(pending_peers, HashMap::new());
                     if pending_peers.len() == max_pending {
                         self.p2p_state = ReadyFull { pending_peers };
+                        if self.listening_for_connection_requests {
+                            self.requests.insert(PendingRequestState {
+                                request: PendingRequest::StopListeningForNewPeers,
+                                status: RequestState::Idle { at },
+                            });
+                            self.listening_for_connection_requests = false;
+                        }
                     } else {
                         self.p2p_state = Ready { pending_peers };
+                        if !self.listening_for_connection_requests {
+                            self.requests.insert(PendingRequestState {
+                                request: PendingRequest::StartListeningForNewPeers,
+                                status: RequestState::Idle { at },
+                            });
+                            self.listening_for_connection_requests = true;
+                        }
                         self.initiate_handshakes(at);
                     }
                 }
@@ -532,6 +583,29 @@ impl TezedgeState {
             self.check_blacklisted_peers(at);
             self.initiate_handshakes(at);
         }
+
+    pub(crate) fn disconnect_peer(
+        &mut self,
+        at: Instant,
+        peer: PeerAddress,
+    ) {
+        use P2pState::*;
+
+        match &mut self.p2p_state {
+            ReadyMaxed => {}
+            Pending { pending_peers }
+            | PendingFull { pending_peers }
+            | Ready { pending_peers }
+            | ReadyFull { pending_peers } => {
+                pending_peers.remove(&peer);
+            }
+        }
+        self.connected_peers.remove(&peer);
+
+        self.requests.insert(PendingRequestState {
+            request: PendingRequest::DisconnectPeer { peer },
+            status: RequestState::Idle { at },
+        });
     }
 
     pub(crate) fn blacklist_peer(
@@ -556,9 +630,7 @@ impl TezedgeState {
         });
 
         self.requests.insert(PendingRequestState {
-            request: PendingRequest::BlacklistPeer {
-                peer,
-            },
+            request: PendingRequest::BlacklistPeer { peer },
             status: RequestState::Idle { at },
         });
     }
@@ -599,6 +671,12 @@ impl TezedgeState {
 /// Requests which may be made after accepting handshake proposal.
 #[derive(Debug, Clone)]
 pub enum TezedgeRequest {
+    StartListeningForNewPeers {
+        req_id: usize,
+    },
+    StopListeningForNewPeers {
+        req_id: usize,
+    },
     SendPeerConnect {
         peer: PeerAddress,
         message: ConnectionMessage,
@@ -624,6 +702,8 @@ pub enum TezedgeRequest {
 
 #[derive(Debug, Clone)]
 pub enum PendingRequest {
+    StartListeningForNewPeers,
+    StopListeningForNewPeers,
     NackAndDisconnectPeer {
         peer: PeerAddress,
         nack_info: NackInfo,
@@ -702,6 +782,12 @@ impl GetRequests for TezedgeState {
         for (req_id, req) in self.requests.iter() {
             if let RequestState::Idle { .. } = req.status {
                 requests.push(match &req.request {
+                    PendingRequest::StartListeningForNewPeers => {
+                        TezedgeRequest::StartListeningForNewPeers { req_id }
+                    }
+                    PendingRequest::StopListeningForNewPeers => {
+                        TezedgeRequest::StopListeningForNewPeers { req_id }
+                    }
                     PendingRequest::NackAndDisconnectPeer { peer, nack_info } => {
                         TezedgeRequest::SendPeerAck {
                             peer: peer.clone(),

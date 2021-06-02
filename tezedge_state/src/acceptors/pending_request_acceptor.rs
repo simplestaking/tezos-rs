@@ -11,6 +11,28 @@ impl Acceptor<PendingRequestProposal> for TezedgeState {
 
         if let Some(req) = self.requests.get_mut(proposal.req_id) {
             match &req.request {
+                PendingRequest::StartListeningForNewPeers => {
+                    match proposal.message {
+                        PendingRequestMsg::StartListeningForNewPeersPending => {
+                            req.status = RequestState::Pending { at: proposal.at };
+                        }
+                        PendingRequestMsg::StartListeningForNewPeersSuccess => {
+                            self.requests.remove(proposal.req_id);
+                        }
+                        _ => eprintln!("unexpected request type"),
+                    }
+                }
+                PendingRequest::StopListeningForNewPeers => {
+                    match proposal.message {
+                        PendingRequestMsg::StopListeningForNewPeersPending => {
+                            req.status = RequestState::Pending { at: proposal.at };
+                        }
+                        PendingRequestMsg::StopListeningForNewPeersSuccess => {
+                            self.requests.remove(proposal.req_id);
+                        }
+                        _ => eprintln!("unexpected request type"),
+                    }
+                }
                 PendingRequest::NackAndDisconnectPeer { peer, .. } => {
                     match proposal.message {
                         PendingRequestMsg::SendPeerAckPending => {
@@ -51,9 +73,6 @@ impl Acceptor<PendingRequestProposal> for TezedgeState {
                         }
                         _ => eprintln!("unexpected request type"),
                     }
-                }
-                _ => {
-                    eprintln!("unexpected request type");
                 }
             }
         } else {

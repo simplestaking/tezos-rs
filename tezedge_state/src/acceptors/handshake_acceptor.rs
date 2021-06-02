@@ -162,7 +162,10 @@ fn handle_send_ack_success(
         | P2pState::ReadyFull { pending_peers } => {
             match pending_peers.remove(&peer_address) {
                 Some(Outgoing(mut step @ Ack { sent: Some(Pending { .. }), .. })) => {
-                    step.set_sent(Success { at });
+                    match &mut step {
+                        Ack { sent, .. } => *sent = Some(Success { at }),
+                        _ => unreachable!(),
+                    };
                     pending_peers.insert(peer_address, Outgoing(step));
                 }
                 Some(handshake @ Incoming(Ack { sent: Some(Pending { .. }), .. })) => {
