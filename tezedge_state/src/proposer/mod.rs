@@ -20,7 +20,7 @@ use crate::proposals::{
 };
 use crate::proposals::peer_message::PeerBinaryMessage;
 
-pub mod net_p2p;
+pub mod mio_manager;
 
 pub trait GetMessageType {
     fn get_message_type(&self) -> SendMessageType;
@@ -336,7 +336,14 @@ impl WriteQueue {
     }
 }
 
-pub trait P2pEvent {
+pub enum Event<NetE> {
+    Tick(Instant),
+    Network(NetE),
+}
+
+type EventRef<'a, NetE> = Event<&'a NetE>;
+
+pub trait NetworkEvent {
     fn is_server_event(&self) -> bool;
 
     fn is_readable(&self) -> bool;
@@ -350,7 +357,7 @@ pub trait P2pEvent {
     }
 }
 
-pub trait P2pEvents {
+pub trait Events {
     fn set_limit(&mut self, limit: usize);
 }
 
@@ -479,20 +486,20 @@ impl<S: Write> Peer<S> {
     }
 }
 
-pub trait P2pManager {
+pub trait Manager {
     type Stream: Read + Write;
-    type Event: P2pEvent;
+    type NetworkEvent: NetworkEvent;
     type Events;
 
     fn start_listening_to_server_events(&mut self);
     fn stop_listening_to_server_events(&mut self);
 
-    fn accept_connection(&mut self, event: &Self::Event) -> Option<&mut Peer<Self::Stream>>;
+    fn accept_connection(&mut self, event: &Self::NetworkEvent) -> Option<&mut Peer<Self::Stream>>;
 
     fn wait_for_events(&mut self, events_container: &mut Self::Events, timeout: Option<Duration>);
 
     fn get_peer_or_connect_mut(&mut self, address: &PeerAddress) -> io::Result<&mut Peer<Self::Stream>>;
-    fn get_peer_for_event_mut(&mut self, event: &Self::Event) -> Option<&mut Peer<Self::Stream>>;
+    fn get_peer_for_event_mut(&mut self, event: &Self::NetworkEvent) -> Option<&mut Peer<Self::Stream>>;
 
     fn disconnect_peer(&mut self, peer: &PeerAddress);
 
@@ -601,50 +608,77 @@ fn handle_send_message_result(
     }
 }
 
-pub struct TezedgeProposer<P2pEs, P2pM> {
+pub struct TezedgeProposer<Es, M> {
     config: TezedgeProposerConfig,
     pub state: TezedgeState,
-    pub p2p_events: P2pEs,
-    pub p2p_manager: P2pM,
+    pub events: Es,
+    pub manager: M,
 }
 
-impl<P2pEs, P2pM> TezedgeProposer<P2pEs, P2pM>
-    where P2pEs: P2pEvents,
+impl<Es, M> TezedgeProposer<Es, M>
+    where Es: Events,
 {
     pub fn new(
         config: TezedgeProposerConfig,
         state: TezedgeState,
-        mut p2p_events: P2pEs,
-        p2p_manager: P2pM,
+        mut events: Es,
+        manager: M,
     ) -> Self
     {
-        p2p_events.set_limit(config.events_limit);
+        events.set_limit(config.events_limit);
         Self {
             config,
             state,
-            p2p_events,
-            p2p_manager,
+            events,
+            manager,
         }
     }
 }
 
-impl<P2pRW, P2pE, P2pEs, P2pM> TezedgeProposer<P2pEs, P2pM>
-    where P2pRW: Read + Write,
-          P2pE: P2pEvent,
-          P2pM: P2pManager<Stream = P2pRW, Event = P2pE, Events = P2pEs>,
+impl<S, NetE, Es, M> TezedgeProposer<Es, M>
+    where S: Read + Write,
+          NetE: NetworkEvent,
+          M: Manager<Stream = S, NetworkEvent = NetE, Events = Es>,
 {
     fn handle_event(
-        event: &P2pE,
+        event: Event<NetE>,
         state: &mut TezedgeState,
-        p2p_manager: &mut P2pM,
+        manager: &mut M,
     ) {
-        // let mut should_execute_requests = false;
+        match event {
+            Event::Tick(at) => {
+                state.accept(TickProposal { at });
+            }
+            Event::Network(event) => {
+                Self::handle_network_event(&event, state, manager);
+            }
+        }
+    }
 
+    fn handle_event_ref<'a>(
+        event: EventRef<'a, NetE>,
+        state: &mut TezedgeState,
+        manager: &mut M,
+    ) {
+        match event {
+            Event::Tick(at) => {
+                state.accept(TickProposal { at });
+            }
+            Event::Network(event) => {
+                Self::handle_network_event(event, state, manager);
+            }
+        }
+    }
+
+    fn handle_network_event(
+        event: &NetE,
+        state: &mut TezedgeState,
+        manager: &mut M,
+    ) {
         let peer = if event.is_server_event() {
             // we received event for the server (client opened tcp stream to us).
-            match p2p_manager.accept_connection(&event) {
+            match manager.accept_connection(&event) {
                 Some(peer) => {
-                    // should_execute_requests = true;
                     state.accept(NewPeerConnectProposal {
                         at: event.time(),
                         peer: peer.address().clone(),
@@ -654,7 +688,7 @@ impl<P2pRW, P2pE, P2pEs, P2pM> TezedgeProposer<P2pEs, P2pM>
                 None => return,
             }
         } else {
-            match p2p_manager.get_peer_for_event_mut(&event) {
+            match manager.get_peer_for_event_mut(&event) {
                 Some(peer) => peer,
                 None => {
                     // TODO: replace with just error log.
@@ -696,17 +730,13 @@ impl<P2pRW, P2pE, P2pEs, P2pM> TezedgeProposer<P2pEs, P2pM>
                 peer.try_flush(),
             );
         }
-
-        // if should_execute_requests {
-        //     Self::execute_requests(state, p2p_manager);
-        // }
     }
 
-    fn execute_requests(state: &mut TezedgeState, p2p_manager: &mut P2pM) {
+    fn execute_requests(state: &mut TezedgeState, manager: &mut M) {
         for req in state.get_requests() {
             match req {
                 TezedgeRequest::StartListeningForNewPeers { req_id } => {
-                    p2p_manager.start_listening_to_server_events();
+                    manager.start_listening_to_server_events();
                     state.accept(PendingRequestProposal {
                         req_id,
                         at: state.newest_time_seen(),
@@ -714,7 +744,7 @@ impl<P2pRW, P2pE, P2pEs, P2pM> TezedgeProposer<P2pEs, P2pM>
                     });
                 }
                 TezedgeRequest::StopListeningForNewPeers { req_id } => {
-                    p2p_manager.stop_listening_to_server_events();
+                    manager.stop_listening_to_server_events();
                     state.accept(PendingRequestProposal {
                         req_id,
                         at: state.newest_time_seen(),
@@ -722,7 +752,7 @@ impl<P2pRW, P2pE, P2pEs, P2pM> TezedgeProposer<P2pEs, P2pM>
                     });
                 }
                 TezedgeRequest::SendPeerConnect { peer, message } => {
-                    let result = p2p_manager.try_send_msg(&peer, message);
+                    let result = manager.try_send_msg(&peer, message);
                     state.accept(HandshakeProposal {
                         at: state.newest_time_seen(),
                         peer: peer.clone(),
@@ -732,7 +762,7 @@ impl<P2pRW, P2pE, P2pEs, P2pM> TezedgeProposer<P2pEs, P2pM>
                 }
                 TezedgeRequest::SendPeerMeta { peer, message } => {
                     if let Some(crypto) = state.get_peer_crypto(&peer) {
-                        let result = p2p_manager.try_send_msg_encrypted(&peer, crypto, message);
+                        let result = manager.try_send_msg_encrypted(&peer, crypto, message);
                         state.accept(HandshakeProposal {
                             at: state.newest_time_seen(),
                             peer: peer.clone(),
@@ -743,7 +773,7 @@ impl<P2pRW, P2pE, P2pEs, P2pM> TezedgeProposer<P2pEs, P2pM>
                 }
                 TezedgeRequest::SendPeerAck { peer, message } => {
                     if let Some(crypto) = state.get_peer_crypto(&peer) {
-                        let result = p2p_manager.try_send_msg_encrypted(&peer,crypto, message);
+                        let result = manager.try_send_msg_encrypted(&peer,crypto, message);
                         state.accept(HandshakeProposal {
                             at: state.newest_time_seen(),
                             peer: peer.clone(),
@@ -753,7 +783,7 @@ impl<P2pRW, P2pE, P2pEs, P2pM> TezedgeProposer<P2pEs, P2pM>
                     }
                 }
                 TezedgeRequest::DisconnectPeer { req_id, peer } => {
-                    p2p_manager.disconnect_peer(&peer);
+                    manager.disconnect_peer(&peer);
                     state.accept(PendingRequestProposal {
                         req_id,
                         at: state.newest_time_seen(),
@@ -761,7 +791,7 @@ impl<P2pRW, P2pE, P2pEs, P2pM> TezedgeProposer<P2pEs, P2pM>
                     });
                 }
                 TezedgeRequest::BlacklistPeer { req_id, peer } => {
-                    p2p_manager.disconnect_peer(&peer);
+                    manager.disconnect_peer(&peer);
                     state.accept(PendingRequestProposal {
                         req_id,
                         at: state.newest_time_seen(),
@@ -774,29 +804,29 @@ impl<P2pRW, P2pE, P2pEs, P2pM> TezedgeProposer<P2pEs, P2pM>
 
     fn wait_for_events(&mut self) {
         let wait_for_events_timeout = self.config.wait_for_events_timeout;
-        self.p2p_manager.wait_for_events(&mut self.p2p_events, wait_for_events_timeout)
+        self.manager.wait_for_events(&mut self.events, wait_for_events_timeout)
     }
 
     pub fn make_progress(&mut self)
-        where for<'a> &'a P2pEs: IntoIterator<Item = &'a P2pE>,
+        where for<'a> &'a Es: IntoIterator<Item = EventRef<'a, NetE>>,
     {
         self.wait_for_events();
 
         let events_limit = self.config.events_limit;
 
-        for event in self.p2p_events.into_iter().take(events_limit) {
-            Self::handle_event(
+        for event in self.events.into_iter().take(events_limit) {
+            Self::handle_event_ref(
                 event,
                 &mut self.state,
-                &mut self.p2p_manager,
+                &mut self.manager,
             );
         }
 
-        Self::execute_requests(&mut self.state, &mut self.p2p_manager);
+        Self::execute_requests(&mut self.state, &mut self.manager);
     }
 
     pub fn make_progress_owned(&mut self)
-        where for<'a> &'a P2pEs: IntoIterator<Item = P2pE>,
+        where for<'a> &'a Es: IntoIterator<Item = Event<NetE>>,
     {
         let time = Instant::now();
         self.wait_for_events();
@@ -805,17 +835,19 @@ impl<P2pRW, P2pE, P2pEs, P2pM> TezedgeProposer<P2pEs, P2pM>
         let events_limit = self.config.events_limit;
 
         let time = Instant::now();
-        for event in self.p2p_events.into_iter().take(events_limit) {
+        let mut count = 0;
+        for event in self.events.into_iter().take(events_limit) {
+            count += 1;
             Self::handle_event(
-                &event,
+                event,
                 &mut self.state,
-                &mut self.p2p_manager,
+                &mut self.manager,
             );
         }
-        eprintln!("handled events in: {}ms", time.elapsed().as_millis());
+        eprintln!("handled {} events in: {}ms", count, time.elapsed().as_millis());
 
         let time = Instant::now();
-        Self::execute_requests(&mut self.state, &mut self.p2p_manager);
+        Self::execute_requests(&mut self.state, &mut self.manager);
         eprintln!("executed requests in: {}ms", time.elapsed().as_millis());
     }
 }

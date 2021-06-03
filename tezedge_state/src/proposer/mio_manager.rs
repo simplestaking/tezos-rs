@@ -8,12 +8,11 @@ use crate::{PeerCrypto, PeerAddress};
 use super::*;
 
 pub type MioEvent = mio::event::Event;
-pub type MioEvents = mio::event::Events;
 pub type NetPeer = Peer<TcpStream>;
 
 pub const MIO_SERVER_TOKEN: mio::Token = mio::Token(usize::MAX);
 
-impl P2pEvent for MioEvent {
+impl NetworkEvent for MioEvent {
     #[inline(always)]
     fn is_server_event(&self) -> bool {
         self.token() == MIO_SERVER_TOKEN
@@ -40,13 +39,63 @@ impl P2pEvent for MioEvent {
     }
 }
 
-impl P2pEvents for MioEvents {
-    fn set_limit(&mut self, limit: usize) {
-        *self = MioEvents::with_capacity(limit);
+#[derive(Debug)]
+pub struct MioEvents {
+    mio_events: mio::Events,
+    tick_event_time: Option<Instant>,
+}
+
+impl MioEvents {
+    pub fn new() -> Self {
+        Self {
+            mio_events: mio::Events::with_capacity(0),
+            tick_event_time: None,
+        }
     }
 }
 
-pub struct NetP2pManager {
+impl<'a> IntoIterator for &'a MioEvents {
+    type Item = EventRef<'a, MioEvent>;
+    type IntoIter = MioEventsIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        MioEventsIter {
+            mio_events_iter: self.mio_events.iter(),
+            tick_event_time: self.tick_event_time.clone(),
+        }
+    }
+}
+
+pub struct MioEventsIter<'a> {
+    mio_events_iter: mio::event::Iter<'a>,
+    tick_event_time: Option<Instant>,
+}
+
+impl<'a> Iterator for MioEventsIter<'a> {
+    type Item = EventRef<'a, MioEvent>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mio_events_iter = &mut self.mio_events_iter;
+        let tick_event_time = &mut self.tick_event_time;
+
+        self.mio_events_iter.next()
+            .map(|event| EventRef::Network(event))
+            .or_else(|| {
+                tick_event_time.take()
+                    .map(|time| Event::Tick(time))
+            })
+    }
+}
+
+impl Events for MioEvents {
+    fn set_limit(&mut self, limit: usize) {
+        self.mio_events = mio::Events::with_capacity(limit);
+    }
+}
+
+
+
+pub struct MioManager {
     server_port: u16,
     poll: mio::Poll,
     server: Option<TcpListener>,
@@ -55,7 +104,7 @@ pub struct NetP2pManager {
     peers: Slab<NetPeer>,
 }
 
-impl NetP2pManager {
+impl MioManager {
     pub fn new(server_port: u16) -> Self {
         Self {
             server_port,
@@ -67,9 +116,9 @@ impl NetP2pManager {
     }
 }
 
-impl P2pManager for NetP2pManager {
+impl Manager for MioManager {
     type Stream = TcpStream;
-    type Event = MioEvent;
+    type NetworkEvent = MioEvent;
     type Events = MioEvents;
 
     fn start_listening_to_server_events(&mut self) {
@@ -87,7 +136,7 @@ impl P2pManager for NetP2pManager {
         drop(self.server.take());
     }
 
-    fn accept_connection(&mut self, event: &Self::Event) -> Option<&mut Peer<Self::Stream>> {
+    fn accept_connection(&mut self, event: &Self::NetworkEvent) -> Option<&mut Peer<Self::Stream>> {
         let server = &mut self.server;
         let poll = &mut self.poll;
         let peers = &mut self.peers;
@@ -127,10 +176,14 @@ impl P2pManager for NetP2pManager {
     }
 
     fn wait_for_events(&mut self, events: &mut Self::Events, timeout: Option<Duration>) {
-        self.poll.poll(events, timeout).unwrap();
+        self.poll.poll(&mut events.mio_events, timeout).unwrap();
+
+        if events.mio_events.is_empty() {
+            events.tick_event_time = Some(Instant::now());
+        }
     }
 
-    fn get_peer_for_event_mut(&mut self, event: &Self::Event) -> Option<&mut NetPeer> {
+    fn get_peer_for_event_mut(&mut self, event: &Self::NetworkEvent) -> Option<&mut NetPeer> {
         self.peers.get_mut(event.token().into())
     }
 

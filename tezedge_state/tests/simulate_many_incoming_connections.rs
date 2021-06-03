@@ -28,36 +28,38 @@ impl Write for SimulatedPeerStream {
     }
 }
 
+type SimulatedEvent = Event<SimulatedNetworkEvent>;
+
 #[derive(Debug, Clone)]
-enum SimulatedEventType {
+enum NetworkEventType {
     IncomingConnect,
 }
 
 #[derive(Debug, Clone)]
-struct SimulatedEvent {
-    event_type: SimulatedEventType,
+struct SimulatedNetworkEvent {
+    event_type: NetworkEventType,
     time: Instant,
     from: String,
     stream: SimulatedPeerStream,
 }
 
-impl P2pEvent for SimulatedEvent {
+impl NetworkEvent for SimulatedNetworkEvent {
     #[inline(always)]
     fn is_server_event(&self) -> bool {
-        matches!(self.event_type, SimulatedEventType::IncomingConnect)
+        matches!(self.event_type, NetworkEventType::IncomingConnect)
     }
 
     #[inline(always)]
     fn is_readable(&self) -> bool {
         match self.event_type {
-            SimulatedEventType::IncomingConnect => false,
+            NetworkEventType::IncomingConnect => false,
         }
     }
 
     #[inline(always)]
     fn is_writable(&self) -> bool {
         match self.event_type {
-            SimulatedEventType::IncomingConnect => false,
+            NetworkEventType::IncomingConnect => false,
         }
     }
 
@@ -82,7 +84,6 @@ struct SimulatedEvents {
     initial_time: Instant,
     range: std::ops::Range<usize>,
     limit: usize,
-    last_event: Option<SimulatedEvent>,
 }
 
 impl SimulatedEvents {
@@ -91,12 +92,11 @@ impl SimulatedEvents {
             range,
             initial_time: Instant::now(),
             limit: 0,
-            last_event: None,
         }
     }
 }
 
-impl P2pEvents for SimulatedEvents {
+impl Events for SimulatedEvents {
     fn set_limit(&mut self, limit: usize) {
         self.limit = limit;
     }
@@ -117,12 +117,12 @@ impl Iterator for SimulatedEventsIter
             None
         } else {
             self.index += 1;
-            Some(SimulatedEvent {
-                event_type: SimulatedEventType::IncomingConnect,
+            Some(Event::Network(SimulatedNetworkEvent {
+                event_type: NetworkEventType::IncomingConnect,
                 time: self.initial_time + Duration::from_secs(self.index as u64),
                 from: format!("peer-{}", self.index),
                 stream: SimulatedPeerStream {},
-            })
+            }))
         }
     }
 }
@@ -141,7 +141,7 @@ impl<'a> IntoIterator for &'a SimulatedEvents {
 }
 
 
-struct SimulatedP2pManager {
+struct SimulatedManager {
     peer_count: usize,
     last_peer_index: usize,
     listener_enabled: bool,
@@ -149,7 +149,7 @@ struct SimulatedP2pManager {
     connected_peers: HashMap<PeerAddress, SimulatedPeer>,
 }
 
-impl SimulatedP2pManager {
+impl SimulatedManager {
     pub fn new(peer_count: usize) -> Self {
         Self {
             peer_count,
@@ -165,9 +165,9 @@ impl SimulatedP2pManager {
     }
 }
 
-impl P2pManager for SimulatedP2pManager {
+impl Manager for SimulatedManager {
     type Stream = SimulatedPeerStream;
-    type Event = SimulatedEvent;
+    type NetworkEvent = SimulatedNetworkEvent;
     type Events = SimulatedEvents;
 
     fn start_listening_to_server_events(&mut self) {
@@ -178,7 +178,7 @@ impl P2pManager for SimulatedP2pManager {
         self.listener_enabled = false;
     }
 
-    fn accept_connection(&mut self, event: &Self::Event) -> Option<&mut Peer<Self::Stream>> {
+    fn accept_connection(&mut self, event: &Self::NetworkEvent) -> Option<&mut Peer<Self::Stream>> {
         let address = PeerAddress::new(event.from.clone());
         self.connected_peers.insert(
             address.clone(),
@@ -196,7 +196,7 @@ impl P2pManager for SimulatedP2pManager {
         eprintln!("peers attempting connection: {:?}\n", events.range);
     }
 
-    fn get_peer_for_event_mut(&mut self, event: &Self::Event) -> Option<&mut SimulatedPeer> {
+    fn get_peer_for_event_mut(&mut self, event: &Self::NetworkEvent) -> Option<&mut SimulatedPeer> {
         self.connected_peers.get_mut(&PeerAddress::new(event.from.clone()))
     }
 
@@ -233,14 +233,14 @@ fn simulate_many_incoming_connections() {
         tezedge_state::sample_tezedge_state::build(config.clone()),
         // capacity is changed by events_limit.
         SimulatedEvents::new(0..0),
-        SimulatedP2pManager::new(100000),
+        SimulatedManager::new(100000),
     );
 
     println!("starting loop");
-    while !proposer.p2p_manager.is_finished() {
+    while !proposer.manager.is_finished() {
         proposer.make_progress_owned();
         assert!(proposer.state.pending_peers_len() <= config.max_pending_peers as usize);
-        assert!(proposer.state.pending_peers_len() == proposer.p2p_manager.connected_peers.len());
+        assert!(proposer.manager.connected_peers.len() <= config.max_pending_peers as usize);
     }
 
     dbg!(proposer.state.stats());

@@ -11,7 +11,7 @@ use tezedge_state::{TezedgeState, TezedgeConfig, PeerAddress};
 use tezedge_state::proposals::ExtendPotentialPeersProposal;
 
 use tezedge_state::proposer::{TezedgeProposer, TezedgeProposerConfig};
-use tezedge_state::proposer::net_p2p::{NetP2pManager, MioEvents};
+use tezedge_state::proposer::mio_manager::{MioManager, MioEvents};
 
 fn network_version() -> NetworkVersion {
     NetworkVersion::new("TEZOS_MAINNET".to_string(), 0, 1)
@@ -92,7 +92,7 @@ fn build_tezedge_state() -> TezedgeState {
 }
 
 fn main() {
-    let mut p2p_manager = NetP2pManager::new(SERVER_PORT);
+    let mut manager = MioManager::new(SERVER_PORT);
 
     let mut proposer = TezedgeProposer::new(
         TezedgeProposerConfig {
@@ -101,8 +101,8 @@ fn main() {
         },
         build_tezedge_state(),
         // capacity is changed by events_limit.
-        MioEvents::with_capacity(0),
-        p2p_manager,
+        MioEvents::new(),
+        manager,
     );
 
     println!("starting loop");
