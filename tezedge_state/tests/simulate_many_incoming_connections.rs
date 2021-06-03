@@ -239,7 +239,11 @@ fn simulate_many_incoming_connections() {
     println!("starting loop");
     while !proposer.manager.is_finished() {
         proposer.make_progress_owned();
-        assert!(proposer.state.pending_peers_len() <= config.max_pending_peers as usize);
+        let stats = proposer.state.stats();
+        assert!(stats.potential_peers_len <= config.max_potential_peers as usize);
+        assert!(stats.pending_peers_len <= config.max_pending_peers as usize);
+        assert!(stats.connected_peers_len <= config.max_connected_peers as usize);
+
         assert!(proposer.manager.connected_peers.len() <= config.max_pending_peers as usize);
     }
 
