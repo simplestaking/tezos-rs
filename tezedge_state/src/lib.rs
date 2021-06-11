@@ -24,7 +24,7 @@ pub mod acceptors;
 
 pub mod sample_tezedge_state;
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum InvalidProposalError {
     ProposalOutdated,
 }

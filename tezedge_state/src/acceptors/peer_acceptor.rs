@@ -14,7 +14,9 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
     where M: Debug + PeerMessage,
 {
     fn accept(&mut self, mut proposal: PeerProposal<M>) {
-        if let Err(_) = self.validate_proposal(&proposal) {
+        if let Err(_err) = self.validate_proposal(&proposal) {
+            #[cfg(test)]
+            assert_ne!(_err, crate::InvalidProposalError::ProposalOutdated);
             return;
         }
 

@@ -5,7 +5,9 @@ use crate::proposals::{PendingRequestProposal, PendingRequestMsg};
 
 impl Acceptor<PendingRequestProposal> for TezedgeState {
     fn accept(&mut self, proposal: PendingRequestProposal) {
-        if let Err(_) = self.validate_proposal(&proposal) {
+        if let Err(_err) = self.validate_proposal(&proposal) {
+            #[cfg(test)]
+            assert_ne!(_err, crate::InvalidProposalError::ProposalOutdated);
             return;
         }
 

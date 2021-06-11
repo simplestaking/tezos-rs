@@ -4,7 +4,9 @@ use crate::proposals::NewPeerConnectProposal;
 
 impl Acceptor<NewPeerConnectProposal> for TezedgeState {
     fn accept(&mut self, proposal: NewPeerConnectProposal) {
-        if let Err(_) = self.validate_proposal(&proposal) {
+        if let Err(_err) = self.validate_proposal(&proposal) {
+            #[cfg(test)]
+            assert_ne!(_err, crate::InvalidProposalError::ProposalOutdated);
             return;
         }
 
