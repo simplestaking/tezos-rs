@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use tla_sm::{Proposal, Acceptor};
 use crypto::crypto_box::{CryptoKey, PrecomputedKey, PublicKey};
 use crypto::nonce::{Nonce, generate_nonces};
@@ -9,7 +11,7 @@ use crate::{Handshake, HandshakeStep, P2pState, PeerCrypto, RequestState, Tezedg
 use crate::proposals::{PeerProposal, PeerMessage};
 
 impl<M> Acceptor<PeerProposal<M>> for TezedgeState
-    where M: PeerMessage,
+    where M: Debug + PeerMessage,
 {
     fn accept(&mut self, mut proposal: PeerProposal<M>) {
         if let Err(_) = self.validate_proposal(&proposal) {
@@ -132,7 +134,7 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
                         Connect { sent_conn_msg, received, .. } => {
                             if let None = received {
                                 dbg!(&self);
-                                panic!();
+                                unreachable!();
                             }
                             received.take().map(|x| (x, sent_conn_msg))
                         }

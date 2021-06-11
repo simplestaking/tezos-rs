@@ -230,7 +230,7 @@ fn simulate_many_incoming_connections() {
             wait_for_events_timeout: Some(Duration::from_millis(250)),
             events_limit: 1024,
         },
-        tezedge_state::sample_tezedge_state::build(config.clone()),
+        tezedge_state::sample_tezedge_state::build(Instant::now(), config.clone()),
         // capacity is changed by events_limit.
         SimulatedEvents::new(0..0),
         SimulatedManager::new(100000),

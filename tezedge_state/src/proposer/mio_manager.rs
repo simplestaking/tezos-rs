@@ -75,7 +75,6 @@ impl<'a> Iterator for MioEventsIter<'a> {
     type Item = EventRef<'a, MioEvent>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mio_events_iter = &mut self.mio_events_iter;
         let tick_event_time = &mut self.tick_event_time;
 
         self.mio_events_iter.next()

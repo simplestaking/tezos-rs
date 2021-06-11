@@ -336,12 +336,22 @@ impl WriteQueue {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum Event<NetE> {
     Tick(Instant),
     Network(NetE),
 }
 
-type EventRef<'a, NetE> = Event<&'a NetE>;
+impl<NetE> Event<NetE> {
+    pub fn as_event_ref<'a>(&'a self) -> EventRef<'a, NetE> {
+        match self {
+            Self::Tick(e) => EventRef::Tick(*e),
+            Self::Network(e) => EventRef::Network(e),
+        }
+    }
+}
+
+pub type EventRef<'a, NetE> = Event<&'a NetE>;
 
 pub trait NetworkEvent {
     fn is_server_event(&self) -> bool;
@@ -363,7 +373,7 @@ pub trait Events {
 
 pub struct Peer<S> {
     address: PeerAddress,
-    stream: S,
+    pub stream: S,
     read_queue: Option<ReadQueue>,
     write_queue: Option<WriteQueue>,
 }
@@ -464,6 +474,7 @@ impl<S: Write> Peer<S> {
                         if queue.is_finished() {
                             let result = queue.result_ok();
                             self.write_queue.take();
+                            let _ = self.stream.flush();
                             result
                         } else {
                             queue.result_pending()
@@ -637,7 +648,7 @@ impl<Es, M> TezedgeProposer<Es, M>
 
 impl<S, NetE, Es, M> TezedgeProposer<Es, M>
     where S: Read + Write,
-          NetE: NetworkEvent,
+          NetE: NetworkEvent + Debug,
           M: Manager<Stream = S, NetworkEvent = NetE, Events = Es>,
 {
     fn handle_event(
@@ -691,8 +702,8 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
             match manager.get_peer_for_event_mut(&event) {
                 Some(peer) => peer,
                 None => {
-                    // TODO: replace with just error log.
-                    unreachable!()
+                    // TODO: write error log.
+                    return;
                 }
             }
         };

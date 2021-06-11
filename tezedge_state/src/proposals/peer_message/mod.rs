@@ -9,6 +9,7 @@ pub use peer_binary_message::*;
 mod peer_decoded_message;
 pub use peer_decoded_message::*;
 
+#[derive(Debug, Clone)]
 pub enum PeerMessageError {
     InvalidMessage,
 }
