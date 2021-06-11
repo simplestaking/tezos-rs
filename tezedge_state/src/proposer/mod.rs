@@ -581,6 +581,7 @@ pub struct TezedgeProposerConfig {
 }
 
 fn handle_send_message_result(
+    at: Instant,
     tezedge_state: &mut TezedgeState,
     address: PeerAddress,
     result: SendMessageResult,
@@ -597,7 +598,7 @@ fn handle_send_message_result(
             };
 
             tezedge_state.accept(HandshakeProposal {
-                at: Instant::now(),
+                at,
                 peer: address,
                 message: msg,
             });
@@ -611,7 +612,7 @@ fn handle_send_message_result(
             };
 
             tezedge_state.accept(HandshakeProposal {
-                at: Instant::now(),
+                at,
                 peer: address,
                 message: msg,
             });
@@ -722,7 +723,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
                 ReadMessageResult::Pending => {}
                 ReadMessageResult::Ok(msg_bytes) => {
                     state.accept(PeerProposal {
-                        at: Instant::now(),
+                        at: event.time(),
                         peer: peer.address().clone(),
                         message: PeerBinaryMessage::new(msg_bytes),
                     });
@@ -736,6 +737,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
 
         if event.is_writable() {
             handle_send_message_result(
+                event.time(),
                 state,
                 peer.address().clone(),
                 peer.try_flush(),
@@ -769,7 +771,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
                         peer: peer.clone(),
                         message: HandshakeMsg::SendConnectPending,
                     });
-                    handle_send_message_result(state, peer, result);
+                    handle_send_message_result(state.newest_time_seen(), state, peer, result);
                 }
                 TezedgeRequest::SendPeerMeta { peer, message } => {
                     if let Some(crypto) = state.get_peer_crypto(&peer) {
@@ -779,7 +781,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
                             peer: peer.clone(),
                             message: HandshakeMsg::SendMetaPending,
                         });
-                        handle_send_message_result(state, peer, result);
+                        handle_send_message_result(state.newest_time_seen(), state, peer, result);
                     }
                 }
                 TezedgeRequest::SendPeerAck { peer, message } => {
@@ -790,7 +792,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
                             peer: peer.clone(),
                             message: HandshakeMsg::SendAckPending,
                         });
-                        handle_send_message_result(state, peer, result);
+                        handle_send_message_result(state.newest_time_seen(), state, peer, result);
                     }
                 }
                 TezedgeRequest::DisconnectPeer { req_id, peer } => {
