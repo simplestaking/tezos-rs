@@ -78,7 +78,7 @@ fn message_iter(g: &mut Gen, identity: &Identity) -> impl Iterator<Item = Messag
 }
 
 fn try_sequence(state: &mut TezedgeState, sequence: Vec<Messages>) -> bool {
-    let peer = PeerAddress::new("peer-1".to_string());
+    let peer = PeerAddress::ipv4_from_index(1);
 
     for msg in sequence {
         match msg {

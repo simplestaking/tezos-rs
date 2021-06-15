@@ -50,7 +50,7 @@ fn build_tezedge_state() -> TezedgeState {
         TezedgeConfig {
             port: SERVER_PORT,
             disable_mempool: true,
-            private_node: true,
+            private_node: false,
             min_connected_peers: 500,
             max_connected_peers: 1000,
             max_pending_peers: 1000,
@@ -65,11 +65,11 @@ fn build_tezedge_state() -> TezedgeState {
     );
 
 
-    let raw_peer_addresses = HashSet::<_>::from_iter(
+    let peer_addresses = HashSet::<_>::from_iter(
         [
             vec!["159.65.98.117:9732", "34.245.171.88:9732", "18.182.168.120:9732", "13.115.2.66:9732", "18.179.219.134:9732", "45.77.35.193:9732", "73.96.221.90:9732", "62.149.16.61:9732", "18.182.169.115:9732", "143.110.185.25:9732", "45.32.203.167:9732", "66.70.178.32:9732", "64.225.6.118:9732", "104.236.125.54:9732", "84.201.132.206:9732", "46.245.179.162:9733", "18.158.218.189:9732", "138.201.9.113:9735", "95.217.154.147:9732", "62.109.18.93:9732", "24.134.10.217:9732", "135.181.49.110:9732", "95.217.46.253:9732", "46.245.179.163:9732", "18.185.162.213:9732", "34.107.95.94:9732", "162.55.1.145:9732", "34.208.149.159:9732", "13.251.146.136:9732", "143.110.209.198:9732", "34.255.45.216:9732", "107.191.62.113:9732", "15.236.199.66:9732", "[::ffff:95.216.45.62]:9732", "157.90.35.112:9732", "144.76.200.188:9732", "[::ffff:18.185.162.213]:9732", "[::ffff:18.184.136.151]:9732", "[::ffff:18.195.59.36]:9732", "[::ffff:18.185.162.144]:9732", "[::ffff:18.185.78.112]:9732", "[::ffff:116.202.172.21]:9732"]
                 .into_iter()
-                .map(|x| x.to_owned())
+                .map(|x| x.parse().unwrap())
                 .collect::<Vec<_>>(),
             // fake peers, just for testing.
             // (0..10000).map(|x| format!(
@@ -84,8 +84,7 @@ fn build_tezedge_state() -> TezedgeState {
 
     let _ = tezedge_state.accept(ExtendPotentialPeersProposal {
         at: Instant::now(),
-        peers: raw_peer_addresses.into_iter()
-            .map(|x| PeerAddress::new(x)),
+        peers: peer_addresses,
     });
 
     tezedge_state

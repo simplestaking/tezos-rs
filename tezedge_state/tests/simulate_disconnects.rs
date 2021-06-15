@@ -186,7 +186,7 @@ impl NetworkEventType {
 struct SimulatedNetworkEvent {
     event_type: NetworkEventType,
     time: Instant,
-    from: usize,
+    from: u64,
 }
 
 impl NetworkEvent for SimulatedNetworkEvent {
@@ -325,10 +325,10 @@ impl<'a, const N: usize> Manager for SimulatedManager<'a, N> {
     }
 
     fn accept_connection(&mut self, event: &Self::NetworkEvent) -> Option<&mut Peer<Self::Stream>> {
-        let address = PeerAddress::new(event.from.to_string());
+        let address = PeerAddress::ipv4_from_index(event.from);
         self.connected_peers.insert(
             address.clone(),
-            SimulatedPeer::new(PeerAddress(event.from.to_string()), SimulatedPeerStream::new()),
+            SimulatedPeer::new(address.clone(), SimulatedPeerStream::new()),
         );
 
         self.connected_peers.get_mut(&address)
@@ -344,7 +344,7 @@ impl<'a, const N: usize> Manager for SimulatedManager<'a, N> {
     }
 
     fn get_peer_for_event_mut(&mut self, event: &Self::NetworkEvent) -> Option<&mut SimulatedPeer> {
-        let address = PeerAddress::new(event.from.to_string());
+        let address = PeerAddress::ipv4_from_index(event.from);
         if let Some(peer) = self.connected_peers.get_mut(&address) {
             match &event.event_type {
                 NetworkEventType::IncomingConnect => {}
@@ -473,7 +473,7 @@ impl ScenarioGenerator {
                 val.map(|(peer_index, message_index)| {
                     [Event::Network(SimulatedNetworkEvent {
                         event_type: NetworkEventType::from_index(message_index),
-                        from: peer_index,
+                        from: peer_index as u64,
                         time: initial_time + Duration::from_millis(100 * (index + 1) as u64),
                     })]
                 })

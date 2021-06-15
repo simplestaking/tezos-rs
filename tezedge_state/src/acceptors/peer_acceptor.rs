@@ -47,6 +47,21 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
             match pending_peers.get_mut(&proposal.peer) {
                 Some(Outgoing(step @ Connect { sent: Some(Success { .. }), .. })) => {
                     if let Ok(conn_msg) = proposal.message.as_connection_msg() {
+                        let step = if conn_msg.port != proposal.peer.port() {
+                            // TODO: if we accept multiple peers with the same
+                            // ip, we will need to make sure to notify mio part
+                            // about the new port.
+                            let handshake_step = pending_peers.remove(&proposal.peer).unwrap();
+                            let mut peer = proposal.peer;
+                            peer.set_port(conn_msg.port);
+                            pending_peers.insert(peer, handshake_step);
+                            match pending_peers.get_mut(&peer).unwrap() {
+                                Outgoing(s) => s,
+                                _ => unreachable!(),
+                            }
+                        } else {
+                            step
+                        };
                         let sent_conn_msg = match step {
                             Connect { sent_conn_msg, .. } => Some(sent_conn_msg.clone()),
                             _ => None
@@ -113,9 +128,16 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
                         Err(_) => self.blacklist_peer(proposal.at, proposal.peer),
                     }
                 }
-                Some(Incoming(step @ Initiated { .. })) => {
+                Some(Incoming(Initiated { .. })) => {
                     if let Ok(conn_msg) = proposal.message.as_connection_msg() {
-                        *step = Connect {
+                        // TODO: if we accept multiple peers with the same
+                        // ip, we will need to make sure to notify mio part
+                        // about the new port.
+                        pending_peers.remove(&proposal.peer);
+                        let mut peer = proposal.peer;
+                        peer.set_port(conn_msg.port);
+
+                        pending_peers.insert(peer, Incoming(Connect {
                             sent: Some(Idle { at: proposal.at }),
                             received: Some(conn_msg),
                             sent_conn_msg: ConnectionMessage::try_new(
@@ -126,7 +148,7 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
                                 Nonce::random(),
                                 self.network_version.clone(),
                             ).unwrap(),
-                        };
+                        }));
                     } else {
                         self.blacklist_peer(proposal.at, proposal.peer);
                     }

@@ -39,7 +39,7 @@ enum NetworkEventType {
 struct SimulatedNetworkEvent {
     event_type: NetworkEventType,
     time: Instant,
-    from: String,
+    from: u64,
     stream: SimulatedPeerStream,
 }
 
@@ -120,7 +120,7 @@ impl Iterator for SimulatedEventsIter
             Some(Event::Network(SimulatedNetworkEvent {
                 event_type: NetworkEventType::IncomingConnect,
                 time: self.initial_time + Duration::from_secs(self.index as u64),
-                from: format!("peer-{}", self.index),
+                from: self.index as u64,
                 stream: SimulatedPeerStream {},
             }))
         }
@@ -179,10 +179,10 @@ impl Manager for SimulatedManager {
     }
 
     fn accept_connection(&mut self, event: &Self::NetworkEvent) -> Option<&mut Peer<Self::Stream>> {
-        let address = PeerAddress::new(event.from.clone());
+        let address = PeerAddress::ipv4_from_index(event.from);
         self.connected_peers.insert(
             address.clone(),
-            SimulatedPeer::new(PeerAddress(event.from.clone()), SimulatedPeerStream {}),
+            SimulatedPeer::new(address.clone(), SimulatedPeerStream {}),
         );
 
         self.connected_peers.get_mut(&address)
@@ -197,7 +197,7 @@ impl Manager for SimulatedManager {
     }
 
     fn get_peer_for_event_mut(&mut self, event: &Self::NetworkEvent) -> Option<&mut SimulatedPeer> {
-        self.connected_peers.get_mut(&PeerAddress::new(event.from.clone()))
+        self.connected_peers.get_mut(&PeerAddress::ipv4_from_index(event.from))
     }
 
     fn get_peer_or_connect_mut(&mut self, address: &PeerAddress) -> io::Result<&mut SimulatedPeer> {

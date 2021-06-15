@@ -143,9 +143,7 @@ impl Manager for MioManager {
 
         if let Some(server) = server.as_mut() {
             match server.accept() {
-                Ok((mut stream, addr)) => {
-                    let address = PeerAddress::new(addr.to_string());
-
+                Ok((mut stream, address)) => {
                     let peer_entry = peers.vacant_entry();
                     let token = mio::Token(peer_entry.key());
 
@@ -155,8 +153,8 @@ impl Manager for MioManager {
 
                     match registered_poll {
                         Ok(_) => {
-                            address_to_token.insert(address.clone(), peer_entry.key());
-                            Some(peer_entry.insert(NetPeer::new(address.clone(), stream)))
+                            address_to_token.insert(address.into(), peer_entry.key());
+                            Some(peer_entry.insert(NetPeer::new(address.into(), stream)))
                         }
                         Err(err) => {
                             eprintln!("error while registering poll: {:?}", err);
@@ -200,7 +198,7 @@ impl Manager for MioManager {
         let peer_entry = peers.vacant_entry();
         let token = mio::Token(peer_entry.key());
 
-        match TcpStream::connect(address.0.parse().unwrap()) {
+        match TcpStream::connect(address.into()) {
             Ok(mut stream) => {
                 poll.registry()
                     .register(&mut stream, token, mio::Interest::READABLE | mio::Interest::WRITABLE)?;

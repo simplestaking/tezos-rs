@@ -15,6 +15,9 @@ use tezos_messages::p2p::encoding::prelude::{
     AckMessage,
 };
 
+mod peer_address;
+pub use peer_address::{PeerAddress, Port};
+
 mod peer_crypto;
 pub use peer_crypto::PeerCrypto;
 
@@ -100,28 +103,10 @@ impl HandshakeStep {
     }
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone)]
-pub struct PeerId(String);
-
-impl PeerId {
-    pub fn new(id: String) -> Self {
-        Self(id)
-    }
-}
-
-#[derive(Debug, Hash, Ord, PartialOrd, Eq, PartialEq, Clone)]
-pub struct PeerAddress(pub String);
-
-impl PeerAddress {
-    pub fn new(addr: String) -> Self {
-        Self(addr)
-    }
-}
-
 #[derive(Getters, CopyGetters, Debug, Clone)]
 pub struct ConnectedPeer {
     // #[get_copy = "pub"]
-    pub port: u16,
+    pub port: Port,
 
     // #[get = "pub"]
     pub version: NetworkVersion,
@@ -151,7 +136,7 @@ pub struct BlacklistedPeer {
 
 #[derive(Debug, Clone)]
 pub struct TezedgeConfig {
-    pub port: u16,
+    pub port: Port,
     pub disable_mempool: bool,
     pub private_node: bool,
     pub min_connected_peers: u32,
@@ -215,6 +200,7 @@ pub struct TezedgeState {
     pub(crate) potential_peers: Vec<PeerAddress>,
     pub(crate) connected_peers: HashMap<PeerAddress, ConnectedPeer>,
     pub(crate) blacklisted_peers: HashMap<PeerAddress, BlacklistedPeer>,
+    // TODO: blacklist identities as well.
     pub(crate) p2p_state: P2pState,
     pub(crate) requests: slab::Slab<PendingRequestState>,
 }
@@ -285,6 +271,18 @@ impl TezedgeState {
         }
     }
 
+    fn pending_peers_mut(&mut self) -> Option<&mut HashMap<PeerAddress, Handshake>> {
+        use P2pState::*;
+
+        match &mut self.p2p_state {
+            Pending { pending_peers }
+            | PendingFull { pending_peers }
+            | Ready { pending_peers }
+            | ReadyFull { pending_peers } => Some(pending_peers),
+            ReadyMaxed => None,
+        }
+    }
+
     pub fn blacklisted_peers(&self) -> &HashMap<PeerAddress, BlacklistedPeer> {
         &self.blacklisted_peers
     }
@@ -322,26 +320,26 @@ impl TezedgeState {
         if let Some(peer) = self.connected_peers.get_mut(peer_address) {
             return Some(&mut peer.crypto);
         }
+        use P2pState::*;
         use Handshake::*;
         use HandshakeStep::*;
 
         match &mut self.p2p_state {
-            P2pState::ReadyMaxed => None,
-            P2pState::Pending { pending_peers }
-            | P2pState::PendingFull { pending_peers }
-            | P2pState::Ready { pending_peers }
-            | P2pState::ReadyFull { pending_peers } => {
+            ReadyMaxed => None,
+            Pending { pending_peers }
+            | PendingFull { pending_peers }
+            | Ready { pending_peers }
+            | ReadyFull { pending_peers } => {
                 match pending_peers.get_mut(peer_address) {
                     Some(Incoming(Metadata { crypto, .. }))
-                    | Some(Outgoing(Metadata { crypto, .. }))
-                    | Some(Incoming(Ack { crypto, .. }))
-                    | Some(Outgoing(Ack { crypto, .. })) => {
-                        Some(crypto)
-                    }
+                        | Some(Outgoing(Metadata { crypto, .. }))
+                        | Some(Incoming(Ack { crypto, .. }))
+                        | Some(Outgoing(Ack { crypto, .. })) => {
+                            Some(crypto)
+                        }
                     _ => None,
                 }
             }
-
         }
     }
 
@@ -630,17 +628,10 @@ impl TezedgeState {
         at: Instant,
         peer: PeerAddress,
     ) {
-        use P2pState::*;
-
-        match &mut self.p2p_state {
-            ReadyMaxed => {}
-            Pending { pending_peers }
-            | PendingFull { pending_peers }
-            | Ready { pending_peers }
-            | ReadyFull { pending_peers } => {
-                pending_peers.remove(&peer);
-            }
+        if let Some(pending_peers) = self.pending_peers_mut() {
+            pending_peers.remove(&peer);
         }
+
         self.connected_peers.remove(&peer);
         self.blacklisted_peers.insert(peer.clone(), BlacklistedPeer {
             since: at,
@@ -658,30 +649,20 @@ impl TezedgeState {
         peer: PeerAddress,
         motive: NackMotive
     ) {
-        use P2pState::*;
-
-        match &mut self.p2p_state {
-            ReadyMaxed => {}
-            Pending { pending_peers }
-            | PendingFull { pending_peers }
-            | Ready { pending_peers }
-            | ReadyFull { pending_peers } => {
-                if let Some((peer_address, _)) = pending_peers.remove_entry(&peer) {
-                    self.potential_peers.push(peer_address);
-                    let entry = self.requests.vacant_entry();
-                    entry.insert(PendingRequestState {
-                        request: PendingRequest::NackAndDisconnectPeer {
-                            peer,
-                            // TODO: include potential peers.
-                            nack_info: NackInfo::new(motive, &[]),
-                        },
-                        status: RequestState::Idle { at },
-                    });
-                }
+        if let Some(pending_peers) = self.pending_peers_mut() {
+            if let Some((peer_address, _)) = pending_peers.remove_entry(&peer) {
+                self.potential_peers.push(peer_address);
+                let entry = self.requests.vacant_entry();
+                entry.insert(PendingRequestState {
+                    request: PendingRequest::NackAndDisconnectPeer {
+                        peer,
+                        // TODO: include potential peers.
+                        nack_info: NackInfo::new(motive, &[]),
+                    },
+                    status: RequestState::Idle { at },
+                });
             }
         }
-        // TODO: depending on motive, blacklist them, but if we have
-        // to much connections, but only till we need more connections.
     }
 
     pub fn stats(&self) -> TezedgeStats {
