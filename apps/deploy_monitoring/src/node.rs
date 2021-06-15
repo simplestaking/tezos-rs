@@ -13,7 +13,7 @@ use sysinfo::{ProcessExt, System, SystemExt};
 
 use shell::stats::memory::{MemoryData, ProcessMemoryStats};
 
-use crate::constants::{DEBUGGER_VOLUME_PATH, OCAML_VOLUME_PATH, TEZEDGE_VOLUME_PATH};
+use crate::constants::{DEBUGGER_VOLUME_PATH, OCAML_VOLUME_PATH};
 use crate::display_info::NodeInfo;
 use crate::display_info::{OcamlDiskData, TezedgeDiskData};
 use crate::image::DeployMonitoringContainer;
@@ -28,29 +28,31 @@ impl DeployMonitoringContainer for TezedgeNode {
 }
 
 impl TezedgeNode {
-    pub fn collect_disk_data() -> Result<TezedgeDiskData, failure::Error> {
+    pub fn collect_disk_data(
+        tezedge_volume_path: String,
+    ) -> Result<TezedgeDiskData, failure::Error> {
         // context actions DB is optional
         let context_actions = dir::get_size(&format!(
             "{}/{}",
-            TEZEDGE_VOLUME_PATH, "bootstrap_db/context_actions"
+            tezedge_volume_path, "bootstrap_db/context_actions"
         ))
         .unwrap_or(0);
 
         let disk_data = TezedgeDiskData::new(
             dir::get_size(&format!("{}/{}", DEBUGGER_VOLUME_PATH, "tezedge")).unwrap_or(0),
-            dir::get_size(&format!("{}/{}", TEZEDGE_VOLUME_PATH, "context")).unwrap_or(0),
+            dir::get_size(&format!("{}/{}", tezedge_volume_path, "context")).unwrap_or(0),
             dir::get_size(&format!(
                 "{}/{}",
-                TEZEDGE_VOLUME_PATH, "bootstrap_db/context"
+                tezedge_volume_path, "bootstrap_db/context"
             ))
             .unwrap_or(0),
             dir::get_size(&format!(
                 "{}/{}",
-                TEZEDGE_VOLUME_PATH, "bootstrap_db/block_storage"
+                tezedge_volume_path, "bootstrap_db/block_storage"
             ))
             .unwrap_or(0),
             context_actions,
-            dir::get_size(&format!("{}/{}", TEZEDGE_VOLUME_PATH, "bootstrap_db/db")).unwrap_or(0),
+            dir::get_size(&format!("{}/{}", tezedge_volume_path, "bootstrap_db/db")).unwrap_or(0),
         );
 
         Ok(disk_data)

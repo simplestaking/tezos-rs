@@ -37,6 +37,8 @@ pub fn start_deploy_monitoring(
     running: Arc<AtomicBool>,
     cleanup_data: bool,
     tezedge_only: bool,
+    disable_debugger: bool,
+    tezedge_volume_path: String,
 ) -> JoinHandle<()> {
     let docker = Docker::new();
     let deploy_monitor = DeployMonitor::new(
@@ -46,6 +48,8 @@ pub fn start_deploy_monitoring(
         log.clone(),
         cleanup_data,
         tezedge_only,
+        disable_debugger,
+        tezedge_volume_path.to_string(),
     );
     tokio::spawn(async move {
         while running.load(Ordering::Acquire) {
@@ -65,6 +69,8 @@ pub fn start_sandbox_monitoring(
     running: Arc<AtomicBool>,
     cleanup_data: bool,
     tezedge_only: bool,
+    disable_debugger: bool,
+    tezedge_volume_path: String,
 ) -> JoinHandle<()> {
     let docker = Docker::new();
     let deploy_monitor = DeployMonitor::new(
@@ -74,6 +80,8 @@ pub fn start_sandbox_monitoring(
         log.clone(),
         cleanup_data,
         tezedge_only,
+        disable_debugger,
+        tezedge_volume_path,
     );
     tokio::spawn(async move {
         while running.load(Ordering::Acquire) {
@@ -96,16 +104,22 @@ pub fn start_resource_monitoring(
         tezedge_alert_thresholds,
         ocaml_alert_thresholds,
         resource_monitor_interval,
+        tezedge_volume_path,
         ..
     } = env;
 
-    let alerts = Alerts::new(*tezedge_alert_thresholds, *ocaml_alert_thresholds);
+    let alerts = Alerts::new(
+        *tezedge_alert_thresholds,
+        *ocaml_alert_thresholds,
+        tezedge_volume_path.to_string(),
+    );
     let mut resource_monitor = ResourceMonitor::new(
         resource_utilization,
         HashMap::new(),
         alerts,
         log.clone(),
         slack,
+        tezedge_volume_path.to_string(),
     );
 
     let resource_monitor_interval = *resource_monitor_interval;
@@ -149,11 +163,19 @@ pub async fn start_stack(
         tezedge_alert_thresholds,
         ocaml_alert_thresholds,
         tezedge_only,
+        disable_debugger,
         ..
     } = env;
 
     // cleanup possible dangling containers/volumes and start the stack
-    restart_stack(&compose_file_path, log, *cleanup_volumes, *tezedge_only).await;
+    restart_stack(
+        &compose_file_path,
+        log,
+        *cleanup_volumes,
+        *tezedge_only,
+        *disable_debugger,
+    )
+    .await;
     if let Some(slack_server) = slack {
         slack_server.send_message("Tezedge stack started").await?;
         slack_server
@@ -209,6 +231,8 @@ pub async fn spawn_sandbox(
             running.clone(),
             env.cleanup_volumes,
             env.tezedge_only,
+            env.disable_debugger,
+            env.tezedge_volume_path,
         );
 
         vec![deploy_handle]
@@ -238,6 +262,8 @@ pub async fn spawn_node_stack(
             running.clone(),
             env.cleanup_volumes,
             env.tezedge_only,
+            env.disable_debugger,
+            env.tezedge_volume_path.clone(),
         );
         handles.push(deploy_handle);
     }

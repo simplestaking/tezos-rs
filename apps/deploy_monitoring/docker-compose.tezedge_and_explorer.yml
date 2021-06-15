@@ -1,0 +1,35 @@
+version: "3"
+
+services:
+  tezedge-node:
+    image: simplestakingcom/tezedge:latest-release
+    command: ["--network", "${TEZOS_NETWORK}", "--log", "terminal", "file", "--log-file", "/tmp/tezedge/tezedge.log", "--one-context", "--actions-store-backend", "none", "--peer-thresh-low", "30", "--peer-thresh-high", "45", "--p2p-port", "19732"]
+    logging:
+      # Produce syslogs instead of terminal logs
+      driver: "syslog"
+      options:
+        # Send the logs to syslog (UDP only) server (running on debugger)
+        syslog-address: "udp://0.0.0.0:10001"  # Port must match debugger syslog port in 'ports' section
+        # Always in same RFC 5424 format (with microseconds precision)
+        syslog-format: "rfc5424micro"
+    volumes:
+      - "${TEZEDGE_VOLUME_PATH}:/tmp/tezedge"
+    ports:
+      - "4927:4927"       # node WS port (required only for tezedge)
+      - "19732:19732"       # node P2P port
+      - "18732:18732"     # node RPC port
+      - "3030:3030"       # sandbox launcher port
+
+  explorer:
+    image: simplestakingcom/tezedge-explorer:latest-release
+    environment:
+      - SANDBOX=http://${HOSTNAME}:3030
+      - DEBUGGER=http://${HOSTNAME}:17732
+      # need a better way to provide such information
+      - API=[{"id":"rust","name":"rust.${HOSTNAME}","http":"http://${HOSTNAME}:18732","ws":"ws://${HOSTNAME}:4927","monitoring":"http://${HOSTNAME}:38732/resources/tezedge","p2p_port":19732,"features":["MONITORING","RESOURCES","MEMPOOL_ACTION","STORAGE_BLOCK","NETWORK_ACTION","LOGS_ACTION"]},{"id":"ocaml","name":"ocaml.${HOSTNAME}","http":"http://${HOSTNAME}:18733","ws":false,"monitoring":"http://${HOSTNAME}:38732/resources/ocaml","p2p_port":9733,"features":["MONITORING","RESOURCES","MEMPOOL_ACTION","NETWORK_ACTION","LOGS_ACTION"]}]
+    ports:
+      - "80:80"
+# volumes:
+#   ${TEZEDGE_VOLUME_PATH}:
+#     name: tezedge-shared-data
+#     # external: false

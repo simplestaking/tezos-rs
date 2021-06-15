@@ -11,20 +11,28 @@ use crate::constants::{DEBUGGER_PORT, EXPLORER_PORT, OCAML_PORT, TEZEDGE_PORT};
 use crate::image::{DeployMonitoringContainer, Explorer, Sandbox, TezedgeDebugger, TezedgeMemprof};
 use crate::node::{OcamlNode, TezedgeNode};
 
-pub async fn launch_stack(compose_file_path: &PathBuf, log: &Logger, tezedge_only: bool) {
+pub async fn launch_stack(
+    compose_file_path: &PathBuf,
+    log: &Logger,
+    tezedge_only: bool,
+    disable_debugger: bool,
+) {
     info!(log, "Tezedge explorer is starting");
     start_with_compose(compose_file_path, Explorer::NAME, "explorer");
     wait_for_start(&format!("http://localhost:{}", EXPLORER_PORT)).await;
+
     info!(log, "Tezedge explorer is running");
 
-    info!(log, "Debugger is starting");
-    start_with_compose(compose_file_path, TezedgeDebugger::NAME, "tezedge-debugger");
-    wait_for_start(&format!("http://localhost:{}/v2/log", DEBUGGER_PORT)).await;
-    info!(log, "Debugger is running");
+    if !disable_debugger {
+        info!(log, "Debugger is starting");
+        start_with_compose(compose_file_path, TezedgeDebugger::NAME, "tezedge-debugger");
+        wait_for_start(&format!("http://localhost:{}/v2/log", DEBUGGER_PORT)).await;
+        info!(log, "Debugger is running");
 
-    info!(log, "Memprof is starting");
-    start_with_compose(compose_file_path, TezedgeMemprof::NAME, "tezedge-memprof");
-    info!(log, "Memprof is running");
+        info!(log, "Memprof is starting");
+        start_with_compose(compose_file_path, TezedgeMemprof::NAME, "tezedge-memprof");
+        info!(log, "Memprof is running");
+    }
 
     info!(log, "Tezedge node is starting");
     start_with_compose(compose_file_path, TezedgeNode::NAME, "tezedge-node");
@@ -68,10 +76,11 @@ pub async fn restart_stack(
     log: &Logger,
     cleanup_data: bool,
     tezedge_only: bool,
+    disable_debugger: bool,
 ) {
     stop_with_compose(compose_file_path);
     cleanup_docker(cleanup_data);
-    launch_stack(compose_file_path, log, tezedge_only).await;
+    launch_stack(compose_file_path, log, tezedge_only, disable_debugger).await;
 }
 
 pub async fn shutdown_and_update(
@@ -79,11 +88,19 @@ pub async fn shutdown_and_update(
     log: &Logger,
     cleanup_data: bool,
     tezedge_only: bool,
+    disable_debugger: bool,
 ) {
     stop_with_compose(compose_file_path);
     cleanup_docker_system();
     update_with_compose(compose_file_path);
-    restart_stack(compose_file_path, log, cleanup_data, tezedge_only).await;
+    restart_stack(
+        compose_file_path,
+        log,
+        cleanup_data,
+        tezedge_only,
+        disable_debugger,
+    )
+    .await;
 }
 
 pub async fn restart_sandbox(compose_file_path: &PathBuf, log: &Logger) {

@@ -32,6 +32,7 @@ pub struct ResourceMonitor {
     log: Logger,
     slack: Option<SlackServer>,
     system: System,
+    tezedge_volume_path: String,
 }
 
 #[derive(Clone, Debug, Serialize, Getters, Default)]
@@ -188,6 +189,7 @@ impl ResourceMonitor {
         alerts: Alerts,
         log: Logger,
         slack: Option<SlackServer>,
+        tezedge_volume_path: String,
     ) -> Self {
         Self {
             resource_utilization,
@@ -196,6 +198,7 @@ impl ResourceMonitor {
             log,
             slack,
             system: System::new_all(),
+            tezedge_volume_path,
         }
     }
 
@@ -207,6 +210,7 @@ impl ResourceMonitor {
             last_checked_head_level,
             alerts,
             slack,
+            tezedge_volume_path,
             ..
         } = self;
 
@@ -218,7 +222,7 @@ impl ResourceMonitor {
                 let tezedge_node = TezedgeNode::collect_memory_data(TEZEDGE_PORT).await?;
                 let protocol_runners =
                     TezedgeNode::collect_protocol_runners_memory_stats(TEZEDGE_PORT).await?;
-                let tezedge_disk = TezedgeNode::collect_disk_data()?;
+                let tezedge_disk = TezedgeNode::collect_disk_data(tezedge_volume_path.to_string())?;
 
                 let tezedge_cpu = TezedgeNode::collect_cpu_data(system, "light-node")?;
                 let protocol_runners_cpu =

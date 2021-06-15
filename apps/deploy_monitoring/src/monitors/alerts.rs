@@ -12,7 +12,6 @@ use slog::{crit, Logger};
 use shell::stats::memory::ProcessMemoryStats;
 
 use crate::configuration::AlertThresholds;
-use crate::constants::TEZEDGE_VOLUME_PATH;
 use crate::display_info::NodeInfo;
 use crate::slack::SlackServer;
 use crate::ResourceUtilization;
@@ -33,6 +32,8 @@ pub struct Alerts {
 
     #[get = "pub(crate)"]
     ocaml_thresholds: AlertThresholds,
+
+    tezedge_volume_path: String,
 }
 
 #[derive(Clone, Debug, Eq)]
@@ -81,11 +82,16 @@ impl MonitorAlert {
 }
 
 impl Alerts {
-    pub fn new(tezedge_thresholds: AlertThresholds, ocaml_thresholds: AlertThresholds) -> Self {
+    pub fn new(
+        tezedge_thresholds: AlertThresholds,
+        ocaml_thresholds: AlertThresholds,
+        tezedge_volume_path: String,
+    ) -> Self {
         Self {
             inner: HashSet::default(),
             tezedge_thresholds,
             ocaml_thresholds,
+            tezedge_volume_path,
         }
     }
 
@@ -243,9 +249,9 @@ impl Alerts {
         head_info: NodeInfo,
     ) -> Result<(), failure::Error> {
         // gets the total space on the filesystem of the specified path
-        let free_disk_space = fs2::free_space(TEZEDGE_VOLUME_PATH)?;
+        let free_disk_space = fs2::free_space(self.tezedge_volume_path.clone())?;
         // let total_disk_space = fs2::total_space(TEZEDGE_VOLUME_PATH)?;
-        let total_disk_space = fs2::total_space(TEZEDGE_VOLUME_PATH)?;
+        let total_disk_space = fs2::total_space(self.tezedge_volume_path.clone())?;
 
         // set it to a percentage of the max capacity
         let disk_threshold = 100 / thresholds.disk * total_disk_space;
@@ -515,6 +521,7 @@ mod tests {
                 synchronization: 0,
                 cpu: Some(0),
             },
+            "".to_string(),
         );
 
         alerts.assign_resource_alert(
@@ -584,6 +591,7 @@ mod tests {
                 synchronization: 0,
                 cpu: Some(0),
             },
+            "".to_string(),
         );
 
         alerts.assign_resource_alert(
@@ -687,6 +695,7 @@ mod tests {
                 synchronization: 0,
                 cpu: Some(0),
             },
+            "".to_string(),
         );
 
         alerts.assign_resource_alert(
@@ -762,6 +771,7 @@ mod tests {
                 synchronization: 300,
                 cpu: Some(0),
             },
+            "".to_string(),
         );
 
         let thresholds = alerts.tezedge_thresholds().clone();
@@ -856,6 +866,7 @@ mod tests {
                 synchronization: 300,
                 cpu: Some(0),
             },
+            "".to_string(),
         );
 
         let thresholds = alerts.tezedge_thresholds().clone();

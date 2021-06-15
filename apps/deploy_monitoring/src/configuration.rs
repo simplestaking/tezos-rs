@@ -1,10 +1,10 @@
 // Copyright (c) SimpleStaking, Viable Systems and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
-use std::fmt;
-use std::path::{Path, PathBuf};
-
 use clap::{App, Arg};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::{env, fmt};
 
 #[derive(Clone, Debug)]
 pub struct DeployMonitoringEnvironment {
@@ -38,6 +38,10 @@ pub struct DeployMonitoringEnvironment {
     pub slack_configuration: Option<SlackConfiguration>,
 
     pub tezedge_only: bool,
+
+    pub disable_debugger: bool,
+
+    pub tezedge_volume_path: String,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -235,9 +239,14 @@ fn deploy_monitoring_app() -> App<'static, 'static> {
                 .help("Enable and dissable volume cleanup"),
         )
         .arg(
+            Arg::with_name("disable-debugger")
+                .long("disable-debugger")
+                .help("Launches the stack without the debugger"),
+        )
+        .arg(
             Arg::with_name("tezedge-only")
                 .long("tezedge-only")
-                .help("Only launches the tezedge node with debugger and explorer"),
+                .help("Only launches the tezedge node (without the ocaml node)"),
         );
     app
 }
@@ -338,6 +347,16 @@ impl DeployMonitoringEnvironment {
                 }),
         };
 
+        let tezedge_volume_path = env::var("TEZEDGE_VOLUME_PATH").unwrap_or(
+            "/var/lib/docker/volumes/deploy_monitoring_tezedge-shared-data/_data".to_string(),
+        );
+
+        if !Path::new(&tezedge_volume_path).exists() {
+            fs::create_dir_all(&tezedge_volume_path).unwrap_or_else(|_| {
+                panic!("Failed to create directory: {:?}", &tezedge_volume_path)
+            });
+        }
+
         DeployMonitoringEnvironment {
             log_level: args
                 .value_of("log-level")
@@ -358,7 +377,7 @@ impl DeployMonitoringEnvironment {
                 }),
             resource_monitor_interval: args
                 .value_of("resource-monitor-interval")
-                .unwrap_or("0")
+                .unwrap_or("5")
                 .parse::<u64>()
                 .expect("Expected u64 value of seconds"),
             rpc_port: args
@@ -369,9 +388,11 @@ impl DeployMonitoringEnvironment {
             is_sandbox: args.is_present("sandbox"),
             cleanup_volumes: args.is_present("cleanup-volumes"),
             tezedge_only: args.is_present("tezedge-only"),
+            disable_debugger: args.is_present("disable-debugger"),
             tezedge_alert_thresholds,
             ocaml_alert_thresholds,
             slack_configuration,
+            tezedge_volume_path,
         }
     }
 }

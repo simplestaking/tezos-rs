@@ -21,7 +21,7 @@ use crate::image::{
     TezedgeMemprof,
 };
 
-use crate::constants::{DEBUGGER_PORT, TEZEDGE_NODE_P2P_PORT, TEZEDGE_VOLUME_PATH};
+use crate::constants::{DEBUGGER_PORT, TEZEDGE_NODE_P2P_PORT};
 use crate::node::TezedgeNode;
 use crate::slack::SlackServer;
 
@@ -32,6 +32,8 @@ pub struct DeployMonitor {
     log: Logger,
     cleanup: bool,
     tezedge_only: bool,
+    disable_debugger: bool,
+    tezedge_volume_path: String,
 }
 
 impl DeployMonitor {
@@ -42,6 +44,8 @@ impl DeployMonitor {
         log: Logger,
         cleanup: bool,
         tezedge_only: bool,
+        disable_debugger: bool,
+        tezedge_volume_path: String,
     ) -> Self {
         Self {
             compose_file_path,
@@ -50,6 +54,8 @@ impl DeployMonitor {
             log,
             cleanup,
             tezedge_only,
+            disable_debugger,
+            tezedge_volume_path,
         }
     }
 
@@ -109,7 +115,7 @@ impl DeployMonitor {
 
         zip_file.write_all("]".as_bytes())?;
 
-        let log_file_name = format!("{}/tezedge.log", TEZEDGE_VOLUME_PATH);
+        let log_file_name = format!("{}/tezedge.log", self.tezedge_volume_path);
         let log_file_path = Path::new(&log_file_name);
         if log_file_path.exists() {
             zip_file.start_file("tezedge.log", zip_options)?;
@@ -136,17 +142,41 @@ impl DeployMonitor {
 
         if self.is_node_container_running().await {
             let node_updated = self.changed::<TezedgeNode>().await?;
-            let debugger_updated = self.changed::<TezedgeDebugger>().await?;
-            let memprof_updated = self.changed::<TezedgeMemprof>().await?;
             let explorer_updated = self.changed::<Explorer>().await?;
             // TODO: TE-499 here restart individually,
             // if debugger updated not need to restart explorer
             // if explorer updated, only need to restart explorer and so on...
-            if node_updated || debugger_updated || explorer_updated || memprof_updated {
-                shutdown_and_update(&compose_file_path, log, self.cleanup, self.tezedge_only).await;
+
+            if self.disable_debugger {
+                if node_updated || explorer_updated {
+                    shutdown_and_update(
+                        &compose_file_path,
+                        log,
+                        self.cleanup,
+                        self.tezedge_only,
+                        self.disable_debugger,
+                    )
+                    .await;
+                } else {
+                    // Do nothing, No update occurred
+                    info!(self.log, "No image change detected");
+                }
             } else {
-                // Do nothing, No update occurred
-                info!(self.log, "No image change detected");
+                let debugger_updated = self.changed::<TezedgeDebugger>().await?;
+                let memprof_updated = self.changed::<TezedgeMemprof>().await?;
+                if node_updated || debugger_updated || explorer_updated || memprof_updated {
+                    shutdown_and_update(
+                        &compose_file_path,
+                        log,
+                        self.cleanup,
+                        self.tezedge_only,
+                        self.disable_debugger,
+                    )
+                    .await;
+                } else {
+                    // Do nothing, No update occurred
+                    info!(self.log, "No image change detected");
+                }
             }
         } else {
             warn!(self.log, "Node not running. Restarting stack");
@@ -157,7 +187,14 @@ impl DeployMonitor {
             }
 
             self.send_log_dump().await?;
-            restart_stack(&compose_file_path, log, self.cleanup, self.tezedge_only).await;
+            restart_stack(
+                &compose_file_path,
+                log,
+                self.cleanup,
+                self.tezedge_only,
+                self.disable_debugger,
+            )
+            .await;
         };
 
         Ok(())
