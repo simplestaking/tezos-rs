@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use tla_sm::{Proposal, Acceptor};
 use crypto::crypto_box::{CryptoKey, PrecomputedKey, PublicKey};
 use crypto::nonce::{Nonce, generate_nonces};
-use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryMessage};
+use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryWrite};
 use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, AckMessage};
 use tezos_messages::p2p::encoding::ack::NackMotive;
 

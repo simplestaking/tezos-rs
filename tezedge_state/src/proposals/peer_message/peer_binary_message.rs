@@ -1,6 +1,6 @@
 use crypto::CryptoError;
 use tezos_encoding::binary_reader::BinaryReaderError;
-use tezos_messages::p2p::binary_message::{BinaryMessage, BinaryChunk};
+use tezos_messages::p2p::binary_message::{BinaryRead, BinaryChunk};
 use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, MetadataMessage, AckMessage};
 
 use crate::PeerCrypto;
