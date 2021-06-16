@@ -1,12 +1,24 @@
 # Deploy Monitoring
 
+**Note: for the time being this readme applies to the deploy_monitoring/optional-debugger branch, please checkout the branch accordingly. Once merged into develop and into master, this notice should be removed**
+
 Runs and monitors the whole or parts of the tezedge stack (node, debugger, explorer) inside docker contianers with optional alerts sent to a slack channel. The benefits of running the node with the deploy monitoring module is that it gathers resource consumption data, which are then displayed on the resource page and is capable of monitoring and changing the deployed docker imag. This means in case of a new image available, the deploy monitoring stops the containers and pulls the newer images. 
 
 ### Prerequisites
 
 - Installed docker and docker-compose
 
-- Installed rust and all the packages required for building tezedge from source. Refer to [this part of the readme](https://github.com/tezedge/tezedge#prerequisites-installation)
+- Installed prerequisites to build tezedge:
+
+    ```
+    # Run the following in your terminal, then follow the onscreen instructions.
+    curl https://sh.rustup.rs -sSf | sh
+
+    rustup toolchain install nightly-2020-12-31
+    rustup default nightly-2020-12-31
+
+    sudo apt install pkg-config libsodium-dev clang libclang-dev llvm llvm-dev linux-kernel-headers libev-dev libhidapi-dev libssl-dev
+    ```
 
 - (Optional) Set up slack channel with an app that has webhooks and file:write privilages. 
 
@@ -35,19 +47,24 @@ Then you can run:
 
 ```
 nohup sudo TEZOS_NETWORK=mainnet \
-HOSTNAME=develop.dev.tezedge.com \
-TEZEDGE_VOLUME_PATH="/absolute/path/to/tezedge/volume/directory" \
+HOSTNAME=localhost \
+TEZEDGE_VOLUME_PATH="/home/tezedge_user/tezedge/volume" \
 LD_LIBRARY_PATH=./tezos/sys/lib_tezos/artifacts \
 ./target/release/deploy-monitoring \
 --compose-file-path apps/deploy_monitoring/docker-compose.tezedge_and_explorer.yml \
 --tezedge-only \
 --disable-debugger \
 --tezedge-alert-threshold-memory 10000 \
---tezedge-alert-threshold-synchronization 120 \
+--tezedge-alert-threshold-synchronization 120 > deploy-monitoring.out &
+```
+
+If you wish to reciece slack notifications add the following 3 options:
+```
 --slack-url https://hooks.slack.com/services/XXXXXXXXX/XXXXXXXXXXX/XXXXXXXXXXXXXXXXXXXXXXXX \
 --slack-token "Bearer xoxb-xxxxxxxxxxxx-xxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx" \
---slack-channel-name monitoring-channel > deploy-monitoring.out &
+--slack-channel-name monitoring-channel \
 ```
+
 Every run needs a few environmental variables:
 
 - `TEZOS_NETWORK`: one of the tezedge networks, e.g.: mainnet
@@ -67,8 +84,6 @@ The configuration used for this run:
 - `slack-token`: (Optional) Token used to upload log file on node crash
 - `slack-channel-name`: (Optional) Monitoring cahnnel name.
 
-If you do not wish to recieve slack notifications, do not include the slack options. 
-
 Other options:
 
 - `image-monitor-interval`: (Optional) Sets the interval in seconds  in which the module checks for new images on docker hub. If this flag is not included, the check is not perfomed at all. 
@@ -86,6 +101,9 @@ Other options:
 
 You can download data for tezedge node that are already synced to a fixed level to make the bootstrapping much faster. In this case, give the **ABSOLUTE** path to the included `_data` directory.
 
+```
+TEZEDGE_VOLUME_PATH="/home/dev/tezedge_data_from_block_0_1516280/_data"
+```
 
 
 ### Shutting down
