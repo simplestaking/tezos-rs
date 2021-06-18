@@ -51,7 +51,6 @@ pub enum SendMessageType {
 #[derive(Debug)]
 pub enum SendMessageError {
     IO(io::Error),
-    QueueFull,
     EncodeFailed,
 }
 
@@ -118,7 +117,6 @@ impl From<BinaryChunkError> for ReadMessageError {
 
 #[derive(Debug)]
 pub enum ReadMessageResult {
-    Empty,
     Pending,
     Ok(BinaryChunk),
     Err(ReadMessageError),
@@ -213,7 +211,7 @@ impl<M> AsEncryptedSendMessage for M
 }
 
 #[derive(Debug)]
-enum ReadQueue {
+enum ReadBuffer {
     ReadLen {
         buf: [u8; CONTENT_LENGTH_FIELD_BYTES],
         index: usize,
@@ -225,7 +223,7 @@ enum ReadQueue {
     },
 }
 
-impl ReadQueue {
+impl ReadBuffer {
     pub fn new() -> Self {
         Self::ReadLen {
             buf: [0; CONTENT_LENGTH_FIELD_BYTES],
@@ -266,7 +264,7 @@ impl ReadQueue {
                         buf[i] = expected_len_bytes[i];
                     }
 
-                    *self = ReadQueue::ReadContent {
+                    *self = ReadBuffer::ReadContent {
                         expected_len,
                         buf,
                         index: CONTENT_LENGTH_FIELD_BYTES,
@@ -288,12 +286,12 @@ impl ReadQueue {
 }
 
 #[derive(Debug)]
-struct WriteQueue {
+struct WriteBuffer {
     message: SendMessage,
     index: usize,
 }
 
-impl WriteQueue {
+impl WriteBuffer {
     fn new(message: SendMessage) -> Self {
         Self {
             message,
@@ -374,125 +372,118 @@ pub trait Events {
 pub struct Peer<S> {
     address: PeerAddress,
     pub stream: S,
-    read_queue: Option<ReadQueue>,
-    write_queue: Option<WriteQueue>,
+    read_buf: Option<ReadBuffer>,
+    write_buf: Option<WriteBuffer>,
+    write_queue: VecDeque<SendMessage>,
 }
 
 impl<S> Peer<S> {
-    pub fn address(&self) -> &PeerAddress {
-        &self.address
-    }
-
     pub fn new(address: PeerAddress, stream: S) -> Self {
         Self {
             address,
             stream,
-            read_queue: None,
-            write_queue: None,
+            read_buf: None,
+            write_buf: None,
+            write_queue: VecDeque::new(),
         }
+    }
+
+    pub fn address(&self) -> &PeerAddress {
+        &self.address
     }
 }
 
 impl<S: Read> Peer<S> {
     pub fn read(&mut self) -> ReadMessageResult {
-        let queue = match self.read_queue.as_mut() {
-            Some(queue) => queue,
+        let buf = match self.read_buf.as_mut() {
+            Some(buf) => buf,
                 // maybe don't dealocate and reallocate for efficiency?
             None => {
-                self.read_queue.replace(ReadQueue::new());
-                self.read_queue.as_mut().unwrap()
+                self.read_buf.replace(ReadBuffer::new());
+                self.read_buf.as_mut().unwrap()
             }
         };
 
         loop {
-            match self.stream.read(queue.next_slice()) {
+            match self.stream.read(buf.next_slice()) {
                 Ok(size) if size == 0 => break,
-                Ok(size) => queue.advance(size),
+                Ok(size) => buf.advance(size),
                 Err(err) => {
                     match err.kind() {
                         io::ErrorKind::WouldBlock => break,
                         _ => {
-                            self.read_queue.take();
+                            self.read_buf.take();
                             return ReadMessageResult::Err(ReadMessageError::IO(err));
                         }
                     }
                 }
             }
-        }
-
-        if queue.is_finished() {
-            let queue = self.read_queue.take().unwrap();
-            match queue.take() {
-                Ok(bytes) => ReadMessageResult::Ok(bytes),
-                Err(err) => ReadMessageResult::Err(err.into()),
+            if buf.is_finished() {
+                let buf = self.read_buf.take().unwrap();
+                return match buf.take() {
+                    Ok(bytes) => ReadMessageResult::Ok(bytes),
+                    Err(err) => ReadMessageResult::Err(err.into()),
+                }
             }
-        } else {
-            ReadMessageResult::Pending
         }
-    }
 
+        ReadMessageResult::Pending
+    }
 }
 
 impl<S: Write> Peer<S> {
     pub fn write(&mut self, msg: SendMessage) -> SendMessageResult {
-        match self.write_queue.as_mut() {
-            Some(queue) => {
-                SendMessageResult::err(msg.message_type(), SendMessageError::QueueFull)
-            }
-            None => {
-                self.write_queue.replace(WriteQueue::new(msg));
+        match self.write_buf.as_mut() {
+            Some(_) => {
+                self.write_queue.push_back(msg);
                 self.try_flush()
             }
-        }
-    }
-
-    pub fn encrypted_write(
-        &mut self,
-        msg: SendMessage,
-    ) -> SendMessageResult
-    {
-        match self.write_queue.as_mut() {
-            Some(queue) => {
-                SendMessageResult::err(msg.message_type(), SendMessageError::QueueFull)
-            }
             None => {
-                self.write_queue.replace(WriteQueue::new(msg));
+                self.write_buf.replace(WriteBuffer::new(msg));
                 self.try_flush()
             }
         }
     }
 
     pub fn try_flush(&mut self) -> SendMessageResult {
+        let buf = &mut self.write_buf;
         let queue = &mut self.write_queue;
         let stream = &mut self.stream;
 
-        match queue.as_mut() {
-            Some(queue) => {
-                match self.stream.write(queue.next_slice()) {
+        match buf.as_mut() {
+            Some(buf) => {
+                match self.stream.write(buf.next_slice()) {
                     Ok(size) => {
-                        queue.advance(size);
-                        if queue.is_finished() {
-                            let result = queue.result_ok();
-                            self.write_queue.take();
+                        buf.advance(size);
+                        if buf.is_finished() {
+                            let result = buf.result_ok();
+                            self.write_buf.take();
                             let _ = self.stream.flush();
                             result
                         } else {
-                            queue.result_pending()
+                            buf.result_pending()
                         }
                     }
                     Err(err) => {
                         match err.kind() {
-                            io::ErrorKind::WouldBlock => queue.result_pending(),
+                            io::ErrorKind::WouldBlock => buf.result_pending(),
                             _ => {
-                                let result = queue.result_err(err.into());
-                                self.write_queue.take();
+                                let result = buf.result_err(err.into());
+                                self.write_buf.take();
                                 result
                             }
                         }
                     }
                 }
             }
-            None => SendMessageResult::empty(),
+            None => {
+                if let Some(msg) = queue.pop_front() {
+                    *buf = Some(WriteBuffer::new(msg));
+                    self.try_flush()
+                } else {
+                    SendMessageResult::empty()
+                }
+            },
         }
     }
 }
@@ -580,21 +571,23 @@ pub struct TezedgeProposerConfig {
     pub events_limit: usize,
 }
 
+/// Returns true if it is maybe possible to do further write.
 fn handle_send_message_result(
     at: Instant,
     tezedge_state: &mut TezedgeState,
     address: PeerAddress,
     result: SendMessageResult,
-) {
+) -> bool {
     use SendMessageResult::*;
     match result {
-        Empty => {}
-        Pending { .. } => {}
+        Empty => false,
+        Pending { .. } => false,
         Ok { message_type } => {
             let msg = match message_type {
                 SendMessageType::Connect => HandshakeMsg::SendConnectSuccess,
                 SendMessageType::Meta => HandshakeMsg::SendMetaSuccess,
                 SendMessageType::Ack => HandshakeMsg::SendAckSuccess,
+                SendMessageType::Other => { return true; }
             };
 
             tezedge_state.accept(HandshakeProposal {
@@ -602,9 +595,9 @@ fn handle_send_message_result(
                 peer: address,
                 message: msg,
             });
+            true
         }
         Err { message_type, error } => {
-            dbg!(error);
             let msg = match message_type {
                 SendMessageType::Connect => HandshakeMsg::SendConnectError,
                 SendMessageType::Meta => HandshakeMsg::SendMetaError,
@@ -616,6 +609,7 @@ fn handle_send_message_result(
                 peer: address,
                 message: msg,
             });
+            true
         }
     }
 }
@@ -687,28 +681,44 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
         state: &mut TezedgeState,
         manager: &mut M,
     ) {
-        let peer = if event.is_server_event() {
+        if event.is_server_event() {
             // we received event for the server (client opened tcp stream to us).
-            match manager.accept_connection(&event) {
-                Some(peer) => {
-                    state.accept(NewPeerConnectProposal {
-                        at: event.time(),
-                        peer: peer.address().clone(),
-                    });
-                    peer
+            loop {
+                // as an optimization, execute requests only after 100
+                // accepted new connections. We need to execute those
+                // requests as they might include command to stop
+                // listening for new connections or disconnect new peer,
+                // if for example they are blacklisted.
+                for _ in 0..100 {
+                    match manager.accept_connection(&event) {
+                        Some(peer) => {
+                            state.accept(NewPeerConnectProposal {
+                                at: event.time(),
+                                peer: peer.address().clone(),
+                            });
+                            Self::handle_readiness_event(event, state, peer);
+                        }
+                        None => return,
+                    }
                 }
-                None => return,
+                Self::execute_requests(state, manager);
             }
         } else {
             match manager.get_peer_for_event_mut(&event) {
-                Some(peer) => peer,
+                Some(peer) => Self::handle_readiness_event(event, state, peer),
                 None => {
                     // TODO: write error log.
                     return;
                 }
             }
         };
+    }
 
+    fn handle_readiness_event(
+        event: &NetE,
+        state: &mut TezedgeState,
+        peer: &mut Peer<S>,
+    ) {
         if event.is_read_closed() || event.is_write_closed() {
             state.accept(PeerDisconnectProposal {
                 at: event.time(),
@@ -718,30 +728,32 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
         }
 
         if event.is_readable() {
-            match peer.read() {
-                ReadMessageResult::Empty => {}
-                ReadMessageResult::Pending => {}
-                ReadMessageResult::Ok(msg_bytes) => {
-                    state.accept(PeerProposal {
-                        at: event.time(),
-                        peer: peer.address().clone(),
-                        message: PeerBinaryMessage::new(msg_bytes),
-                    });
-                }
-                ReadMessageResult::Err(err) => {
-                    dbg!(err);
-                    // TODO: handle somehow.
+            loop {
+                match peer.read() {
+                    ReadMessageResult::Pending => break,
+                    ReadMessageResult::Ok(msg_bytes) => {
+                        state.accept(PeerProposal {
+                            at: event.time(),
+                            peer: peer.address().clone(),
+                            message: PeerBinaryMessage::new(msg_bytes),
+                        });
+                    }
+                    ReadMessageResult::Err(err) => {
+                        dbg!(err);
+                        // TODO: handle somehow.
+                    }
                 }
             }
         }
 
         if event.is_writable() {
-            handle_send_message_result(
+            // flush while it is possble that further progress can be made.
+            while handle_send_message_result(
                 event.time(),
                 state,
                 peer.address().clone(),
                 peer.try_flush(),
-            );
+            ) {}
         }
     }
 
