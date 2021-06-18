@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{Instant, Duration};
 use std::io::{self, Read, Write};
 use std::collections::HashMap;
@@ -11,6 +12,7 @@ pub type MioEvent = mio::event::Event;
 pub type NetPeer = Peer<TcpStream>;
 
 pub const MIO_SERVER_TOKEN: mio::Token = mio::Token(usize::MAX);
+pub const MIO_WAKE_TOKEN: mio::Token = mio::Token(usize::MAX - 1);
 
 impl NetworkEvent for MioEvent {
     #[inline(always)]
@@ -97,6 +99,7 @@ impl Events for MioEvents {
 pub struct MioManager {
     server_port: u16,
     poll: mio::Poll,
+    waker: Arc<mio::Waker>,
     server: Option<TcpListener>,
 
     address_to_token: HashMap<PeerAddress, usize>,
@@ -105,13 +108,21 @@ pub struct MioManager {
 
 impl MioManager {
     pub fn new(server_port: u16) -> Self {
+        let mut poll = mio::Poll::new().unwrap();
+        let waker = Arc::new(mio::Waker::new(poll.registry(), MIO_WAKE_TOKEN).unwrap());
         Self {
             server_port,
-            poll: mio::Poll::new().unwrap(),
+            poll,
+            waker,
             server: None,
             address_to_token: HashMap::new(),
             peers: Slab::new(),
         }
+    }
+
+    /// Waker can be used to wake up mio from another thread.
+    pub fn waker(&self) -> Arc<mio::Waker> {
+        self.waker.clone()
     }
 }
 
@@ -163,7 +174,12 @@ impl Manager for MioManager {
                     }
                 }
                 Err(err) => {
-                    eprintln!("error while accepting connection: {:?}", err);
+                    match err.kind() {
+                        io::ErrorKind::WouldBlock => {},
+                        _ => {
+                            eprintln!("error while accepting connection: {:?}", err);
+                        }
+                    }
                     None
                 }
             }
