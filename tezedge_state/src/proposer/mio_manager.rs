@@ -217,7 +217,10 @@ impl Manager for MioManager {
 
     fn disconnect_peer(&mut self, peer: &PeerAddress) {
         if let Some(token) = self.address_to_token.remove(peer) {
-            self.peers.remove(token);
+            if self.peers.contains(token) {
+                let mut peer = self.peers.remove(token);
+                self.poll.registry().deregister(&mut peer.stream);
+            }
         }
     }
 }
