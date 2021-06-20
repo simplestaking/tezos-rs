@@ -7,8 +7,8 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::path::PathBuf;
 
+use anyhow::bail;
 use chrono::Utc;
-use failure::bail;
 use shiplift::Docker;
 use slog::{info, warn, Logger};
 use zip::write::ZipWriter;
@@ -55,7 +55,7 @@ impl DeployMonitor {
 
     /// Collect node logs from the debugger with a step and stores them in a file
     /// format: [[<latest to latest - LIMIT>], ..., [<LIMIT to 0>]]
-    async fn collect_node_logs(&self) -> Result<String, failure::Error> {
+    async fn collect_node_logs(&self) -> Result<String, anyhow::Error> {
         const LIMIT: usize = 2000;
         if !Path::new("/tmp/tezedge-monitoring-logs").exists() {
             std::fs::create_dir("/tmp/tezedge-monitoring-logs")?;
@@ -126,7 +126,7 @@ impl DeployMonitor {
         Ok(file_path)
     }
 
-    pub async fn monitor_stack(&self) -> Result<(), failure::Error> {
+    pub async fn monitor_stack(&self) -> Result<(), anyhow::Error> {
         let DeployMonitor {
             slack,
             log,
@@ -163,7 +163,7 @@ impl DeployMonitor {
         Ok(())
     }
 
-    pub async fn monitor_sandbox_launcher(&self) -> Result<(), failure::Error> {
+    pub async fn monitor_sandbox_launcher(&self) -> Result<(), anyhow::Error> {
         let DeployMonitor {
             slack,
             log,
@@ -209,7 +209,7 @@ impl DeployMonitor {
         }
     }
 
-    async fn send_log_dump(&self) -> Result<(), failure::Error> {
+    async fn send_log_dump(&self) -> Result<(), anyhow::Error> {
         let logs = serde_json::to_string(&self.collect_node_logs().await?)?;
 
         if let Some(slack_server) = &self.slack {
@@ -222,7 +222,7 @@ impl DeployMonitor {
 
     async fn changed<T: DeployMonitoringContainer + Sync + Send>(
         &self,
-    ) -> Result<bool, failure::Error> {
+    ) -> Result<bool, anyhow::Error> {
         let DeployMonitor {
             docker, slack, log, ..
         } = self;

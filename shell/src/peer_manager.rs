@@ -12,11 +12,11 @@ use std::sync::{Arc, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
 use dns_lookup::LookupError;
-use failure::Fail;
 use futures::lock::Mutex;
 use rand::seq::SliceRandom;
 use riker::actors::*;
 use slog::{crit, debug, info, trace, warn, Logger};
+use thiserror::Error;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Handle;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -107,9 +107,9 @@ impl P2p {
 }
 
 /// Possible errors for state processing
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum PeerManagerError {
-    #[fail(display = "Mutex/lock error, reason: {:?}", reason)]
+    #[error("Mutex/lock error, reason: {reason:?}")]
     LockError { reason: String },
 }
 

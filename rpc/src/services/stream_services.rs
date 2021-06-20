@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 
-use failure::format_err;
+use anyhow::format_err;
 use futures::task::{Context, Poll};
 use futures::Stream;
 use serde::{Deserialize, Serialize};
@@ -122,7 +122,7 @@ impl OperationMonitorStream {
         }
     }
 
-    fn yield_operations(&mut self) -> Poll<Option<Result<String, failure::Error>>> {
+    fn yield_operations(&mut self) -> Poll<Option<Result<String, anyhow::Error>>> {
         let OperationMonitorStream {
             chain_id,
             current_mempool_state_storage,
@@ -246,7 +246,7 @@ impl HeadMonitorStream {
     fn yield_head(
         &self,
         current_head: &BlockHeaderWithHash,
-    ) -> Result<Option<String>, failure::Error> {
+    ) -> Result<Option<String>, anyhow::Error> {
         let HeadMonitorStream { protocol, .. } = self;
 
         if let Some(protocol) = &protocol {
@@ -279,12 +279,12 @@ impl HeadMonitorStream {
 }
 
 impl Stream for HeadMonitorStream {
-    type Item = Result<String, failure::Error>;
+    type Item = Result<String, anyhow::Error>;
 
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<String, failure::Error>>> {
+    ) -> Poll<Option<Result<String, anyhow::Error>>> {
         // Note: the stream only ends on the client dropping the connection
 
         // create or get a delay future, that blocks for MONITOR_TIMER_MILIS
@@ -358,12 +358,12 @@ impl Stream for HeadMonitorStream {
 }
 
 impl Stream for OperationMonitorStream {
-    type Item = Result<String, failure::Error>;
+    type Item = Result<String, anyhow::Error>;
 
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<String, failure::Error>>> {
+    ) -> Poll<Option<Result<String, anyhow::Error>>> {
         // create or get a delay future, that blocks for MONITOR_TIMER_MILIS
         let delay = self.delay.get_or_insert_with(|| {
             interval_at(Instant::now(), Duration::from_millis(MONITOR_TIMER_MILIS))

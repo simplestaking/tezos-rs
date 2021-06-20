@@ -46,7 +46,7 @@ pub trait KeyValueSchema {
 }
 
 pub trait Flushable {
-    fn flush(&self) -> Result<(), failure::Error>;
+    fn flush(&self) -> Result<(), anyhow::Error>;
 }
 
 pub trait Persistable {

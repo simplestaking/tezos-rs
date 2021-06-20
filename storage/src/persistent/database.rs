@@ -9,12 +9,12 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::PoisonError;
 
-use failure::Fail;
 use rocksdb::{
     BlockBasedOptions, Cache, ColumnFamilyDescriptor, DBIterator, Error, Options, WriteBatch,
     WriteOptions, DB,
 };
 use serde::Serialize;
+use thiserror::Error;
 
 use crypto::hash::FromBytesError;
 
@@ -99,29 +99,29 @@ pub struct RocksDBStats {
 }
 
 /// Possible errors for schema
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum DBError {
-    #[fail(display = "Schema error: {}", error)]
+    #[error("Schema error: {error}")]
     SchemaError { error: SchemaError },
-    #[fail(display = "RocksDB error: {}", error)]
+    #[error("RocksDB error: {error}")]
     RocksDBError { error: Error },
-    #[fail(display = "Column family {} is missing", name)]
+    #[error("Column family {name} is missing")]
     MissingColumnFamily { name: &'static str },
-    #[fail(display = "Database incompatibility {}", name)]
+    #[error("Database incompatibility {name}")]
     DatabaseIncompatibility { name: String },
-    #[fail(display = "Value already exists {}", key)]
+    #[error("Value already exists {key}")]
     ValueExists { key: String },
-    #[fail(display = "Guard Poison {} ", error)]
+    #[error("Guard Poison {error}")]
     GuardPoison { error: String },
-    #[fail(display = "SledDB error: {}", error)]
+    #[error("SledDB error: {error}")]
     SledDBError { error: sled::Error },
-    #[fail(display = "Hash encode error : {}", error)]
+    #[error("Hash encode error : {error}")]
     HashEncodeError { error: FromBytesError },
-    #[fail(display = "Mutex/lock lock error! Reason: {}", reason)]
+    #[error("Mutex/lock lock error! Reason: {reason}")]
     LockError { reason: String },
-    #[fail(display = "I/O error {}", error)]
+    #[error("I/O error {error}")]
     IOError { error: io::Error },
-    #[fail(display = "MemoryStatisticsOverflow")]
+    #[error("MemoryStatisticsOverflow")]
     MemoryStatisticsOverflow,
 }
 

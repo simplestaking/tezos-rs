@@ -59,7 +59,7 @@ lazy_static! {
 #[ignore]
 #[test]
 #[serial]
-fn test_process_current_branch_on_level3_then_current_head_level4() -> Result<(), failure::Error> {
+fn test_process_current_branch_on_level3_then_current_head_level4() -> Result<(), anyhow::Error> {
     // logger
     let log_level = common::log_level();
     let log = common::create_logger(log_level);
@@ -137,7 +137,7 @@ fn test_process_current_branch_on_level3_then_current_head_level4() -> Result<()
 #[test]
 #[serial]
 fn test_process_bootstrapping_current_branch_on_level3_then_current_heads(
-) -> Result<(), failure::Error> {
+) -> Result<(), anyhow::Error> {
     // logger
     let log_level = common::log_level();
     let log = common::create_logger(log_level);
@@ -242,7 +242,7 @@ fn test_process_bootstrapping_current_branch_on_level3_then_current_heads(
 #[ignore]
 #[test]
 #[serial]
-fn test_process_reorg_with_different_current_branches() -> Result<(), failure::Error> {
+fn test_process_reorg_with_different_current_branches() -> Result<(), anyhow::Error> {
     // logger
     let log_level = common::log_level();
     let log = common::create_logger(log_level);
@@ -354,7 +354,7 @@ fn test_process_reorg_with_different_current_branches() -> Result<(), failure::E
 #[ignore]
 #[test]
 #[serial]
-fn test_process_current_heads_to_level3() -> Result<(), failure::Error> {
+fn test_process_current_heads_to_level3() -> Result<(), anyhow::Error> {
     // logger
     let log_level = common::log_level();
     let log = common::create_logger(log_level);
@@ -446,8 +446,8 @@ fn test_process_current_heads_to_level3() -> Result<(), failure::Error> {
 #[ignore]
 #[test]
 #[serial]
-fn test_process_current_head_with_malformed_blocks_and_check_blacklist(
-) -> Result<(), failure::Error> {
+fn test_process_current_head_with_malformed_blocks_and_check_blacklist() -> Result<(), anyhow::Error>
+{
     // logger
     let log_level = common::log_level();
     let log = common::create_logger(log_level);
@@ -598,7 +598,7 @@ fn test_process_current_head_with_malformed_blocks_and_check_blacklist(
 fn process_bootstrap_level1324_and_mempool_for_level1325(
     name: &str,
     current_head_wait_timeout: (Duration, Duration),
-) -> Result<(), failure::Error> {
+) -> Result<(), anyhow::Error> {
     let root_dir_temp_storage_path = common::prepare_empty_dir("__test_05");
     let root_context_db_path = &common::prepare_empty_dir("__test_05_context");
 
@@ -804,7 +804,7 @@ fn process_bootstrap_level1324_and_mempool_for_level1325(
 #[ignore]
 #[test]
 #[serial]
-fn test_process_bootstrap_level1324_and_mempool_for_level1325() -> Result<(), failure::Error> {
+fn test_process_bootstrap_level1324_and_mempool_for_level1325() -> Result<(), anyhow::Error> {
     process_bootstrap_level1324_and_mempool_for_level1325(
         "process_bootstrap_level1324_and_mempool_for_level1325",
         (Duration::from_secs(90), Duration::from_millis(500)),
@@ -814,7 +814,7 @@ fn test_process_bootstrap_level1324_and_mempool_for_level1325() -> Result<(), fa
 #[ignore]
 #[test]
 #[serial]
-fn test_process_bootstrap_level1324_and_generate_action_file() -> Result<(), failure::Error> {
+fn test_process_bootstrap_level1324_and_generate_action_file() -> Result<(), anyhow::Error> {
     let root_dir_temp_storage_path = common::prepare_empty_dir("__test_06");
     let root_context_db_path = &common::prepare_empty_dir("__test_06_context");
     let target_action_file = ensure_target_action_file()?;
@@ -890,7 +890,7 @@ fn test_process_bootstrap_level1324_and_generate_action_file() -> Result<(), fai
     Ok(())
 }
 
-fn ensure_target_action_file() -> Result<PathBuf, failure::Error> {
+fn ensure_target_action_file() -> Result<PathBuf, anyhow::Error> {
     let action_file_path = env::var("TARGET_ACTION_FILE")
         .unwrap_or_else(|_| panic!("This test requires environment parameter: 'TARGET_ACTION_FILE' to point to the file, where to store recorded context action"));
     let path = PathBuf::from(action_file_path);
@@ -912,7 +912,7 @@ mod stats {
         depth: u64,
         path: P,
         human_format: bool,
-    ) -> Result<Vec<String>, failure::Error> {
+    ) -> Result<Vec<String>, anyhow::Error> {
         let mut stats = Vec::new();
         stats.push(String::from(""));
         stats.push(format!("{}", marker));
@@ -951,14 +951,14 @@ mod stats {
     // TODO - TE-261: revise this, can it be restored?
     pub fn generate_merkle_context_stats(
         _persistent_storage: &PersistentStorage,
-    ) -> Result<Vec<String>, failure::Error> {
+    ) -> Result<Vec<String>, anyhow::Error> {
         //let mut log_for_stats = Vec::new();
 
         //// generate stats
         //let m = persistent_storage.merkle();
         //let merkle = m
         //    .lock()
-        //    .map_err(|e| failure::format_err!("Lock error: {:?}", e))?;
+        //    .map_err(|e| anyhow::format_err!("Lock error: {:?}", e))?;
         //let stats = merkle.get_merkle_stats()?;
 
         //log_for_stats.push(String::from(""));

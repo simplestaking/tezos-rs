@@ -2,36 +2,33 @@
 // SPDX-License-Identifier: MIT
 
 use base58::{FromBase58, ToBase58};
-use failure::Fail;
 use sodiumoxide::crypto::hash::sha256;
+use thiserror::Error;
 
 /// Possible errors for base58checked
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum FromBase58CheckError {
     /// Base58 error.
-    #[fail(display = "invalid base58")]
+    #[error("invalid base58")]
     InvalidBase58,
     /// The input had invalid checksum.
-    #[fail(display = "invalid checksum")]
+    #[error("invalid checksum")]
     InvalidChecksum,
     /// The input is missing checksum.
-    #[fail(display = "missing checksum")]
+    #[error("missing checksum")]
     MissingChecksum,
     /// Data is too long
-    #[fail(display = "data too long")]
+    #[error("data too long")]
     DataTooLong,
-    #[fail(
-        display = "mismatched data lenght: expected {}, actual {}",
-        expected, actual
-    )]
+    #[error("mismatched data lenght: expected {expected}, actual {actual}")]
     MismatchedLength { expected: usize, actual: usize },
 }
 
 /// Possible errors for ToBase58Check
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum ToBase58CheckError {
     /// Data is too long
-    #[fail(display = "data too long")]
+    #[error("data too long")]
     DataTooLong,
 }
 
@@ -105,7 +102,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_encode() -> Result<(), failure::Error> {
+    fn test_encode() -> Result<(), anyhow::Error> {
         let decoded = hex::decode("8eceda2f")?.to_base58check().unwrap();
         let expected = "QtRAcc9FSRg";
         assert_eq!(expected, &decoded);
@@ -114,7 +111,7 @@ mod tests {
     }
 
     #[test]
-    fn test_decode() -> Result<(), failure::Error> {
+    fn test_decode() -> Result<(), anyhow::Error> {
         let decoded = "QtRAcc9FSRg".from_base58check()?;
         let expected = hex::decode("8eceda2f")?;
         assert_eq!(expected, decoded);

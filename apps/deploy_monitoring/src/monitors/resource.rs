@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
+use anyhow::format_err;
 use chrono::Utc;
-use failure::format_err;
 use getset::Getters;
 use serde::Serialize;
 use slog::{error, Logger};
@@ -199,7 +199,7 @@ impl ResourceMonitor {
         }
     }
 
-    pub async fn take_measurement(&mut self) -> Result<(), failure::Error> {
+    pub async fn take_measurement(&mut self) -> Result<(), anyhow::Error> {
         let ResourceMonitor {
             system,
             resource_utilization,
@@ -304,7 +304,7 @@ async fn handle_alerts(
     slack: Option<SlackServer>,
     alerts: &mut Alerts,
     log: &Logger,
-) -> Result<(), failure::Error> {
+) -> Result<(), anyhow::Error> {
     // TODO: TE-499 - (multinode) - fix for multinode support
     let thresholds = if node_tag == "tezedge" {
         *alerts.tezedge_thresholds()

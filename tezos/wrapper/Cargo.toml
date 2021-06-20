@@ -6,8 +6,7 @@ edition = "2018"
 
 [dependencies]
 getset = "0.1"
-failure = "0.1"
-failure_derive = "0.1"
+thiserror = "1.0"
 lazy_static = "1.4"
 nix = "0.19"
 rand = "0.7.3"

@@ -4,10 +4,10 @@
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 
-use failure::Fail;
 use lazy_static::lazy_static;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
+use thiserror::Error;
 
 use crypto::hash::ProtocolHash;
 use tezos_encoding::binary_reader::BinaryReaderError;
@@ -71,8 +71,8 @@ impl SupportedProtocol {
     }
 }
 
-#[derive(Debug, Fail)]
-#[fail(display = "Protocol {} is not yet supported!", protocol)]
+#[derive(Debug, Error)]
+#[error("Protocol {protocol} is not yet supported!")]
 pub struct UnsupportedProtocolError {
     pub protocol: String,
 }
@@ -97,8 +97,8 @@ impl TryFrom<ProtocolHash> for SupportedProtocol {
     }
 }
 
-#[derive(Debug, Fail)]
-#[fail(display = "Decode protocol constants error, reason: {}", reason)]
+#[derive(Debug, Error)]
+#[error("Decode protocol constants error, reason: {reason}")]
 pub struct ContextConstantsDecodeError {
     reason: BinaryReaderError,
 }

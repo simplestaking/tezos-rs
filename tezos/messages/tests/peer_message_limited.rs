@@ -1,8 +1,8 @@
 // Copyright (c) SimpleStaking and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
+use anyhow::Error;
 use crypto::hash::HashType;
-use failure::Error;
 use std::{
     borrow::Cow,
     cmp::{max, min},

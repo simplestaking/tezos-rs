@@ -5,7 +5,8 @@ authors = ["Tomas Sedlak <tomas.sedlak@simplestaking.com>"]
 edition = "2018"
 
 [dependencies]
-failure = "0.1"
+anyhow = "1.0"
+thiserror = "1.0"
 futures = { version = "0.3", features = ["thread-pool"] }
 hex = "0.4"
 lazy_static = "1.4"

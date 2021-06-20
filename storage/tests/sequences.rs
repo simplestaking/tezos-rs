@@ -5,7 +5,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use failure::Error;
+use anyhow::Error;
 use rocksdb::Cache;
 
 use storage::persistent::database::{open_kv, RocksDbKeyValueSchema};

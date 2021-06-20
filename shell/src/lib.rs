@@ -4,7 +4,7 @@
 
 //! This crate contains all shell actors plus few types used to handle the complexity of chain synchronisation process.
 
-use failure::Fail;
+use thiserror::Error;
 
 pub mod chain_current_head_manager;
 pub mod chain_feeder;
@@ -25,8 +25,8 @@ pub const SUPPORTED_P2P_VERSION: &[u16] = &[0, 1];
 /// Constant tells about distributed_db feature versions, which this shell is compatible with
 pub const SUPPORTED_DISTRIBUTED_DB_VERSION: &[u16] = &[0];
 
-#[derive(Debug, Clone, Fail)]
-#[fail(display = "InvalidRange - {}", _0)]
+#[derive(Debug, Clone, Error)]
+#[error("InvalidRange - {0}")]
 pub struct InvalidRangeError(String);
 
 /// Simple threshold, for representing integral ranges.

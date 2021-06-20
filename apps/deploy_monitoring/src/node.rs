@@ -3,8 +3,8 @@
 
 use std::convert::TryInto;
 
+use anyhow::{bail, format_err};
 use async_trait::async_trait;
-use failure::{bail, format_err};
 use fs_extra::dir;
 use itertools::Itertools;
 use merge::Merge;
@@ -28,7 +28,7 @@ impl DeployMonitoringContainer for TezedgeNode {
 }
 
 impl TezedgeNode {
-    pub fn collect_disk_data() -> Result<TezedgeDiskData, failure::Error> {
+    pub fn collect_disk_data() -> Result<TezedgeDiskData, anyhow::Error> {
         // context actions DB is optional
         let context_actions = dir::get_size(&format!(
             "{}/{}",
@@ -58,7 +58,7 @@ impl TezedgeNode {
 
     pub async fn collect_protocol_runners_memory_stats(
         port: u16,
-    ) -> Result<ProcessMemoryStats, failure::Error> {
+    ) -> Result<ProcessMemoryStats, anyhow::Error> {
         let protocol_runners: Vec<MemoryData> = match reqwest::get(&format!(
             "http://localhost:{}/stats/memory/protocol_runners",
             port
@@ -92,7 +92,7 @@ impl DeployMonitoringContainer for OcamlNode {
 }
 
 impl OcamlNode {
-    pub fn collect_disk_data() -> Result<OcamlDiskData, failure::Error> {
+    pub fn collect_disk_data() -> Result<OcamlDiskData, anyhow::Error> {
         Ok(OcamlDiskData::new(
             dir::get_size(&format!("{}/{}", DEBUGGER_VOLUME_PATH, "tezos")).unwrap_or(0),
             dir::get_size(&format!("{}/{}", OCAML_VOLUME_PATH, "data/store")).unwrap_or(0),
@@ -100,7 +100,7 @@ impl OcamlNode {
         ))
     }
 
-    pub fn collect_validator_memory_stats() -> Result<ProcessMemoryStats, failure::Error> {
+    pub fn collect_validator_memory_stats() -> Result<ProcessMemoryStats, anyhow::Error> {
         let mut system = System::new_all();
         system.refresh_all();
 
@@ -136,7 +136,7 @@ impl OcamlNode {
 
 #[async_trait]
 pub trait Node {
-    async fn collect_head_data(port: u16) -> Result<NodeInfo, failure::Error> {
+    async fn collect_head_data(port: u16) -> Result<NodeInfo, anyhow::Error> {
         let head_data: serde_json::Value = match reqwest::get(&format!(
             "http://localhost:{}/chains/main/blocks/head/header",
             port
@@ -187,7 +187,7 @@ pub trait Node {
         // Ok(head_data)
     }
 
-    async fn collect_memory_data(port: u16) -> Result<ProcessMemoryStats, failure::Error> {
+    async fn collect_memory_data(port: u16) -> Result<ProcessMemoryStats, anyhow::Error> {
         let tezedge_raw_memory_info: MemoryData =
             match reqwest::get(&format!("http://localhost:{}/stats/memory", port)).await {
                 Ok(result) => result.json().await?,
@@ -198,7 +198,7 @@ pub trait Node {
         Ok(memory_stats)
     }
 
-    async fn collect_commit_hash(port: u16) -> Result<String, failure::Error> {
+    async fn collect_commit_hash(port: u16) -> Result<String, anyhow::Error> {
         let commit_hash =
             match reqwest::get(&format!("http://localhost:{}/monitor/commit_hash", port)).await {
                 Ok(result) => result.text().await?,
@@ -208,7 +208,7 @@ pub trait Node {
         Ok(commit_hash.trim_matches('"').trim_matches('\n').to_string())
     }
 
-    fn collect_cpu_data(system: &mut System, process_name: &str) -> Result<i32, failure::Error> {
+    fn collect_cpu_data(system: &mut System, process_name: &str) -> Result<i32, anyhow::Error> {
         // get node process
         Ok(system
             .get_processes()

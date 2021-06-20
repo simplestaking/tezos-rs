@@ -81,14 +81,14 @@ pub async fn baking_rights(
                 )
             } else {
                 //pass error to response parser
-                let res: Result<Option<String>, failure::Error> = Err(e.into());
+                let res: Result<Option<String>, anyhow::Error> = Err(e.into());
                 result_to_json_response(res, env.log())
             }
         }
         _ => {
             //ignore other options from enum
             warn!(env.log(), "Wrong RpcResponseData format");
-            let res: Result<Option<String>, failure::Error> = Ok(None);
+            let res: Result<Option<String>, anyhow::Error> = Ok(None);
             result_to_json_response(res, env.log())
         }
     }
@@ -134,14 +134,14 @@ pub async fn endorsing_rights(
                 )
             } else {
                 //pass error to response parser
-                let res: Result<Option<String>, failure::Error> = Err(e.into());
+                let res: Result<Option<String>, anyhow::Error> = Err(e.into());
                 result_to_json_response(res, env.log())
             }
         }
         _ => {
             //ignore other options from enum
             warn!(env.log(), "Wrong RpcResponseData format");
-            let res: Result<Option<String>, failure::Error> = Ok(None);
+            let res: Result<Option<String>, anyhow::Error> = Ok(None);
             result_to_json_response(res, env.log())
         }
     }

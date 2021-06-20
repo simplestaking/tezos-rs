@@ -108,8 +108,9 @@ impl ToRpcJsonMap for BakingRights {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Error;
     use assert_json_diff::assert_json_eq;
-    use failure::Error;
+
     use serde_json::json;
 
     use crate::base::rpc_support::ToRpcJsonMap;

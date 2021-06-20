@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::convert::TryInto;
 
-use failure::Error;
+use anyhow::Error;
 use rand::Rng;
 
 use crypto::hash::BlockHash;

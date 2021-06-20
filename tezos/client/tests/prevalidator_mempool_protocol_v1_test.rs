@@ -68,7 +68,7 @@ fn init_test_protocol_context(
 
 #[test]
 #[serial]
-fn test_begin_construction_and_validate_operation() -> Result<(), failure::Error> {
+fn test_begin_construction_and_validate_operation() -> Result<(), anyhow::Error> {
     init_test_runtime();
 
     // init empty context for test

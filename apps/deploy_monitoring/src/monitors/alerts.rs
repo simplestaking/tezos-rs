@@ -241,7 +241,7 @@ impl Alerts {
         slack: Option<&SlackServer>,
         time: i64,
         head_info: NodeInfo,
-    ) -> Result<(), failure::Error> {
+    ) -> Result<(), anyhow::Error> {
         // gets the total space on the filesystem of the specified path
         let free_disk_space = fs2::free_space(TEZEDGE_VOLUME_PATH)?;
         // let total_disk_space = fs2::total_space(TEZEDGE_VOLUME_PATH)?;
@@ -269,7 +269,7 @@ impl Alerts {
         slack: Option<&SlackServer>,
         time: i64,
         last_measurement: ResourceUtilization,
-    ) -> Result<(), failure::Error> {
+    ) -> Result<(), anyhow::Error> {
         let ram_total = if node_tag == "tezedge" {
             last_measurement.memory().node().resident_mem()
                 + last_measurement
@@ -309,7 +309,7 @@ impl Alerts {
         time: i64,
         last_measurement: ResourceUtilization,
         head_info: NodeInfo,
-    ) -> Result<(), failure::Error> {
+    ) -> Result<(), anyhow::Error> {
         let cpu_total: i32 =
             last_measurement.cpu().node() + last_measurement.cpu().protocol_runners().unwrap_or(0);
         let res = self.assign_resource_alert(
@@ -337,7 +337,7 @@ impl Alerts {
         slack: Option<&SlackServer>,
         log: &Logger,
         head_info: NodeInfo,
-    ) -> Result<(), failure::Error> {
+    ) -> Result<(), anyhow::Error> {
         let alert_result = self.assign_node_stuck_alert(
             node_tag,
             thresholds,
@@ -441,7 +441,7 @@ async fn send_resource_alert(
     node_tag: &str,
     slack: Option<&SlackServer>,
     alert_result: AlertResult,
-) -> Result<(), failure::Error> {
+) -> Result<(), anyhow::Error> {
     if let Some(slack_server) = slack {
         match alert_result {
             AlertResult::Incresed(alert) => {

@@ -17,9 +17,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::thread::JoinHandle;
 
-use failure::{format_err, Error, Fail};
+use anyhow::{format_err, Error};
 use riker::actors::*;
 use slog::{debug, info, trace, warn, Logger};
+use thiserror::Error;
 
 use crypto::hash::{BlockHash, ChainId, OperationHash};
 use storage::chain_meta_storage::{ChainMetaStorage, ChainMetaStorageReader};
@@ -62,7 +63,7 @@ enum Event {
     ValidateOperation(
         OperationHash,
         MempoolOperationType,
-        Option<CondvarResult<(), failure::Error>>,
+        Option<CondvarResult<(), anyhow::Error>>,
     ),
     ShuttingDown,
 }
@@ -282,13 +283,13 @@ impl Receive<MempoolChannelMsg> for MempoolPrevalidator {
 }
 
 /// Possible errors for prevalidation
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum PrevalidationError {
-    #[fail(display = "Storage read/write error, reason: {:?}", error)]
+    #[error("Storage read/write error, reason: {error:?}")]
     StorageError { error: StorageError },
-    #[fail(display = "Protocol service error, reason: {:?}", error)]
+    #[error("Protocol service error, reason: {error:?}")]
     ProtocolServiceError { error: ProtocolServiceError },
-    #[fail(display = "Current mempool storage lock error, reason: {:?}", reason)]
+    #[error("Current mempool storage lock error, reason: {reason:?}")]
     CurrentMempoolStorageLockError { reason: String },
 }
 

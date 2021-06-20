@@ -7,9 +7,9 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use failure::Fail;
 use r2d2::{CustomizeConnection, Pool};
 use slog::{Level, Logger};
+use thiserror::Error;
 
 use tezos_api::ffi::TezosRuntimeConfiguration;
 use tezos_api::{
@@ -58,10 +58,10 @@ pub struct TezosApiConnectionPool {
 }
 
 /// Errors for connection pool
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum TezosApiConnectionPoolError {
     /// Initialization error
-    #[fail(display = "Initialization error: {:?}", source)]
+    #[error("Initialization error: {source:?}")]
     InitializationError { source: r2d2::Error },
 }
 

@@ -5,9 +5,10 @@ authors = ["Tomas Sedlak <tomas.sedlak@simplestaking.com>"]
 edition = "2018"
 
 [dependencies]
+anyhow = "1.0"
 chrono = "0.4"
 dns-lookup = "1.0.1"
-failure = "0.1"
+thiserror = "1.0"
 futures = "0.3"
 getset = "0.1"
 hex = "0.4"

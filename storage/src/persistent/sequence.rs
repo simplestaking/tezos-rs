@@ -1,11 +1,11 @@
 // Copyright (c) SimpleStaking and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
-use failure::Fail;
 use std::cmp::Ordering as Ord;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use thiserror::Error;
 
 use crate::persistent::database::RocksDbKeyValueSchema;
 use crate::persistent::{DBError, KeyValueSchema, KeyValueStoreWithSchema};
@@ -140,11 +140,11 @@ impl SequenceGenerator {
     }
 }
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum SequenceError {
-    #[fail(display = "Persistent storage error: {}", error)]
+    #[error("Persistent storage error: {error}")]
     PersistentStorageError { error: DBError },
-    #[fail(display = "Thread synchronization error")]
+    #[error("Thread synchronization error")]
     SynchronizationError,
 }
 

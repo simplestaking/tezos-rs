@@ -3,7 +3,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use failure::Error;
+use anyhow::Error;
 
 use tezos_messages::p2p::encoding::prelude::*;
 use tezos_messages::p2p::{

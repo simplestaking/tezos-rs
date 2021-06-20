@@ -45,7 +45,7 @@ fn bench_apply_first_three_block(_: &mut Bencher) {
 
     // apply
     let apply_clocks = Instant::now();
-    let result: Result<Vec<String>, failure::Error> =
+    let result: Result<Vec<String>, anyhow::Error> =
         apply_first_three_blocks(chain_id, genesis_block_header);
     let apply_clocks = apply_clocks.elapsed();
     assert!(result.is_ok());
@@ -61,7 +61,7 @@ fn bench_apply_first_three_block(_: &mut Bencher) {
 fn apply_first_three_blocks(
     chain_id: ChainId,
     genesis_block_header: BlockHeader,
-) -> Result<Vec<String>, failure::Error> {
+) -> Result<Vec<String>, anyhow::Error> {
     let mut perf_log = vec![];
 
     // apply first block - level 1

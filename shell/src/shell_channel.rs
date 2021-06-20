@@ -58,7 +58,7 @@ pub enum ShellChannelMsg {
     AdvertiseToP2pNewCurrentBranch(Arc<ChainId>, Arc<BlockHash>),
     AdvertiseToP2pNewCurrentHead(Arc<ChainId>, Arc<BlockHash>),
     AdvertiseToP2pNewMempool(Arc<ChainId>, Arc<BlockHash>, Arc<Mempool>),
-    InjectBlock(InjectBlock, Option<CondvarResult<(), failure::Error>>),
+    InjectBlock(InjectBlock, Option<CondvarResult<(), anyhow::Error>>),
     RequestCurrentHead(RequestCurrentHead),
     PeerBranchSynchronizationDone(PeerBranchSynchronizationDone),
     ShuttingDown(ShuttingDown),

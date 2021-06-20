@@ -6,8 +6,9 @@ edition = "2018"
 default-run = "sandbox"
 
 [dependencies]
+anyhow = "1.0"
 clap = "2.33"
-failure = "0.1"
+thiserror = "1.0"
 itertools = "0.10"
 nix = "0.19"
 rand = "0.7.3"

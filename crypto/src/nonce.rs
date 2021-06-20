@@ -138,7 +138,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nonce_increment_produces_correct_byte_slice() -> Result<(), failure::Error> {
+    fn nonce_increment_produces_correct_byte_slice() -> Result<(), anyhow::Error> {
         let bytes_0 = hex::decode("0000000000cff52f4be9352787d333e616a67853640d72c5").unwrap();
         let nonce_0 = Nonce::new(&bytes_0);
         let nonce_1 = nonce_0.increment();
@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn generate_nonces_produces_correct_results_1() -> Result<(), failure::Error> {
+    fn generate_nonces_produces_correct_results_1() -> Result<(), anyhow::Error> {
         let sent_msg = hex::decode("00874d1b98317bd6efad8352a7144c9eb0b218c9130e0a875973908ddc894b764ffc0d7f176cf800b978af9e919bdc35122585168475096d0ebcaca1f2a1172412b91b363ff484d1c64c03417e0e755e696c386a0000002d53414e44424f5845445f54455a4f535f414c5048414e45545f323031382d31312d33305431353a33303a35365a00000000").unwrap();
         let recv_msg = hex::decode("00874d1ab3845960b32b039fef38ca5c9f8f867df1d522f27a83e07d9dfbe3b296a6c076412d98b369ab015d57247e5380d708b9edfcca0ca2c865346ef9c3d7ed00182cf4f613a6303c9b2a28cda8ff93687bd20000002d53414e44424f5845445f54455a4f535f414c5048414e45545f323031382d31312d33305431353a33303a35365a00000000").unwrap();
 
@@ -171,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn generate_nonces_produces_correct_results_2() -> Result<(), failure::Error> {
+    fn generate_nonces_produces_correct_results_2() -> Result<(), anyhow::Error> {
         let sent_msg = hex::decode("00874d1b98317bd6efad8352a7144c9eb0b218c9130e0a875973908ddc894b764ffc0d7f176cf800b978af9e919bdc35122585168475096d0ebcaca1f2a1172412b91b363ff484d1c64c03417e0e755e696c386a0000002d53414e44424f5845445f54455a4f535f414c5048414e45545f323031382d31312d33305431353a33303a35365a00000000").unwrap();
         let recv_msg = hex::decode("00874d1ab3845960b32b039fef38ca5c9f8f867df1d522f27a83e07d9dfbe3b296a6c076412d98b369ab015d57247e5380d708b9edfcca0ca2c865346ef9c3d7ed00182cf4f613a6303c9b2a28cda8ff93687bd20000002d53414e44424f5845445f54455a4f535f414c5048414e45545f323031382d31312d33305431353a33303a35365a00000000").unwrap();
 

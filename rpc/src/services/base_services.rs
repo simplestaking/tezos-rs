@@ -1,7 +1,7 @@
 // Copyright (c) SimpleStaking and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
-use failure::bail;
+use anyhow::bail;
 
 use crypto::hash::{BlockHash, ChainId, ContextHash};
 use storage::{BlockAdditionalData, PersistentStorage};
@@ -30,7 +30,7 @@ pub(crate) fn get_block_hashes(
     every_nth_level: Option<i32>,
     limit: usize,
     persistent_storage: &PersistentStorage,
-) -> Result<Vec<BlockHash>, failure::Error> {
+) -> Result<Vec<BlockHash>, anyhow::Error> {
     Ok(match every_nth_level {
         Some(every_nth_level) => {
             BlockStorage::new(persistent_storage).get_every_nth(every_nth_level, &block_hash, limit)
@@ -47,7 +47,7 @@ pub(crate) async fn get_block_metadata(
     _: &ChainId,
     block_hash: &BlockHash,
     env: &RpcServiceEnvironment,
-) -> Result<BlockMetadata, failure::Error> {
+) -> Result<BlockMetadata, anyhow::Error> {
     // header + jsons
     let block_header_with_json_data = async {
         match BlockStorage::new(env.persistent_storage()).get_with_json_data(block_hash)? {
@@ -87,7 +87,7 @@ fn convert_block_metadata(
     block_header_proto_metadata_bytes: Vec<u8>,
     block_additional_data: &BlockAdditionalData,
     env: &RpcServiceEnvironment,
-) -> Result<BlockMetadata, failure::Error> {
+) -> Result<BlockMetadata, anyhow::Error> {
     // TODO: TE-521 - rewrite encoding part to rust
     let response = env
         .tezos_readonly_api()
@@ -110,7 +110,7 @@ pub(crate) async fn get_block_header(
     chain_id: ChainId,
     block_hash: BlockHash,
     persistent_storage: &PersistentStorage,
-) -> Result<BlockHeaderInfo, failure::Error> {
+) -> Result<BlockHeaderInfo, anyhow::Error> {
     // header + jsons
     let block_header_with_json_data = async {
         match BlockStorage::new(persistent_storage).get_with_json_data(&block_hash)? {
@@ -150,7 +150,7 @@ pub(crate) fn get_block_shell_header(
     _: ChainId,
     block_hash: BlockHash,
     persistent_storage: &PersistentStorage,
-) -> Result<Option<BlockHeaderShellInfo>, failure::Error> {
+) -> Result<Option<BlockHeaderShellInfo>, anyhow::Error> {
     Ok(BlockStorage::new(persistent_storage)
         .get(&block_hash)?
         .map(|header| BlockHeaderShellInfo::new(&header)))
@@ -160,7 +160,7 @@ pub(crate) fn live_blocks(
     _: ChainId,
     block_hash: BlockHash,
     env: &RpcServiceEnvironment,
-) -> Result<Vec<String>, failure::Error> {
+) -> Result<Vec<String>, anyhow::Error> {
     let persistent_storage = env.persistent_storage();
 
     let block_meta_storage = BlockMetaStorage::new(persistent_storage);
@@ -189,7 +189,7 @@ pub(crate) fn get_context_raw_bytes(
     prefix: Option<&str>,
     depth: Option<usize>,
     env: &RpcServiceEnvironment,
-) -> Result<StringTreeEntry, failure::Error> {
+) -> Result<StringTreeEntry, anyhow::Error> {
     // we assume that root is at "/data"
     let mut key_prefix = context_key_owned!("data");
 
@@ -210,7 +210,7 @@ pub(crate) fn get_block_protocols(
     _: &ChainId,
     block_hash: &BlockHash,
     persistent_storage: &PersistentStorage,
-) -> Result<Protocols, failure::Error> {
+) -> Result<Protocols, anyhow::Error> {
     if let Some(block_additional_data) =
         BlockMetaStorage::new(persistent_storage).get_additional_data(block_hash)?
     {
@@ -231,7 +231,7 @@ pub(crate) fn get_additional_data(
     _: &ChainId,
     block_hash: &BlockHash,
     persistent_storage: &PersistentStorage,
-) -> Result<Option<BlockAdditionalData>, failure::Error> {
+) -> Result<Option<BlockAdditionalData>, anyhow::Error> {
     BlockMetaStorage::new(persistent_storage)
         .get_additional_data(&block_hash)
         .map_err(|e| e.into())
@@ -242,7 +242,7 @@ pub(crate) async fn get_block_operation_hashes(
     chain_id: ChainId,
     block_hash: &BlockHash,
     env: &RpcServiceEnvironment,
-) -> Result<Vec<BlockOperationsHashes>, failure::Error> {
+) -> Result<Vec<BlockOperationsHashes>, anyhow::Error> {
     let block_operations = get_block_operations_metadata(chain_id, block_hash, env).await?;
     let operations = block_operations
         .into_iter()
@@ -261,7 +261,7 @@ pub(crate) async fn get_block_operations_metadata(
     chain_id: ChainId,
     block_hash: &BlockHash,
     env: &RpcServiceEnvironment,
-) -> Result<BlockOperations, failure::Error> {
+) -> Result<BlockOperations, anyhow::Error> {
     // header + jsons
     let block_json_data = async {
         match BlockStorage::new(env.persistent_storage()).get_json_data(block_hash)? {
@@ -288,7 +288,7 @@ pub(crate) async fn get_block_operations_metadata(
     let operations = async {
         OperationsStorage::new(env.persistent_storage())
             .get_operations(block_hash)
-            .map_err(failure::Error::from)
+            .map_err(anyhow::Error::from)
     };
 
     // 1. wait for data to collect
@@ -310,7 +310,7 @@ fn convert_block_operations_metadata(
     block_additional_data: &BlockAdditionalData,
     operations: Vec<OperationsForBlocksMessage>,
     env: &RpcServiceEnvironment,
-) -> Result<BlockOperations, failure::Error> {
+) -> Result<BlockOperations, anyhow::Error> {
     // TODO: TE-521 - rewrite encoding part to rust
     let response = env
         .tezos_readonly_api()
@@ -334,7 +334,7 @@ pub(crate) async fn get_block_operations_validation_pass(
     block_hash: &BlockHash,
     env: &RpcServiceEnvironment,
     validation_pass: usize,
-) -> Result<BlockValidationPass, failure::Error> {
+) -> Result<BlockValidationPass, anyhow::Error> {
     let block_operations = get_block_operations_metadata(chain_id, &block_hash, env).await?;
     if let Some(block_validation_pass) = block_operations.get(validation_pass) {
         Ok(block_validation_pass.clone())
@@ -354,7 +354,7 @@ pub(crate) async fn get_block_operation(
     env: &RpcServiceEnvironment,
     validation_pass: usize,
     operation_index: usize,
-) -> Result<BlockOperation, failure::Error> {
+) -> Result<BlockOperation, anyhow::Error> {
     let block_operations = get_block_operations_metadata(chain_id, &block_hash, env).await?;
     if let Some(block_validation_pass) = block_operations.get(validation_pass) {
         if let Some(operation) = block_validation_pass.get(operation_index) {
@@ -386,7 +386,7 @@ pub(crate) async fn get_block(
     chain_id: &ChainId,
     block_hash: &BlockHash,
     env: &RpcServiceEnvironment,
-) -> Result<BlockInfo, failure::Error> {
+) -> Result<BlockInfo, anyhow::Error> {
     // header + jsons
     let block_header_with_json_data = async {
         match BlockStorage::new(env.persistent_storage()).get_with_json_data(block_hash)? {
@@ -413,7 +413,7 @@ pub(crate) async fn get_block(
     let operations = async {
         OperationsStorage::new(env.persistent_storage())
             .get_operations(block_hash)
-            .map_err(failure::Error::from)
+            .map_err(anyhow::Error::from)
     };
 
     // 1. wait for data to collect

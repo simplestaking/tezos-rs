@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::convert::TryInto;
 
-use failure::format_err;
+use anyhow::format_err;
 
 use crypto::hash::{BlockHash, ContextHash, OperationHash};
 use tezos_api::environment::TezosEnvironment;
@@ -71,7 +71,7 @@ impl Db {
         }
     }
 
-    pub fn get(&self, block_hash: &BlockHash) -> Result<Option<BlockHeader>, failure::Error> {
+    pub fn get(&self, block_hash: &BlockHash) -> Result<Option<BlockHeader>, anyhow::Error> {
         match self.headers.get(block_hash) {
             Some((level, _)) => Ok(Some(self.captured_requests(*level)?.block_header)),
             None => Ok(None),
@@ -81,7 +81,7 @@ impl Db {
     pub fn get_operation(
         &self,
         operation_hash: &OperationHash,
-    ) -> Result<Option<Operation>, failure::Error> {
+    ) -> Result<Option<Operation>, anyhow::Error> {
         match self.operation_hashes.get(operation_hash) {
             Some(level) => {
                 let mut found = None;
@@ -102,7 +102,7 @@ impl Db {
     pub fn get_operations(
         &self,
         block_hash: &BlockHash,
-    ) -> Result<Vec<Vec<Operation>>, failure::Error> {
+    ) -> Result<Vec<Vec<Operation>>, anyhow::Error> {
         match self.headers.get(block_hash) {
             Some((level, _)) => Ok(self.captured_requests(*level)?.operations),
             None => Ok(vec![]),
@@ -112,7 +112,7 @@ impl Db {
     pub fn get_operations_for_block(
         &self,
         block: &OperationsForBlock,
-    ) -> Result<Option<OperationsForBlocksMessage>, failure::Error> {
+    ) -> Result<Option<OperationsForBlocksMessage>, anyhow::Error> {
         match self.operations.get(&OperationsForBlocksMessageKey::new(
             block.block_hash().clone(),
             block.validation_pass(),
@@ -122,7 +122,7 @@ impl Db {
         }
     }
 
-    pub fn block_hash(&self, searched_level: Level) -> Result<BlockHash, failure::Error> {
+    pub fn block_hash(&self, searched_level: Level) -> Result<BlockHash, anyhow::Error> {
         let block_hash = self
             .headers
             .iter()
@@ -137,7 +137,7 @@ impl Db {
         }
     }
 
-    pub fn block_header(&self, searched_level: Level) -> Result<BlockHeader, failure::Error> {
+    pub fn block_header(&self, searched_level: Level) -> Result<BlockHeader, anyhow::Error> {
         match self.get(&self.block_hash(searched_level)?)? {
             Some(header) => Ok(header),
             None => Err(format_err!(
@@ -147,7 +147,7 @@ impl Db {
         }
     }
 
-    pub fn context_hash(&self, searched_level: Level) -> Result<ContextHash, failure::Error> {
+    pub fn context_hash(&self, searched_level: Level) -> Result<ContextHash, anyhow::Error> {
         let context_hash = self
             .headers
             .iter()
@@ -160,7 +160,7 @@ impl Db {
     }
 
     /// Create new struct from captured requests by level.
-    fn captured_requests(&self, level: Level) -> Result<ApplyBlockRequest, failure::Error> {
+    fn captured_requests(&self, level: Level) -> Result<ApplyBlockRequest, anyhow::Error> {
         crate::common::samples::from_captured_bytes(&self.requests[to_index(level)])
     }
 }

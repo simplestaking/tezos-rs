@@ -13,12 +13,12 @@ use std::{
 
 use chrono::prelude::*;
 use chrono::ParseError;
-use failure::Fail;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use slog::{debug, info, Logger};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
+use thiserror::Error;
 
 use crypto::hash::{
     chain_id_from_block_hash, BlockHash, ChainId, ContextHash, OperationListListHash, ProtocolHash,
@@ -500,21 +500,21 @@ fn init() -> HashMap<TezosEnvironment, TezosEnvironmentConfiguration> {
 }
 
 /// Possible errors for environment
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum TezosEnvironmentError {
-    #[fail(display = "Invalid block hash: {}, reason: {:?}", hash, error)]
+    #[error("Invalid block hash: {hash}, reason: {error:?}")]
     InvalidBlockHash {
         hash: String,
         error: FromBase58CheckError,
     },
-    #[fail(display = "Invalid protocol hash: {}, reason: {:?}", hash, error)]
+    #[error("Invalid protocol hash: {hash}, reason: {error:?}")]
     InvalidProtocolHash {
         hash: String,
         error: FromBase58CheckError,
     },
-    #[fail(display = "Invalid time: {}, reason: {:?}", time, error)]
+    #[error("Invalid time: {time}, reason: {error:?}")]
     InvalidTime { time: String, error: ParseError },
-    #[fail(display = "Blake2b digest error")]
+    #[error("Blake2b digest error")]
     Blake2bError,
 }
 
@@ -790,7 +790,7 @@ impl ZcashParams {
 
     /// Checks correctly setup environment OS for zcash-params sapling.
     /// Note: According to Tezos ocaml rustzcash.ml
-    pub fn assert_zcash_params(&self, log: &Logger) -> Result<(), failure::Error> {
+    pub fn assert_zcash_params(&self, log: &Logger) -> Result<(), anyhow::Error> {
         // select candidate dirs
         let candidates = self.candidate_dirs();
 
@@ -817,13 +817,13 @@ impl ZcashParams {
         if !zcash_params_dir_found {
             // check init files
             if !self.init_sapling_spend_params_file.exists() {
-                return Err(failure::format_err!(
+                return Err(anyhow::format_err!(
                     "File not found for init_sapling_spend_params_file: {:?}",
                     self.init_sapling_spend_params_file
                 ));
             }
             if !self.init_sapling_output_params_file.exists() {
-                return Err(failure::format_err!(
+                return Err(anyhow::format_err!(
                     "File not found for init_sapling_output_params_file: {:?}",
                     self.init_sapling_output_params_file
                 ));
@@ -865,7 +865,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn encoded_decoded_timestamp() -> Result<(), failure::Error> {
+    fn encoded_decoded_timestamp() -> Result<(), anyhow::Error> {
         let dt = parse_from_rfc3339("2019-11-28T13:02:13Z")?;
         let decoded = ts_to_rfc3339(dt);
         let expected = "2019-11-28T13:02:13Z".to_string();

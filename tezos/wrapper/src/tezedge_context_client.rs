@@ -5,21 +5,21 @@ use std::sync::Arc;
 
 use crate::TezosApiConnectionPool;
 use crypto::hash::ContextHash;
-use failure::Fail;
 use tezos_new_context::{ContextError, ContextKeyOwned, ContextValue, StringTreeEntry};
+use thiserror::Error;
 
 #[derive(Clone)]
 pub struct TezedgeContextClient {
     tezos_readonly_api: Arc<TezosApiConnectionPool>,
 }
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum TezedgeContextClientError {
-    #[fail(display = "Context error: {:?}", error)]
+    #[error("Context error: {error:?}")]
     ContextError { error: ContextError },
-    #[fail(display = "Pool error: {:?}", error)]
+    #[error("Pool error: {error:?}")]
     PoolError { error: crate::InternalPoolError },
-    #[fail(display = "Protocol service error: {:?}", error)]
+    #[error("Protocol service error: {error:?}")]
     ProtocolServiceError {
         error: crate::service::ProtocolServiceError,
     },

@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use failure::Error;
+use anyhow::Error;
 
 use crate::gc::NotGarbageCollected;
 use crate::hash::EntryHash;

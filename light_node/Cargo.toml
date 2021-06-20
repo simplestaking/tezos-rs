@@ -7,7 +7,7 @@ default-run = "light-node"
 
 [dependencies]
 clap = "2.33"
-failure = "0.1"
+thiserror = "1.0"
 fs_extra = "1.2.0"
 futures = "0.3"
 jemallocator = "0.3.2"

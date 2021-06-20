@@ -1,7 +1,7 @@
 // Copyright (c) SimpleStaking and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
-use failure::Error;
+use anyhow::Error;
 use networking::p2p::stream::{EncryptedMessageReaderBase, MessageReaderBase};
 use tezos_messages::p2p::binary_message::BinaryWrite;
 use tezos_messages::p2p::encoding::limits::BLOCK_HEADER_MAX_SIZE;

@@ -6,27 +6,27 @@
 
 use std::convert::TryInto;
 
-use failure::Fail;
 use hex::FromHexError;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crypto::blake2b;
 use crypto::hash::FromBytesError;
 use crypto::hash::{ContractTz1Hash, ContractTz2Hash, ContractTz3Hash};
 use crypto::{base58::FromBase58CheckError, blake2b::Blake2bError};
 
-#[derive(Debug, Fail, PartialEq)]
+#[derive(Debug, Error, PartialEq)]
 pub enum ConversionError {
-    #[fail(display = "Conversion from invalid public key")]
+    #[error("Conversion from invalid public key")]
     InvalidPublicKey,
 
-    #[fail(display = "Invalid hash: {}", hash)]
+    #[error("Invalid hash: {hash}")]
     InvalidHash { hash: String },
 
-    #[fail(display = "Invalid curve tag: {}", curve_tag)]
+    #[error("Invalid curve tag: {curve_tag}")]
     InvalidCurveTag { curve_tag: String },
 
-    #[fail(display = "Blake2b digest error")]
+    #[error("Blake2b digest error")]
     Blake2bError,
 }
 
@@ -158,7 +158,7 @@ mod tests {
     use crate::base::signature_public_key_hash::{ConversionError, SignaturePublicKeyHash};
 
     #[test]
-    fn test_ed25519_from_bytes() -> Result<(), failure::Error> {
+    fn test_ed25519_from_bytes() -> Result<(), anyhow::Error> {
         let valid_pk = vec![
             0, 3, 65, 14, 206, 174, 244, 127, 36, 48, 150, 156, 243, 27, 213, 139, 41, 30, 231,
             173, 127, 97, 192, 177, 142, 31, 107, 197, 219, 246, 111, 155, 121,
@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ed25519_from_b58_hash() -> Result<(), failure::Error> {
+    fn test_ed25519_from_b58_hash() -> Result<(), anyhow::Error> {
         let decoded =
             SignaturePublicKeyHash::from_b58_hash("tz1PirboZKFVqkfE45hVLpkpXaZtLk3mqC17")?;
         let decoded = match decoded {
@@ -208,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_hex_hash_and_curve() -> Result<(), failure::Error> {
+    fn test_from_hex_hash_and_curve() -> Result<(), anyhow::Error> {
         let result = SignaturePublicKeyHash::from_hex_hash_and_curve(
             &"2cca28ab019ae2d8c26f4ce4924cad67a2dc6618",
             &"ed25519",

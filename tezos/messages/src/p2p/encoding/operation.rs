@@ -3,10 +3,10 @@
 
 use std::convert::TryFrom;
 
-use failure::Fail;
 use getset::Getters;
 use hex::FromHexError;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crypto::{
     base58::FromBase58CheckError,
@@ -53,11 +53,11 @@ impl Operation {
     }
 }
 
-#[derive(Fail, Debug)]
+#[derive(Error, Debug)]
 pub enum FromDecodedOperationError {
-    #[fail(display = "Failed to decode from base58 string: {}", _0)]
+    #[error("Failed to decode from base58 string: {0}")]
     Base58(FromBase58CheckError),
-    #[fail(display = "Failed to decode from hex string: {}", _0)]
+    #[error("Failed to decode from hex string: {0}")]
     Hex(FromHexError),
 }
 

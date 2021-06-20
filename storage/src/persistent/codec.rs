@@ -4,19 +4,19 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 
-use failure::Fail;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crypto::hash::*;
 
 /// Possible errors for schema
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum SchemaError {
-    #[fail(display = "Failed to encode value")]
+    #[error("Failed to encode value")]
     EncodeError,
-    #[fail(display = "Failed to decode value")]
+    #[error("Failed to decode value")]
     DecodeError,
-    #[fail(display = "Failed to decode value: {}", 0)]
+    #[error("Failed to decode value: {0}")]
     DecodeValidationError(String),
 }
 

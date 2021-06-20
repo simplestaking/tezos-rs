@@ -7,7 +7,7 @@ use std::{
     env,
 };
 
-use failure::Error;
+use anyhow::Error;
 use slog::{Drain, Level, Logger};
 
 use crypto::hash::{chain_id_from_block_hash, BlockHash, ContextHash, ProtocolHash};

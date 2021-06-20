@@ -262,7 +262,7 @@ impl BincodeEncoded for Head {}
 mod tests {
     use std::convert::TryInto;
 
-    use failure::Error;
+    use anyhow::Error;
 
     use crate::tests_common::TmpStorage;
 

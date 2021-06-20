@@ -3,8 +3,8 @@
 
 use std::convert::TryFrom;
 
+use anyhow::Error;
 use crypto::hash::ChainId;
-use failure::Error;
 use tezos_messages::p2p::{
     binary_message::{BinaryRead, BinaryWrite},
     encoding::prelude::*,

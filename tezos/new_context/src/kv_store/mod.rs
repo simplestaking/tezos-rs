@@ -75,7 +75,7 @@ pub mod test_support {
 
     use super::SupportedContextKeyValueStore;
 
-    pub type TestKeyValueStoreError = failure::Error;
+    pub type TestKeyValueStoreError = anyhow::Error;
     pub type TestContextKvStoreFactoryInstance = Box<dyn TestContextKvStoreFactory>;
 
     pub fn blob(value: Vec<u8>) -> Entry {

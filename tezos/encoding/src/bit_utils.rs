@@ -6,13 +6,13 @@ use std::mem::size_of;
 use std::ops::{BitAnd, BitAndAssign, BitOrAssign, Not, Shl, ShlAssign, Shr, ShrAssign};
 
 use bit_vec::BitVec;
-use failure::Fail;
+use thiserror::Error;
 
 /// An error triggered when working with [Bits].
-#[derive(Debug, Fail, PartialEq)]
+#[derive(Debug, Error, PartialEq)]
 pub enum BitsError {
     /// Index is out of range
-    #[fail(display = "index out of range")]
+    #[error("index out of range")]
     IndexOutOfRange,
 }
 

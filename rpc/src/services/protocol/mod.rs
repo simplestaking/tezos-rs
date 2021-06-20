@@ -12,7 +12,8 @@
 
 use std::convert::{TryFrom, TryInto};
 
-use failure::{bail, format_err, Error, Fail};
+use anyhow::{bail, format_err, Error};
+use thiserror::Error;
 
 use crypto::hash::{BlockHash, ChainId, FromBytesError, ProtocolHash};
 use storage::{
@@ -40,11 +41,11 @@ mod proto_007;
 mod proto_008;
 mod proto_008_2;
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum RightsError {
-    #[fail(display = "Rights error, reason: {}", reason)]
+    #[error("Rights error, reason: {reason}")]
     ServiceError { reason: Error },
-    #[fail(display = "Unsupported protocol {}", protocol)]
+    #[error("Unsupported protocol {protocol}")]
     UnsupportedProtocolError { protocol: String },
 }
 
@@ -61,8 +62,8 @@ impl From<ContextParamsError> for RightsError {
     }
 }
 
-impl From<failure::Error> for RightsError {
-    fn from(error: failure::Error) -> Self {
+impl From<anyhow::Error> for RightsError {
+    fn from(error: anyhow::Error) -> Self {
         RightsError::ServiceError { reason: error }
     }
 }
@@ -308,18 +309,18 @@ pub(crate) fn check_and_get_endorsing_rights(
     }
 }
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum VotesError {
-    #[fail(display = "Votes error, reason: {}", reason)]
+    #[error("Votes error, reason: {reason}")]
     ServiceError { reason: Error },
-    #[fail(display = "Unsupported protocol {}", protocol)]
+    #[error("Unsupported protocol {protocol}")]
     UnsupportedProtocolError { protocol: String },
-    #[fail(display = "This rpc is not suported in this protocol {}", protocol)]
+    #[error("This rpc is not suported in this protocol {protocol}")]
     UnsupportedProtocolRpc { protocol: String },
 }
 
-impl From<failure::Error> for VotesError {
-    fn from(error: failure::Error) -> Self {
+impl From<anyhow::Error> for VotesError {
+    fn from(error: anyhow::Error) -> Self {
         VotesError::ServiceError { reason: error }
     }
 }
@@ -452,13 +453,14 @@ pub(crate) fn get_context_constants_just_for_rpc(
 fn handle_rpc_response(
     response: &ProtocolRpcResponse,
     context_path: String,
-) -> Result<serde_json::value::Value, failure::Error> {
+) -> Result<serde_json::value::Value, anyhow::Error> {
     match response {
         ProtocolRpcResponse::RPCOk(body) => Ok(serde_json::from_str(&body)?),
-        other => Err(failure::err_msg(format!(
+        other => Err(anyhow::format_err!(
             "Got non-OK response from protocol-RPC service '{}', reason: {:?}",
-            context_path, other
-        ))),
+            context_path,
+            other
+        )),
     }
 }
 
@@ -468,7 +470,7 @@ pub(crate) fn call_protocol_rpc(
     block_hash: BlockHash,
     rpc_request: RpcRequest,
     env: &RpcServiceEnvironment,
-) -> Result<serde_json::value::Value, failure::Error> {
+) -> Result<serde_json::value::Value, anyhow::Error> {
     let context_path = rpc_request.context_path.clone();
     let request =
         create_protocol_rpc_request(chain_param, chain_id, block_hash, rpc_request, &env)?;
@@ -490,7 +492,7 @@ pub(crate) fn preapply_operations(
     block_hash: BlockHash,
     rpc_request: RpcRequest,
     env: &RpcServiceEnvironment,
-) -> Result<serde_json::value::Value, failure::Error> {
+) -> Result<serde_json::value::Value, anyhow::Error> {
     let request =
         create_protocol_rpc_request(chain_param, chain_id, block_hash, rpc_request, &env)?;
 
@@ -511,7 +513,7 @@ pub(crate) fn preapply_block(
     block_hash: BlockHash,
     rpc_request: RpcRequest,
     env: &RpcServiceEnvironment,
-) -> Result<serde_json::value::Value, failure::Error> {
+) -> Result<serde_json::value::Value, anyhow::Error> {
     let block_storage = BlockStorage::new(env.persistent_storage());
     let block_meta_storage = BlockMetaStorage::new(env.persistent_storage());
 
@@ -561,7 +563,7 @@ fn create_protocol_rpc_request(
     block_hash: BlockHash,
     rpc_request: RpcRequest,
     env: &RpcServiceEnvironment,
-) -> Result<ProtocolRpcRequest, failure::Error> {
+) -> Result<ProtocolRpcRequest, anyhow::Error> {
     let block_storage = BlockStorage::new(env.persistent_storage());
     let block_header = match block_storage.get(&block_hash)? {
         Some(header) => header.header.as_ref().clone(),
@@ -586,23 +588,23 @@ pub(crate) struct ContextProtocolParam {
     pub block_header: BlockHeaderWithHash,
 }
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum ContextParamsError {
-    #[fail(display = "Protocol not found in context for block: {}", _0)]
+    #[error("Protocol not found in context for block: {0}")]
     NoProtocolForBlock(String),
-    #[fail(display = "Protocol constants not found in context for block: {}", _0)]
+    #[error("Protocol constants not found in context for block: {0}")]
     NoConstantsForBlock(String),
-    #[fail(display = "Storage error occurred, reason: {}", reason)]
+    #[error("Storage error occurred, reason: {reason}")]
     StorageError { reason: storage::StorageError },
-    #[fail(display = "Context error occurred, reason: {}", reason)]
+    #[error("Context error occurred, reason: {reason}")]
     ContextError { reason: TezedgeContextClientError },
-    #[fail(display = "Context constants, reason: {}", reason)]
+    #[error("Context constants, reason: {reason}")]
     ContextConstantsDecodeError {
         reason: tezos_messages::protocol::ContextConstantsDecodeError,
     },
-    #[fail(display = "Unsupported protocol {}", protocol)]
+    #[error("Unsupported protocol {protocol}")]
     UnsupportedProtocolError { protocol: String },
-    #[fail(display = "Hash error {}", error)]
+    #[error("Hash error {error}")]
     HashError { error: FromBytesError },
 }
 

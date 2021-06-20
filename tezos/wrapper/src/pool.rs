@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use std::{error, fmt};
 
-use failure::_core::marker::PhantomData;
+use core::marker::PhantomData;
 use r2d2::{CustomizeConnection, HandleError, ManageConnection};
 use slog::{debug, error, info, o, warn, Logger};
 

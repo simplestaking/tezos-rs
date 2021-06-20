@@ -8,8 +8,8 @@ use std::{fmt, io};
 
 use commitlog::message::MessageSet;
 use commitlog::{AppendError, CommitLog, LogOptions, Offset, ReadError, ReadLimit};
-use failure::Fail;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::persistent::codec::{Decoder, Encoder, SchemaError};
 use crate::persistent::schema::{CommitLogDescriptor, CommitLogSchema};
@@ -18,20 +18,20 @@ use crate::persistent::BincodeEncoded;
 pub type CommitLogRef = Arc<RwLock<CommitLog>>;
 
 /// Possible errors for commit log
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum CommitLogError {
-    #[fail(display = "Schema error: {}", error)]
+    #[error("Schema error: {error}")]
     SchemaError { error: SchemaError },
-    #[fail(display = "Failed to append record: {}", error)]
+    #[error("Failed to append record: {error}")]
     AppendError { error: AppendError },
-    #[fail(display = "Failed to read record at {}: {}", location, error)]
+    #[error("Failed to read record at {location}: {error}")]
     ReadError {
         error: ReadError,
         location: Location,
     },
-    #[fail(display = "Commit log I/O error {}", error)]
+    #[error("Commit log I/O error {error}")]
     IOError { error: io::Error },
-    #[fail(display = "Commit log {} is missing", name)]
+    #[error("Commit log {name} is missing")]
     MissingCommitLog { name: &'static str },
 }
 

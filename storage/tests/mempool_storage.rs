@@ -1,8 +1,8 @@
 // Copyright (c) SimpleStaking and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
+use anyhow::Error;
 use crypto::hash::OperationHash;
-use failure::Error;
 
 use storage::mempool_storage::MempoolOperationType;
 use storage::tests_common::TmpStorage;

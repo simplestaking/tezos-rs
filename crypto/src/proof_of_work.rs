@@ -1,9 +1,9 @@
 use std::convert::TryFrom;
 
-use failure::Fail;
 use hex::FromHex;
 use num_bigint::BigUint;
 use sodiumoxide::randombytes::randombytes;
+use thiserror::Error;
 
 use crate::{blake2b::Blake2bError, CryptoError};
 
@@ -15,11 +15,11 @@ use super::{
 
 pub const POW_SIZE: usize = NONCE_SIZE;
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum PowError {
-    #[fail(display = "Proof-of-work check failed")]
+    #[error("Proof-of-work check failed")]
     CheckFailed,
-    #[fail(display = "Proof-of-work blake2b error: {}", _0)]
+    #[error("Proof-of-work blake2b error: {0}")]
     Blake2b(Blake2bError),
 }
 

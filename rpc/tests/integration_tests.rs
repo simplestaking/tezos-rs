@@ -14,7 +14,7 @@ use std::env;
 use std::iter::FromIterator;
 use std::time::{Duration, Instant};
 
-use failure::format_err;
+use anyhow::format_err;
 use hyper::body::Buf;
 use hyper::Client;
 use itertools::Itertools;
@@ -560,7 +560,7 @@ async fn integration_tests_rpc(from_block: i64, to_block: i64) {
     // }
 }
 
-async fn test_rpc_compare_json(rpc_path: &str) -> Result<(), failure::Error> {
+async fn test_rpc_compare_json(rpc_path: &str) -> Result<(), anyhow::Error> {
     // print the asserted path, to know which one errored in case of an error, use --nocapture
     if is_ignored(&IGNORE_PATH_PATTERNS, rpc_path) {
         println!();
@@ -623,7 +623,7 @@ async fn test_rpc_compare_json(rpc_path: &str) -> Result<(), failure::Error> {
 }
 
 /// Returns json data from any/random node (if fails, tries other)
-async fn try_get_data_as_json(rpc_path: &str) -> Result<serde_json::value::Value, failure::Error> {
+async fn try_get_data_as_json(rpc_path: &str) -> Result<serde_json::value::Value, anyhow::Error> {
     let mut nodes: Vec<NodeType> = NodeType::iter().collect_vec();
     nodes.shuffle(&mut rand::thread_rng());
 
@@ -650,7 +650,7 @@ async fn try_get_data_as_json(rpc_path: &str) -> Result<serde_json::value::Value
 async fn get_rpc_as_json(
     node: NodeType,
     rpc_path: &str,
-) -> Result<(serde_json::value::Value, Duration), failure::Error> {
+) -> Result<(serde_json::value::Value, Duration), anyhow::Error> {
     let url_as_string = node_rpc_url(node, rpc_path);
     let url = url_as_string
         .parse()
@@ -676,7 +676,7 @@ async fn get_rpc_as_json(
     Ok((serde_json::from_reader(&mut body.reader())?, response_time))
 }
 
-fn cycle_from_metadata(block_metadata_json: &Value) -> Result<i64, failure::Error> {
+fn cycle_from_metadata(block_metadata_json: &Value) -> Result<i64, anyhow::Error> {
     // before 008 edo
     if let Some(cycle) = block_metadata_json["level"]["cycle"].as_i64() {
         return Ok(cycle);

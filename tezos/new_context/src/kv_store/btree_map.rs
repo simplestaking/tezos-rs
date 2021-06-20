@@ -125,7 +125,7 @@ impl KeyValueStoreBackend<ContextKeyValueStoreSchema> for BTreeMapBackend<EntryH
 }
 
 impl Flushable for BTreeMapBackend<EntryHash, ContextValue> {
-    fn flush(&self) -> Result<(), failure::Error> {
+    fn flush(&self) -> Result<(), anyhow::Error> {
         Ok(())
     }
 }

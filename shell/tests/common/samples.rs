@@ -46,7 +46,7 @@ lazy_static! {
 
 /// Create new struct from bytes.
 #[inline]
-pub fn from_captured_bytes(request: &str) -> Result<ApplyBlockRequest, failure::Error> {
+pub fn from_captured_bytes(request: &str) -> Result<ApplyBlockRequest, anyhow::Error> {
     struct Request(ApplyBlockRequest);
     impl NomReader for Request {
         fn nom_read(bytes: &[u8]) -> tezos_encoding::nom::NomResult<Self> {

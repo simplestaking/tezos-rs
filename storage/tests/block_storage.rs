@@ -3,7 +3,7 @@
 
 use std::convert::TryInto;
 
-use failure::Error;
+use anyhow::Error;
 
 use crypto::hash::HashType;
 use storage::tests_common::TmpStorage;

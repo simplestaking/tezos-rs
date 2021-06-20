@@ -90,19 +90,19 @@ fn init_test_protocol_context(
     )
 }
 
-fn extract_body(r: ProtocolRpcResponse) -> Result<String, failure::Error> {
+fn extract_body(r: ProtocolRpcResponse) -> Result<String, anyhow::Error> {
     match r {
         ProtocolRpcResponse::RPCOk(body) => Ok(body),
-        other => Err(failure::err_msg(format!(
+        other => Err(anyhow::format_err!(
             "Expecter RPCOk, instead got {:?}",
             other
-        ))),
+        )),
     }
 }
 
 #[test]
 #[serial]
-fn test_run_operations() -> Result<(), failure::Error> {
+fn test_run_operations() -> Result<(), anyhow::Error> {
     init_test_runtime();
 
     // init empty context for test
@@ -141,7 +141,7 @@ fn test_run_operations() -> Result<(), failure::Error> {
 
 #[test]
 #[serial]
-fn test_forge_operations() -> Result<(), failure::Error> {
+fn test_forge_operations() -> Result<(), anyhow::Error> {
     init_test_runtime();
 
     // init empty context for test
@@ -207,7 +207,7 @@ fn test_forge_operations() -> Result<(), failure::Error> {
 
 #[test]
 #[serial]
-fn test_context_contract() -> Result<(), failure::Error> {
+fn test_context_contract() -> Result<(), anyhow::Error> {
     init_test_runtime();
 
     // init empty context for test
@@ -255,7 +255,7 @@ fn test_context_contract() -> Result<(), failure::Error> {
 
 #[test]
 #[serial]
-fn test_preapply_operations() -> Result<(), failure::Error> {
+fn test_preapply_operations() -> Result<(), anyhow::Error> {
     init_test_runtime();
 
     // init empty context for test
@@ -294,7 +294,7 @@ fn test_preapply_operations() -> Result<(), failure::Error> {
 
 #[test]
 #[serial]
-fn test_current_level_call() -> Result<(), failure::Error> {
+fn test_current_level_call() -> Result<(), anyhow::Error> {
     // init empty context for test
     let (chain_id, genesis_block_header, ..) =
         init_test_protocol_context("test_current_level_call_storage");
@@ -327,7 +327,7 @@ fn test_current_level_call() -> Result<(), failure::Error> {
 
 #[test]
 #[serial]
-fn test_minimal_valid_time() -> Result<(), failure::Error> {
+fn test_minimal_valid_time() -> Result<(), anyhow::Error> {
     // init empty context for test
     let (chain_id, genesis_block_header, ..) =
         init_test_protocol_context(" test_minimal_valid_time_storage");
@@ -362,7 +362,7 @@ fn test_minimal_valid_time() -> Result<(), failure::Error> {
 
 #[test]
 #[serial]
-fn test_compute_path() -> Result<(), failure::Error> {
+fn test_compute_path() -> Result<(), anyhow::Error> {
     // init empty context for test
     let (chain_id, genesis_block_header, ..) =
         init_test_protocol_context("test_compute_path_storage");
@@ -442,7 +442,7 @@ fn test_compute_path() -> Result<(), failure::Error> {
 
 #[test]
 #[serial]
-fn test_preapply_block() -> Result<(), failure::Error> {
+fn test_preapply_block() -> Result<(), anyhow::Error> {
     init_test_runtime();
 
     // init empty context for test

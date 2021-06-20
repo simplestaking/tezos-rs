@@ -68,7 +68,7 @@ macro_rules! roundtrip_test {
 
 roundtrip_test!(test_chain_id_roundtrip_calls, test_chain_id_roundtrip, 1);
 
-fn test_chain_id_roundtrip(iteration: i32) -> Result<(), failure::Error> {
+fn test_chain_id_roundtrip(iteration: i32) -> Result<(), anyhow::Error> {
     let chain_id: RustBytes = hex::decode(CHAIN_ID)?;
     let result = runtime::execute(move |rt: &mut OCamlRuntime| {
         // sent bytes to ocaml
@@ -94,7 +94,7 @@ roundtrip_test!(
     1
 );
 
-fn test_block_header_roundtrip(iteration: i32) -> Result<(), failure::Error> {
+fn test_block_header_roundtrip(iteration: i32) -> Result<(), anyhow::Error> {
     let header: RustBytes = hex::decode(HEADER)?;
 
     let result = runtime::execute(move |rt: &mut OCamlRuntime| {
@@ -121,7 +121,7 @@ roundtrip_test!(
     1
 );
 
-fn test_block_header_struct_roundtrip(iteration: i32) -> Result<(), failure::Error> {
+fn test_block_header_struct_roundtrip(iteration: i32) -> Result<(), anyhow::Error> {
     let header: BlockHeader = BlockHeader::from_bytes(hex::decode(HEADER).unwrap())?;
     let expected_block_hash: BlockHash = header.message_typed_hash()?;
     let expected_chain_id = chain_id_from_block_hash(&expected_block_hash)?;
@@ -158,7 +158,7 @@ roundtrip_test!(
     1
 );
 
-fn test_block_header_with_hash_roundtrip(iteration: i32) -> Result<(), failure::Error> {
+fn test_block_header_with_hash_roundtrip(iteration: i32) -> Result<(), anyhow::Error> {
     let header_hash: RustBytes = hex::decode(HEADER_HASH)?;
     let header: RustBytes = hex::decode(HEADER)?;
 
@@ -185,7 +185,7 @@ fn test_block_header_with_hash_roundtrip(iteration: i32) -> Result<(), failure::
 
 roundtrip_test!(test_operation_roundtrip_calls, test_operation_roundtrip, 1);
 
-fn test_operation_roundtrip(iteration: i32) -> Result<(), failure::Error> {
+fn test_operation_roundtrip(iteration: i32) -> Result<(), anyhow::Error> {
     let operation: RustBytes = hex::decode(OPERATION)?;
 
     let result = runtime::execute(move |rt: &mut OCamlRuntime| {
@@ -218,7 +218,7 @@ fn test_operations_list_list_roundtrip_one() {
     assert!(test_operations_list_list_roundtrip(1, sample_operations3(), 5, 1).is_ok());
 }
 
-fn test_operations_list_list_roundtrip_for_bench(iteration: i32) -> Result<(), failure::Error> {
+fn test_operations_list_list_roundtrip_for_bench(iteration: i32) -> Result<(), anyhow::Error> {
     let result = test_operations_list_list_roundtrip(iteration, sample_operations(), 4, 1);
     assert!(result.is_ok());
     let _unwrapped_result = result?;
@@ -230,7 +230,7 @@ fn test_operations_list_list_roundtrip(
     operations: Vec<Option<Vec<RustBytes>>>,
     expected_list_count: usize,
     expected_list_0_count: usize,
-) -> Result<(), failure::Error> {
+) -> Result<(), anyhow::Error> {
     let result = runtime::execute(move |rt: &mut OCamlRuntime| {
         let empty_vec = vec![];
         let operations: Vec<_> = operations
@@ -342,7 +342,7 @@ mod benches {
                 let mut counter_failed = 0;
                 b.iter(|| {
                     counter += 1;
-                    let result: Result<(), failure::Error> = $f(counter);
+                    let result: Result<(), anyhow::Error> = $f(counter);
                     if let Err(_) = result {
                         counter_failed += 1;
                     }

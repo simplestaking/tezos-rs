@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use failure::Fail;
+use thiserror::Error;
 
 // TODO: TE-386 - remove not needed
 // pub mod collections;
@@ -13,21 +13,21 @@ use failure::Fail;
 /// Simple condvar synchronized result callback
 pub type CondvarResult<T, E> = Arc<(Mutex<Option<Result<T, E>>>, Condvar)>;
 
-#[derive(Fail, Debug)]
+#[derive(Error, Debug)]
 pub enum WaitCondvarResultError {
-    #[fail(display = "Timeout exceeded: {:?}", duration)]
+    #[error("Timeout exceeded: {duration:?}")]
     TimeoutExceeded { duration: Duration },
 
-    #[fail(display = "No result received")]
+    #[error("No result received")]
     NoResultReceived,
 
-    #[fail(display = "Mutex/lock poison error, reason: {}", reason)]
+    #[error("Mutex/lock poison error, reason: {reason}")]
     PoisonedLock { reason: String },
 }
 
-#[derive(Fail, Debug)]
+#[derive(Error, Debug)]
 pub enum DispatchCondvarResultError {
-    #[fail(display = "Failed to set result, reason: {}", reason)]
+    #[error("Failed to set result, reason: {reason}")]
     DispatchResultError { reason: String },
 }
 
@@ -141,8 +141,8 @@ mod tests {
     };
 
     #[test]
-    fn test_wait_and_dispatch() -> Result<(), failure::Error> {
-        let condvar_result: CondvarResult<(), failure::Error> =
+    fn test_wait_and_dispatch() -> Result<(), anyhow::Error> {
+        let condvar_result: CondvarResult<(), anyhow::Error> =
             Arc::new((Mutex::new(None), Condvar::new()));
 
         // run async

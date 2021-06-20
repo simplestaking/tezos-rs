@@ -6,9 +6,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use bytes::Buf;
-use failure::Fail;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
+use thiserror::Error;
 
 use crate::hash::HashingError;
 use crate::{EntryHash, TreeId};
@@ -67,11 +67,11 @@ pub trait ActionRecorder {
     fn record(&mut self, action: &ContextAction) -> Result<(), ActionRecorderError>;
 }
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum ActionRecorderError {
-    #[fail(display = "Failed to store action, reason: {}", reason)]
+    #[error("Failed to store action, reason: {reason}")]
     StoreError { reason: String },
-    #[fail(display = "Missing actions for block {}.", hash)]
+    #[error("Missing actions for block {hash}.")]
     MissingActions { hash: String },
 }
 

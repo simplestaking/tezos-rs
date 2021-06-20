@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use failure::format_err;
+use anyhow::format_err;
 use serial_test::serial;
 use slog::{error, info, o, warn, Level, Logger};
 
@@ -29,7 +29,7 @@ pub mod common;
 #[test]
 #[serial]
 fn test_mutliple_protocol_runners_with_one_write_multiple_read_init_context(
-) -> Result<(), failure::Error> {
+) -> Result<(), anyhow::Error> {
     // logger
     let log_level = common::log_level();
     let log = common::create_logger(log_level);
@@ -61,7 +61,7 @@ fn test_mutliple_protocol_runners_with_one_write_multiple_read_init_context(
 
         // spawn thread for every endpoint and try to initialize protocol context
         let handle = thread::spawn(
-            move || -> Result<InitProtocolContextResult, failure::Error> {
+            move || -> Result<InitProtocolContextResult, anyhow::Error> {
                 // init protocol read or write
                 match protocol.try_accept(Duration::from_secs(3)) {
                     Ok(proto) => Ok({
@@ -117,7 +117,7 @@ fn create_endpoint<Runner: ProtocolRunner + 'static>(
     log_level: Level,
     endpoint_name: String,
     context_db_path: PathBuf,
-) -> Result<(IpcCmdServer, Runner::Subprocess, String), failure::Error> {
+) -> Result<(IpcCmdServer, Runner::Subprocess, String), anyhow::Error> {
     // environement
     let tezos_env: &TezosEnvironmentConfiguration = TEZOS_ENV
         .get(&test_data::TEZOS_NETWORK)
@@ -176,7 +176,7 @@ fn create_endpoint<Runner: ProtocolRunner + 'static>(
 #[ignore]
 #[test]
 #[serial]
-fn test_readonly_protocol_runner_connection_pool() -> Result<(), failure::Error> {
+fn test_readonly_protocol_runner_connection_pool() -> Result<(), anyhow::Error> {
     // logger
     let log_level = common::log_level();
     let log = common::create_logger(log_level);

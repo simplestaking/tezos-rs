@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use failure::{format_err, Error};
+use anyhow::{format_err, Error};
 use itertools::{Itertools, MinMaxResult};
 use riker::actors::*;
 use slog::{debug, info, trace, warn, Logger};
@@ -943,7 +943,7 @@ impl ChainManager {
     fn process_injected_block(
         &mut self,
         injected_block: InjectBlock,
-        result_callback: Option<CondvarResult<(), failure::Error>>,
+        result_callback: Option<CondvarResult<(), anyhow::Error>>,
         ctx: &Context<ChainManagerMsg>,
     ) -> Result<(), Error> {
         let InjectBlock {
@@ -1354,7 +1354,7 @@ impl ChainManager {
         p2p_disable_mempool: bool,
         current_mempool_state: CurrentMempoolStateStorageRef,
         current_head: &Head,
-    ) -> Result<Mempool, failure::Error> {
+    ) -> Result<Mempool, anyhow::Error> {
         if p2p_disable_mempool {
             return Ok(Mempool::default());
         }

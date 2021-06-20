@@ -4,8 +4,9 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
-use failure::{bail, format_err, Fail};
+use anyhow::{bail, format_err};
 use getset::Getters;
+use thiserror::Error;
 
 use crypto::hash::ContextHash;
 use crypto::{
@@ -66,7 +67,7 @@ impl RightsConstants {
     #[inline]
     pub(crate) fn parse_rights_constants(
         context_proto_param: &ContextProtocolParam,
-    ) -> Result<Self, failure::Error> {
+    ) -> Result<Self, anyhow::Error> {
         let dynamic =
             tezos_messages::protocol::proto_001::constants::ParametricConstants::from_bytes(
                 &context_proto_param.constants_data,
@@ -126,7 +127,7 @@ impl RightsContextData {
         parameters: RightsParams,
         constants: RightsConstants,
         (ctx_hash, context): (&ContextHash, &TezedgeContextClient),
-    ) -> Result<Self, failure::Error> {
+    ) -> Result<Self, anyhow::Error> {
         // prepare constants that are used
         let blocks_per_cycle = *constants.blocks_per_cycle();
 
@@ -201,7 +202,7 @@ impl RightsContextData {
         (ctx_hash, context): (&ContextHash, &TezedgeContextClient),
         cycle: i64,
         snapshot: i16,
-    ) -> Result<Option<HashMap<i32, String>>, failure::Error> {
+    ) -> Result<Option<HashMap<i32, String>>, anyhow::Error> {
         let rolls = if let Some(val) = context.get_key_values_by_prefix(
             &ctx_hash,
             context_key_owned!("data/rolls/owner/snapshot/{}/{}", cycle, snapshot),
@@ -323,7 +324,7 @@ impl RightsParams {
         rights_constants: &RightsConstants,
         block_header: &BlockHeaderWithHash,
         is_baking_rights: bool,
-    ) -> Result<Self, failure::Error> {
+    ) -> Result<Self, anyhow::Error> {
         let block_level: i64 = block_header.header.level().into();
         let preserved_cycles = *rights_constants.preserved_cycles();
         let blocks_per_cycle = *rights_constants.blocks_per_cycle();
@@ -433,7 +434,7 @@ impl RightsParams {
         requested_cycle: i64,
         current_cycle: i64,
         preserved_cycles: u8,
-    ) -> Result<i64, failure::Error> {
+    ) -> Result<i64, anyhow::Error> {
         if (requested_cycle - current_cycle).abs() <= (preserved_cycles as i64) {
             Ok(requested_cycle)
         } else {
@@ -475,7 +476,7 @@ impl EndorserSlots {
 ///
 /// Level 0 (genesis block) is not part of any cycle (cycle 0 starts at level 1),
 /// hence the blocks_per_cycle - 1 for last cycle block.
-pub fn cycle_from_level(level: i64, blocks_per_cycle: i32) -> Result<i64, failure::Error> {
+pub fn cycle_from_level(level: i64, blocks_per_cycle: i32) -> Result<i64, anyhow::Error> {
     // check if blocks_per_cycle is not 0 to prevent panic
     if blocks_per_cycle > 0 {
         Ok((level - 1) / (blocks_per_cycle as i64))
@@ -493,7 +494,7 @@ pub fn cycle_from_level(level: i64, blocks_per_cycle: i32) -> Result<i64, failur
 ///
 /// Level 0 (genesis block) is not part of any cycle (cycle 0 starts at level 1),
 /// hence the blocks_per_cycle - 1 for last cycle block.
-pub fn level_position(level: i32, blocks_per_cycle: i32) -> Result<i32, failure::Error> {
+pub fn level_position(level: i32, blocks_per_cycle: i32) -> Result<i32, anyhow::Error> {
     // check if blocks_per_cycle is not 0 to prevent panic
     if blocks_per_cycle <= 0 {
         bail!("wrong value blocks_per_cycle={}", blocks_per_cycle);
@@ -508,11 +509,11 @@ pub fn level_position(level: i32, blocks_per_cycle: i32) -> Result<i32, failure:
 }
 
 /// Enum defining Tezos PRNG possible error
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum TezosPRNGError {
-    #[fail(display = "Value of bound(last_roll) not correct: {} bytes", bound)]
+    #[error("Value of bound(last_roll) not correct: {bound} bytes")]
     BoundNotCorrect { bound: i32 },
-    #[fail(display = "Public key error: {}", _0)]
+    #[error("Public key error: {0}")]
     PublicKeyError(PublicKeyError),
 }
 
@@ -550,7 +551,7 @@ pub fn init_prng(
     use_string_bytes: &[u8],
     level: i32,
     offset: i32,
-) -> Result<RandomSeedState, failure::Error> {
+) -> Result<RandomSeedState, anyhow::Error> {
     // a safe way to convert betwwen types is to use try_from
     let nonce_size = usize::try_from(*constants.nonce_length())?;
     let blocks_per_cycle = *constants.blocks_per_cycle();

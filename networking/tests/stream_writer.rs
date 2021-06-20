@@ -1,8 +1,8 @@
 // Copyright (c) SimpleStaking and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
+use anyhow::Error;
 use common::block_header_message_encoded;
-use failure::Error;
 use networking::p2p::stream::{EncryptedMessageWriterBase, MessageWriterBase};
 use tezos_messages::p2p::{
     binary_message::BinaryChunk,

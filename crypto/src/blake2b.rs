@@ -1,14 +1,14 @@
 // Copyright (c) SimpleStaking and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
-use failure::Fail;
 use sodiumoxide::crypto::generichash::State;
+use thiserror::Error;
 
-#[derive(Debug, Copy, Clone, Fail, PartialEq)]
+#[derive(Debug, Copy, Clone, Error, PartialEq)]
 pub enum Blake2bError {
-    #[fail(display = "Output digest length must be between 16 and 64 bytes.")]
+    #[error("Output digest length must be between 16 and 64 bytes.")]
     InvalidLenght,
-    #[fail(display = "Blake2b failed")]
+    #[error("Blake2b failed")]
     Other,
 }
 

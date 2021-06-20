@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use crypto::{base58::FromBase58CheckError, hash::FromBytesError};
-use failure::Fail;
+use thiserror::Error;
 
 pub use codec::{BincodeEncoded, Codec, Decoder, Encoder, SchemaError};
 pub use database::DBError;
@@ -17,7 +17,7 @@ pub trait KeyValueSchema {
 }
 
 pub trait Flushable {
-    fn flush(&self) -> Result<(), failure::Error>;
+    fn flush(&self) -> Result<(), anyhow::Error>;
 }
 
 pub trait Persistable {
@@ -88,13 +88,13 @@ pub trait KeyValueStoreBackend<S: KeyValueSchema> {
 }
 
 /// Possible errors for storage
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum StorageError {
-    #[fail(display = "Database error: {}", error)]
+    #[error("Database error: {error:?}")]
     DBError { error: DBError },
-    #[fail(display = "Error constructing hash: {}", error)]
+    #[error("Error constructing hash: {error}")]
     HashError { error: FromBytesError },
-    #[fail(display = "Error decoding hash: {}", error)]
+    #[error("Error decoding hash: {error}")]
     HashDecodeError { error: FromBase58CheckError },
 }
 

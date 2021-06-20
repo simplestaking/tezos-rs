@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: MIT
 
 use bytes::{Buf, BufMut};
-use failure::Fail;
-use failure::_core::convert::TryFrom;
+use core::convert::TryFrom;
 use nom::{
     combinator::{all_consuming, complete},
     Finish,
 };
 use serde::Serialize;
+use thiserror::Error;
 
 use crypto::blake2b::{self, Blake2bError};
 use crypto::hash::Hash;
@@ -152,16 +152,13 @@ impl BinaryChunk {
 }
 
 /// `BinaryChunk` error
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum BinaryChunkError {
-    #[fail(display = "Overflow error")]
+    #[error("Overflow error")]
     OverflowError,
-    #[fail(display = "Missing size information")]
+    #[error("Missing size information")]
     MissingSizeInformation,
-    #[fail(
-        display = "Incorrect content size information. expected={}, actual={}",
-        expected, actual
-    )]
+    #[error("Incorrect content size information. expected={expected}, actual={actual}")]
     IncorrectSizeInformation { expected: usize, actual: usize },
 }
 
@@ -191,13 +188,13 @@ impl TryFrom<Vec<u8>> for BinaryChunk {
 }
 
 /// Message hash error
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum MessageHashError {
-    #[fail(display = "Message serialization error: {}", error)]
+    #[error("Message serialization error: {error}")]
     SerializationError { error: BinaryWriterError },
-    #[fail(display = "Error constructing hash")]
+    #[error("Error constructing hash")]
     FromBytesError { error: crypto::hash::FromBytesError },
-    #[fail(display = "Blake2b digest error")]
+    #[error("Blake2b digest error")]
     Blake2bError,
 }
 
@@ -250,7 +247,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_binary_from_content() -> Result<(), failure::Error> {
+    fn test_binary_from_content() -> Result<(), anyhow::Error> {
         let chunk = BinaryChunk::from_content(&[])?.0;
         assert_eq!(CONTENT_LENGTH_FIELD_BYTES, chunk.len());
         assert_eq!(CONTENT_LENGTH_FIELD_BYTES, chunk.capacity());

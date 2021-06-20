@@ -1,7 +1,7 @@
 // Copyright (c) SimpleStaking and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
-use failure::format_err;
+use anyhow::format_err;
 use hyper::{Body, Request};
 use slog::warn;
 

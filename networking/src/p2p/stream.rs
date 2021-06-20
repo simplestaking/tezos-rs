@@ -9,9 +9,9 @@ use std::convert::TryInto;
 use std::io;
 
 use bytes::Buf;
-use failure::_core::time::Duration;
-use failure::{Error, Fail};
+use core::time::Duration;
 use slog::{trace, FnValue, Logger};
+use thiserror::Error;
 use tokio::io::{
     AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, ReadHalf, WriteHalf,
 };
@@ -30,18 +30,21 @@ pub const CONTENT_LENGTH_MAX: usize =
     tezos_messages::p2p::binary_message::CONTENT_LENGTH_MAX - crypto::crypto_box::BOX_ZERO_BYTES;
 
 /// This is common error that might happen when communicating with peer over the network.
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum StreamError {
-    #[fail(display = "Failed to encrypt message")]
+    #[error("Failed to encrypt message")]
     FailedToEncryptMessage { error: CryptoError },
-    #[fail(display = "Failed to decrypt message")]
+    #[error("Failed to decrypt message")]
     FailedToDecryptMessage { error: CryptoError },
-    #[fail(display = "Message serialization error: {}", error)]
+    #[error("Message serialization error: {error}")]
     SerializationError { error: BinaryWriterError },
-    #[fail(display = "Message de-serialization error: {}", error)]
+    #[error("Message de-serialization error: {error}")]
     DeserializationError { error: BinaryReaderError },
-    #[fail(display = "Network error: {}, cause: {}", message, error)]
-    NetworkError { message: &'static str, error: Error },
+    #[error("Network error: {message}, cause: {error}")]
+    NetworkError {
+        message: &'static str,
+        error: anyhow::Error,
+    },
 }
 
 impl From<BinaryWriterError> for StreamError {

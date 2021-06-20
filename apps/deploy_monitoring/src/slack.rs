@@ -29,7 +29,7 @@ impl SlackServer {
         }
     }
 
-    pub async fn send_message(&self, text: &str) -> Result<(), failure::Error> {
+    pub async fn send_message(&self, text: &str) -> Result<(), anyhow::Error> {
         let client = reqwest::Client::new();
 
         let mut map = HashMap::new();
@@ -49,7 +49,7 @@ impl SlackServer {
         Ok(())
     }
 
-    pub async fn upload_file(&self, text: &str, file_content: &str) -> Result<(), failure::Error> {
+    pub async fn upload_file(&self, text: &str, file_content: &str) -> Result<(), anyhow::Error> {
         let params = [
             ("initial_comment", text),
             ("content", file_content),

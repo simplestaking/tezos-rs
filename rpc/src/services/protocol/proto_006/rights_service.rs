@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 
-use failure::format_err;
+use anyhow::format_err;
 use itertools::Itertools;
 
 use crate::services::dev_services::contract_id_to_contract_address_for_index;
@@ -40,7 +40,7 @@ pub(crate) fn check_and_get_baking_rights(
     max_priority: Option<&str>,
     has_all: bool,
     context: &TezedgeContextClient,
-) -> Result<Option<Vec<RpcJsonMap>>, failure::Error> {
+) -> Result<Option<Vec<RpcJsonMap>>, anyhow::Error> {
     let constants: RightsConstants =
         RightsConstants::parse_rights_constants(&context_proto_params)?;
 
@@ -76,7 +76,7 @@ pub(crate) fn get_baking_rights(
     context_data: &RightsContextData,
     parameters: &RightsParams,
     constants: &RightsConstants,
-) -> Result<Option<Vec<RpcJsonMap>>, failure::Error> {
+) -> Result<Option<Vec<RpcJsonMap>>, anyhow::Error> {
     let mut baking_rights = Vec::<BakingRights>::new();
 
     let blocks_per_cycle = *constants.blocks_per_cycle();
@@ -163,7 +163,7 @@ fn baking_rights_assign_rolls(
     estimated_head_timestamp: i64,
     is_cycle: bool,
     baking_rights: &mut Vec<BakingRights>,
-) -> Result<(), failure::Error> {
+) -> Result<(), anyhow::Error> {
     const BAKING_USE_STRING: &[u8] = b"level baking:";
 
     // hashset is defined to keep track of the delegates with priorities already assigned
@@ -252,7 +252,7 @@ pub(crate) fn check_and_get_endorsing_rights(
     cycle: Option<&str>,
     has_all: bool,
     context: &TezedgeContextClient,
-) -> Result<Option<Vec<RpcJsonMap>>, failure::Error> {
+) -> Result<Option<Vec<RpcJsonMap>>, anyhow::Error> {
     let constants: RightsConstants =
         RightsConstants::parse_rights_constants(&context_proto_params)?;
 
@@ -287,7 +287,7 @@ fn get_endorsing_rights(
     context_data: &RightsContextData,
     parameters: &RightsParams,
     constants: &RightsConstants,
-) -> Result<Option<Vec<RpcJsonMap>>, failure::Error> {
+) -> Result<Option<Vec<RpcJsonMap>>, anyhow::Error> {
     // define helper and output variables
     let mut endorsing_rights = Vec::<EndorsingRight>::new();
 
@@ -355,7 +355,7 @@ fn complete_endorsing_rights_for_level(
     display_level: i64,
     estimated_time: Option<i64>,
     endorsing_rights: &mut Vec<EndorsingRight>,
-) -> Result<(), failure::Error> {
+) -> Result<(), anyhow::Error> {
     // endorsers_slots is needed to group all slots by delegate
     let endorsers_slots = get_endorsers_slots(constants, context_data, level)?;
 
@@ -409,7 +409,7 @@ fn get_endorsers_slots(
     constants: &RightsConstants,
     context_data: &RightsContextData,
     level: i64,
-) -> Result<HashMap<String, EndorserSlots>, failure::Error> {
+) -> Result<HashMap<String, EndorserSlots>, anyhow::Error> {
     // special byte string used in Tezos PRNG
     const ENDORSEMENT_USE_STRING: &[u8] = b"level endorsement:";
     // prepare helper variable

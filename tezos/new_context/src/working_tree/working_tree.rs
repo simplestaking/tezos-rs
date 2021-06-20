@@ -55,7 +55,7 @@ use std::{
     rc::Rc,
 };
 
-use failure::Fail;
+use thiserror::Error;
 
 use crypto::hash::FromBytesError;
 
@@ -217,46 +217,40 @@ impl Iterator for TreeWalker {
     }
 }
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum MerkleError {
     /// External libs errors
-    #[fail(display = "RocksDB error: {:?}", error)]
+    #[error("RocksDB error: {error:?}")]
     DBError {
         error: persistent::database::DBError,
     },
-    #[fail(display = "Serialization error: {:?}", error)]
+    #[error("Serialization error: {error:?}")]
     SerializationError { error: bincode::Error },
-    #[fail(display = "Backend error: {:?}", error)]
+    #[error("Backend error: {error:?}")]
     GarbageCollectionError { error: GarbageCollectionError },
 
     /// Internal unrecoverable bugs that should never occur
-    #[fail(
-        display = "There is a commit or three under key {:?}, but not a value!",
-        key
-    )]
+    #[error("There is a commit or three under key {key:?}, but not a value!")]
     ValueIsNotABlob { key: String },
-    #[fail(
-        display = "Found wrong structure. Was looking for {}, but found {}",
-        sought, found
-    )]
+    #[error("Found wrong structure. Was looking for {sought}, but found {found}")]
     FoundUnexpectedStructure { sought: String, found: String },
-    #[fail(display = "Entry not found! Hash={}", hash)]
+    #[error("Entry not found! Hash={hash}")]
     EntryNotFound { hash: String },
 
     /// Wrong user input errors
-    #[fail(display = "No value under key {:?}.", key)]
+    #[error("No value under key {key:?}.")]
     ValueNotFound { key: String },
-    #[fail(display = "Cannot search for an empty key.")]
+    #[error("Cannot search for an empty key.")]
     KeyEmpty,
-    #[fail(display = "Failed to convert hash into array: {}", error)]
+    #[error("Failed to convert hash into array: {error}")]
     HashToArrayError { error: TryFromSliceError },
-    #[fail(display = "Failed to convert hash into string: {}", error)]
+    #[error("Failed to convert hash into string: {error}")]
     HashToStringError { error: FromBytesError },
-    #[fail(display = "Failed to encode hash: {}", error)]
+    #[error("Failed to encode hash: {error}")]
     HashingError { error: HashingError },
-    #[fail(display = "Expected value instead of `None` for {}", _0)]
+    #[error("Expected value instead of `None` for {0}")]
     ValueExpected(&'static str),
-    #[fail(display = "Invalid state: {}", _0)]
+    #[error("Invalid state: {0}")]
     InvalidState(&'static str),
 }
 
@@ -296,14 +290,11 @@ impl From<FromBytesError> for MerkleError {
     }
 }
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum CheckEntryHashError {
-    #[fail(display = "MerkleError error: {:?}", error)]
+    #[error("MerkleError error: {error:?}")]
     MerkleError { error: MerkleError },
-    #[fail(
-        display = "Calculated hash for {} not matching expected hash: expected {:?}, calculated {:?}",
-        entry_type, calculated, expected
-    )]
+    #[error("Calculated hash for {entry_type} not matching expected hash: expected {expected:?}, calculated {calculated:?}")]
     InvalidHashError {
         entry_type: String,
         calculated: String,

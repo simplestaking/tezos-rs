@@ -187,7 +187,7 @@ pub(crate) fn compute_storage_stats<'a>(
     _state: &RpcCollectedStateRef,
     from_block: &BlockHash,
     persistent_storage: &PersistentStorage,
-) -> Result<StatsResponse<'a>, failure::Error> {
+) -> Result<StatsResponse<'a>, anyhow::Error> {
     let context_action_storage = ensure_context_action_storage(persistent_storage)?;
     let block_storage = BlockStorage::new(persistent_storage);
     let stats: Mutex<HashMap<&str, ActionStats>> = Mutex::new(HashMap::new());

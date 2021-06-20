@@ -346,7 +346,7 @@ impl DataRequester {
         &self,
         chain_id: Arc<ChainId>,
         block_hash: BlockHash,
-        result_callback: Option<CondvarResult<(), failure::Error>>,
+        result_callback: Option<CondvarResult<(), anyhow::Error>>,
     ) -> Result<(), StateError> {
         self.call_apply_block(chain_id, ApplyBlockBatch::one(block_hash), result_callback)
     }
@@ -355,7 +355,7 @@ impl DataRequester {
         &self,
         chain_id: Arc<ChainId>,
         batch: ApplyBlockBatch,
-        result_callback: Option<CondvarResult<(), failure::Error>>,
+        result_callback: Option<CondvarResult<(), anyhow::Error>>,
     ) -> Result<(), StateError> {
         // check batch, if the start block is ok and can be applied
         // if start is already applied, we fold the bath to next block (if any)
@@ -568,7 +568,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_requester_fetch_and_receive_block() -> Result<(), failure::Error> {
+    fn test_requester_fetch_and_receive_block() -> Result<(), anyhow::Error> {
         // prerequizities
         let log = create_logger(Level::Debug);
         let tokio_runtime = create_test_tokio_runtime();
@@ -638,7 +638,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_requester_fetch_and_receive_block_operations() -> Result<(), failure::Error> {
+    fn test_requester_fetch_and_receive_block_operations() -> Result<(), anyhow::Error> {
         // prerequizities
         let log = create_logger(Level::Debug);
         let tokio_runtime = create_test_tokio_runtime();
@@ -776,7 +776,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_call_apply_block() -> Result<(), failure::Error> {
+    fn test_call_apply_block() -> Result<(), anyhow::Error> {
         // prerequizities
         let log = create_logger(Level::Debug);
         let actor_system = create_test_actor_system(log.clone());
@@ -862,7 +862,7 @@ mod tests {
 
     fn chain_feeder_mock(
         actor_system: &ActorSystem,
-    ) -> Result<(ChainFeederRef, Receiver<chain_feeder::Event>), failure::Error> {
+    ) -> Result<(ChainFeederRef, Receiver<chain_feeder::Event>), anyhow::Error> {
         // run actor's
         let shell_channel =
             ShellChannel::actor(&actor_system).expect("Failed to create shell channel");

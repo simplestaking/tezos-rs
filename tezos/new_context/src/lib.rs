@@ -26,11 +26,11 @@ use std::num::TryFromIntError;
 use std::sync::PoisonError;
 use std::{array::TryFromSliceError, collections::HashSet};
 
-use failure::Fail;
 use gc::GarbageCollectionError;
 use persistent::DBError;
 use serde::Deserialize;
 use serde::Serialize;
+use thiserror::Error;
 
 pub use actions::ActionRecorder;
 pub use hash::EntryHash;
@@ -171,36 +171,30 @@ where
     fn get_memory_usage(&self) -> Result<usize, ContextError>;
 }
 /// Possible errors for context
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum ContextError {
-    #[fail(
-        display = "Unknown context_hash: {:?} - {:?}",
-        context_hash, entry_hash
-    )]
+    #[error("Unknown context_hash: {context_hash:?} - {entry_hash:?}")]
     UnknownContextHashAndEntryError {
         context_hash: String,
         entry_hash: String,
     },
-    #[fail(display = "Failed operation on Merkle storage: {}", error)]
+    #[error("Failed operation on Merkle storage: {error}")]
     MerkleStorageError { error: MerkleError },
-    #[fail(display = "Invalid commit date: {}", error)]
+    #[error("Invalid commit date: {error}")]
     InvalidCommitDate { error: TryFromIntError },
-    #[fail(display = "Failed to convert hash to array: {}", error)]
+    #[error("Failed to convert hash to array: {error}")]
     HashConversionError { error: TryFromSliceError },
-    #[fail(display = "Conversion from bytes error: {}", error)]
+    #[error("Conversion from bytes error: {error}")]
     HashError { error: FromBytesError },
-    #[fail(display = "Garbage Collection error {:?}", error)]
+    #[error("Garbage Collection error {error:?}")]
     GarbageCollectionError { error: GarbageCollectionError },
-    #[fail(display = "Database error error {:?}", error)]
+    #[error("Database error error {error:?}")]
     DBError { error: DBError },
-    #[fail(display = "Serialization error: {:?}", error)]
+    #[error("Serialization error: {error:?}")]
     SerializationError { error: bincode::Error },
-    #[fail(
-        display = "Found wrong structure. Was looking for {}, but found {}",
-        sought, found
-    )]
+    #[error("Found wrong structure. Was looking for {sought}, but found {found}")]
     FoundUnexpectedStructure { sought: String, found: String },
-    #[fail(display = "Mutex/lock error, reason: {:?}", reason)]
+    #[error("Mutex/lock error, reason: {reason:?}")]
     LockError { reason: String },
 }
 

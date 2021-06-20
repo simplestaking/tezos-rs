@@ -1,8 +1,8 @@
 // Copyright (c) SimpleStaking and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
+use anyhow::Error;
 use crypto::hash::HashType;
-use failure::Error;
 use std::{convert::TryInto, iter};
 use tezos_messages::p2p::encoding::swap::*;
 use tezos_messages::p2p::{

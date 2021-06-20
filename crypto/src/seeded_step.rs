@@ -96,7 +96,7 @@ mod tests {
     use crate::seeded_step::{Seed, Step};
 
     #[test]
-    pub fn test_step_init() -> Result<(), failure::Error> {
+    pub fn test_step_init() -> Result<(), anyhow::Error> {
         let step = Step::init(
             &Seed::new(&generate_key_string('s'), &generate_key_string('r')),
             &"BLrJE6yTjLLuEYgyqLxDBduEuA5S1uCkiq499tCK81TLoqTbNmm".try_into()?,
@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_step_next() -> Result<(), failure::Error> {
+    pub fn test_step_next() -> Result<(), anyhow::Error> {
         let mut step = Step::init(
             &Seed::new(&generate_key_string('s'), &generate_key_string('r')),
             &"BLrJE6yTjLLuEYgyqLxDBduEuA5S1uCkiq499tCK81TLoqTbNmm".try_into()?,
@@ -423,7 +423,7 @@ mod tests {
     fn assert_step_state(
         step: &Step,
         (expected_step, expected_counter, expected_seed_as_hex): (i32, i32, &str),
-    ) -> Result<(), failure::Error> {
+    ) -> Result<(), anyhow::Error> {
         assert_eq!(expected_step, step.step);
         assert_eq!(expected_counter, step.counter);
         assert_eq!(hex::decode(expected_seed_as_hex)?, step.seed);

@@ -1,8 +1,8 @@
 // Copyright (c) SimpleStaking and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
-use failure::Fail;
 use hex::FromHexError;
+use thiserror::Error;
 
 use crypto::base58::FromBase58CheckError;
 use crypto::hash::FromBytesError;
@@ -11,15 +11,15 @@ pub mod rpc_support;
 pub mod signature_public_key;
 pub mod signature_public_key_hash;
 
-#[derive(Debug, Fail, PartialEq)]
+#[derive(Debug, Error, PartialEq)]
 pub enum ConversionError {
-    #[fail(display = "Conversion from invalid public key")]
+    #[error("Conversion from invalid public key")]
     InvalidPublicKey,
 
-    #[fail(display = "Invalid hash: {}", hash)]
+    #[error("Invalid hash: {hash}")]
     InvalidHash { hash: String },
 
-    #[fail(display = "Invalid curve tag: {}", curve_tag)]
+    #[error("Invalid curve tag: {curve_tag}")]
     InvalidCurveTag { curve_tag: String },
 }
 

@@ -48,14 +48,14 @@ lazy_static! {
 #[ignore]
 #[test]
 #[serial]
-fn test_proof_of_work_ok() -> Result<(), failure::Error> {
+fn test_proof_of_work_ok() -> Result<(), anyhow::Error> {
     test_proof_of_work("pow_ok", MINIMAL_POW_TARGET, MINIMAL_POW_TARGET, true)
 }
 
 #[ignore]
 #[test]
 #[serial]
-fn test_proof_of_work_fail() -> Result<(), failure::Error> {
+fn test_proof_of_work_fail() -> Result<(), anyhow::Error> {
     test_proof_of_work("pow_fail", MINIMAL_POW_TARGET, TRIVIAL_POW_TARGET, false)
 }
 
@@ -64,7 +64,7 @@ fn test_proof_of_work(
     node_pow_target: f64,
     peer_pow_target: f64,
     should_succeed: bool,
-) -> Result<(), failure::Error> {
+) -> Result<(), anyhow::Error> {
     // logger
     let log_level = common::log_level();
     let log = common::create_logger(log_level);
@@ -131,7 +131,7 @@ fn test_proof_of_work(
 #[ignore]
 #[test]
 #[serial]
-fn test_peer_threshold() -> Result<(), failure::Error> {
+fn test_peer_threshold() -> Result<(), anyhow::Error> {
     // logger
     let log_level = common::log_level();
     let log = common::create_logger(log_level);

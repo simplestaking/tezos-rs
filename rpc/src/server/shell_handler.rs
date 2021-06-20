@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use failure::format_err;
+use anyhow::format_err;
 use hyper::body::Buf;
 use hyper::{Body, Method, Request};
 use serde::Serialize;
@@ -646,7 +646,9 @@ pub async fn preapply_block(
                     ProtocolError::ProtocolRpcError {
                         reason: ProtocolRpcError::FailedToCallProtocolRpc(message),
                     },
-            }) = e.as_fail().downcast_ref::<ProtocolServiceError>()
+                // TODO - NEWERRORS: revise
+                // Was: e.as_fail().downcast_ref::<ProtocolServiceError>()
+            }) = e.downcast_ref::<ProtocolServiceError>()
             {
                 return make_json_response(&ErrorMessage {
                     error_type: "ocaml".to_string(),

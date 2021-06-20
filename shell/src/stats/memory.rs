@@ -9,11 +9,11 @@ use std::path::Path;
 use std::process::Command;
 use std::string::FromUtf8Error;
 
-use failure::Fail;
 use getset::CopyGetters;
 use merge::Merge;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use lazy_static::lazy_static;
 
@@ -69,7 +69,7 @@ impl From<DarwinOsData> for MemoryData {
 }
 
 impl TryFrom<MemoryData> for ProcessMemoryStats {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
     fn try_from(data: MemoryData) -> Result<Self, Self::Error> {
         match data {
@@ -140,15 +140,15 @@ impl ProcessMemoryStats {
     }
 }
 
-#[derive(PartialEq, Debug, Fail)]
+#[derive(PartialEq, Debug, Error)]
 pub enum MemoryStatsError {
-    #[fail(display = "IOError: {}", _0)]
+    #[error("IOError: {0}")]
     IOError(String),
-    #[fail(display = "fail to parse data")]
+    #[error("fail to parse data")]
     ParsingData,
-    #[fail(display = "not supported OS")]
+    #[error("not supported OS")]
     NotSupportedOs,
-    #[fail(display = "Utf8 error: {}", _0)]
+    #[error("Utf8 error: {0}")]
     Uft8Error(FromUtf8Error),
 }
 

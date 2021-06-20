@@ -14,7 +14,7 @@ use tezos_new_context::initializer::initialize_tezedge_context;
 use tezos_new_context::{IndexApi, ProtocolContextApi, ShellContextApi};
 
 #[test]
-pub fn test_context_set_get_commit() -> Result<(), failure::Error> {
+pub fn test_context_set_get_commit() -> Result<(), anyhow::Error> {
     // prepare temp storage
     let tmp_storage = TmpStorage::create_to_out_dir("__context:test_context_set_get_commit")
         .expect("Storage error");
@@ -57,7 +57,7 @@ pub fn test_context_set_get_commit() -> Result<(), failure::Error> {
 }
 
 #[test]
-pub fn test_context_delete_and_remove() -> Result<(), failure::Error> {
+pub fn test_context_delete_and_remove() -> Result<(), anyhow::Error> {
     // prepare temp storage
     let tmp_storage = TmpStorage::create_to_out_dir("__context:test_context_delete_and_remove")
         .expect("Storage error");
@@ -207,7 +207,7 @@ pub fn test_context_delete_and_remove() -> Result<(), failure::Error> {
 }
 
 #[test]
-pub fn test_context_copy() -> Result<(), failure::Error> {
+pub fn test_context_copy() -> Result<(), anyhow::Error> {
     // prepare temp storage
     let tmp_storage =
         TmpStorage::create_to_out_dir("__context:context_copy").expect("Storage error");
@@ -379,7 +379,7 @@ pub fn test_context_copy() -> Result<(), failure::Error> {
     Ok(())
 }
 
-fn dummy_block(block_hash: &str, level: i32) -> Result<BlockHeaderWithHash, failure::Error> {
+fn dummy_block(block_hash: &str, level: i32) -> Result<BlockHeaderWithHash, anyhow::Error> {
     Ok(BlockHeaderWithHash {
         hash: block_hash.try_into()?,
         header: Arc::new(

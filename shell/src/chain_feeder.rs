@@ -12,9 +12,10 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use failure::{format_err, Error, Fail};
+use anyhow::{format_err, Error};
 use riker::actors::*;
 use slog::{debug, info, trace, warn, Logger};
+use thiserror::Error;
 
 use crypto::hash::{BlockHash, ChainId};
 use storage::chain_meta_storage::ChainMetaStorageReader;
@@ -64,7 +65,7 @@ pub struct ApplyBlock {
     chain_id: Arc<ChainId>,
     bootstrapper: Option<PeerBranchBootstrapperRef>,
     /// Callback can be used to wait for apply block result
-    result_callback: Option<CondvarResult<(), failure::Error>>,
+    result_callback: Option<CondvarResult<(), anyhow::Error>>,
 
     /// Simple lock guard, for easy synchronization
     permit: Option<Arc<ApplyBlockPermit>>,
@@ -74,7 +75,7 @@ impl ApplyBlock {
     pub fn new(
         chain_id: Arc<ChainId>,
         batch: ApplyBlockBatch,
-        result_callback: Option<CondvarResult<(), failure::Error>>,
+        result_callback: Option<CondvarResult<(), anyhow::Error>>,
         bootstrapper: Option<PeerBranchBootstrapperRef>,
         permit: Option<ApplyBlockPermit>,
     ) -> Self {
@@ -457,23 +458,20 @@ impl Receive<ShellChannelMsg> for ChainFeeder {
 }
 
 /// Possible errors for feeding chain
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum FeedChainError {
-    #[fail(display = "Cannot resolve current head, no genesis was commited")]
+    #[error("Cannot resolve current head, no genesis was commited")]
     UnknownCurrentHeadError,
-    #[fail(
-        display = "Context is not stored, context_hash: {}, reason: {}",
-        context_hash, reason
-    )]
+    #[error("Context is not stored, context_hash: {context_hash}, reason: {reason}")]
     MissingContextError {
         context_hash: String,
         reason: String,
     },
-    #[fail(display = "Storage read/write error,r eason: {:?}", error)]
+    #[error("Storage read/write error, reason: {error:?}")]
     StorageError { error: StorageError },
-    #[fail(display = "Protocol service error error, reason: {:?}", error)]
+    #[error("Protocol service error error, reason: {error:?}")]
     ProtocolServiceError { error: ProtocolServiceError },
-    #[fail(display = "Block apply processing error, reason: {:?}", reason)]
+    #[error("Block apply processing error, reason: {reason:?}")]
     ProcessingError { reason: String },
 }
 
@@ -650,7 +648,7 @@ fn feed_chain_to_protocol(
 
                     let mut last_applied: Option<Arc<BlockHash>> = None;
                     let mut batch_stats = Some(ApplyBlockStats::default());
-                    let mut condvar_result: Option<Result<(), failure::Error>> = None;
+                    let mut condvar_result: Option<Result<(), anyhow::Error>> = None;
                     let mut previous_block_data_cache: Option<(
                         Arc<BlockHeaderWithHash>,
                         BlockAdditionalData,

@@ -11,7 +11,7 @@ use shiplift::{
 pub trait DeployMonitoringContainer {
     const NAME: &'static str;
 
-    async fn image() -> Result<String, failure::Error> {
+    async fn image() -> Result<String, anyhow::Error> {
         let docker = Docker::new();
 
         let ContainerDetails { config, .. } = docker.containers().get(Self::NAME).inspect().await?;
@@ -20,7 +20,7 @@ pub trait DeployMonitoringContainer {
 }
 
 pub async fn remote_hash<T: DeployMonitoringContainer + Sync + Send>(
-) -> Result<String, failure::Error> {
+) -> Result<String, anyhow::Error> {
     let image = T::image().await?;
     let image_split: Vec<&str> = image.split(':').collect();
     let repo = image_split.get(0).unwrap_or(&"");
@@ -33,24 +33,24 @@ pub async fn remote_hash<T: DeployMonitoringContainer + Sync + Send>(
         Ok(result) => {
             let res_json: serde_json::Value = match result.json().await {
                 Ok(json) => json,
-                Err(e) => failure::bail!("Error converting result to json: {:?}", e),
+                Err(e) => anyhow::bail!("Error converting result to json: {:?}", e),
             };
             let digest = res_json["images"][0]["digest"].to_string();
             let digest = digest.trim_matches('"');
             Ok(format!("{}@{}", repo, digest))
         }
-        Err(e) => failure::bail!("Error getting latest image: {:?}", e),
+        Err(e) => anyhow::bail!("Error getting latest image: {:?}", e),
     }
 }
 
 pub async fn local_hash<T: DeployMonitoringContainer + Sync + Send>(
     docker: &Docker,
-) -> Result<String, failure::Error> {
+) -> Result<String, anyhow::Error> {
     let image = T::image().await?;
     let ImageDetails { repo_digests, .. } = docker.images().get(&image).inspect().await?;
     repo_digests
         .and_then(|v| v.first().cloned())
-        .ok_or_else(|| failure::err_msg(format!("no such image {}", image)))
+        .ok_or_else(|| anyhow::format_err!("no such image {}", image))
 }
 
 pub struct TezedgeDebugger;

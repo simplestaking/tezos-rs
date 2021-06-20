@@ -51,7 +51,7 @@ pub mod dont_serve_current_branch_messages {
 
     pub fn serve_data(
         message: PeerMessageResponse,
-    ) -> Result<Vec<PeerMessageResponse>, failure::Error> {
+    ) -> Result<Vec<PeerMessageResponse>, anyhow::Error> {
         full_data(message, None, &super::DB_1326_CARTHAGENET)
     }
 }
@@ -70,7 +70,7 @@ pub mod current_branch_on_level_3 {
 
     pub fn serve_data(
         message: PeerMessageResponse,
-    ) -> Result<Vec<PeerMessageResponse>, failure::Error> {
+    ) -> Result<Vec<PeerMessageResponse>, anyhow::Error> {
         full_data(message, Some(3), &super::DB_1326_CARTHAGENET)
     }
 }
@@ -89,7 +89,7 @@ pub mod current_branch_on_level_1324 {
 
     pub fn serve_data(
         message: PeerMessageResponse,
-    ) -> Result<Vec<PeerMessageResponse>, failure::Error> {
+    ) -> Result<Vec<PeerMessageResponse>, anyhow::Error> {
         full_data(message, Some(1324), &super::DB_1326_CARTHAGENET)
     }
 }
@@ -129,7 +129,7 @@ pub mod sandbox_branch_1_level3 {
 
     pub fn serve_data(
         message: PeerMessageResponse,
-    ) -> Result<Vec<PeerMessageResponse>, failure::Error> {
+    ) -> Result<Vec<PeerMessageResponse>, anyhow::Error> {
         super::full_data(message, Some(3), &DB)
     }
 }
@@ -202,7 +202,7 @@ pub mod sandbox_branch_2_level4 {
 
     pub fn serve_data(
         message: PeerMessageResponse,
-    ) -> Result<Vec<PeerMessageResponse>, failure::Error> {
+    ) -> Result<Vec<PeerMessageResponse>, anyhow::Error> {
         full_data(message, Some(4), &DB)
     }
 }
@@ -225,7 +225,7 @@ fn full_data(
     message: PeerMessageResponse,
     desired_current_branch_level: Option<Level>,
     db: &Db,
-) -> Result<Vec<PeerMessageResponse>, failure::Error> {
+) -> Result<Vec<PeerMessageResponse>, anyhow::Error> {
     match message.message() {
         PeerMessage::GetCurrentBranch(request) => match desired_current_branch_level {
             Some(level) => {

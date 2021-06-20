@@ -7,7 +7,7 @@
 use std::io;
 use std::sync::PoisonError;
 
-use failure::Fail;
+use thiserror::Error;
 
 use crypto::hash::FromBytesError;
 
@@ -15,34 +15,31 @@ use crate::kv_store::readonly_ipc::ContextServiceError;
 use crate::persistent::codec::SchemaError;
 
 /// Possible errors for schema
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum DBError {
-    #[fail(display = "Schema error: {}", error)]
+    #[error("Schema error: {error}")]
     SchemaError { error: SchemaError },
-    #[fail(display = "Column family {} is missing", name)]
+    #[error("Column family {name} is missing")]
     MissingColumnFamily { name: &'static str },
-    #[fail(display = "Database incompatibility {}", name)]
+    #[error("Database incompatibility {name}")]
     DatabaseIncompatibility { name: String },
-    #[fail(display = "Value already exists {}", key)]
+    #[error("Value already exists {key}")]
     ValueExists { key: String },
-    #[fail(
-        display = "Found wrong structure. Was looking for {}, but found {}",
-        sought, found
-    )]
+    #[error("Found wrong structure. Was looking for {sought}, but found {found}")]
     FoundUnexpectedStructure { sought: String, found: String },
-    #[fail(display = "Guard Poison {} ", error)]
+    #[error("Guard Poison {error}")]
     GuardPoison { error: String },
-    #[fail(display = "Serialization error: {:?}", error)]
+    #[error("Serialization error: {error:?}")]
     SerializationError { error: bincode::Error },
-    #[fail(display = "Hash encode error : {}", error)]
+    #[error("Hash encode error : {error}")]
     HashEncodeError { error: FromBytesError },
-    #[fail(display = "Mutex/lock lock error! Reason: {}", reason)]
+    #[error("Mutex/lock lock error! Reason: {reason}")]
     LockError { reason: String },
-    #[fail(display = "I/O error {}", error)]
+    #[error("I/O error {error}")]
     IOError { error: io::Error },
-    #[fail(display = "MemoryStatisticsOverflow")]
+    #[error("MemoryStatisticsOverflow")]
     MemoryStatisticsOverflow,
-    #[fail(display = "IPC Context access error: {:?}", reason)]
+    #[error("IPC Context access error: {reason:?}")]
     IpcAccessError { reason: ContextServiceError },
 }
 

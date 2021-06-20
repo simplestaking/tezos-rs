@@ -5,8 +5,8 @@
 
 use std::{fs::File, io::Read, path::PathBuf};
 
+use anyhow::{Context, Error};
 use criterion::{black_box, Criterion};
-use failure::{Error, ResultExt};
 use tezos_messages::p2p::binary_message::BinaryRead;
 
 pub fn read_data(file: &str) -> Result<Vec<u8>, Error> {
@@ -19,7 +19,7 @@ pub fn read_data(file: &str) -> Result<Vec<u8>, Error> {
             file.read_to_end(&mut data)?;
             Ok(data)
         })
-        .with_context(|e| format!("Cannot read message from {}: {}", path.to_string_lossy(), e))?;
+        .with_context(|| format!("Cannot read message from {}", path.to_string_lossy()))?;
     Ok(data)
 }
 

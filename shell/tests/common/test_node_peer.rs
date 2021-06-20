@@ -54,7 +54,7 @@ impl TestNodePeer {
         tokio_runtime: &Runtime,
         handle_message_callback: fn(
             PeerMessageResponse,
-        ) -> Result<Vec<PeerMessageResponse>, failure::Error>,
+        ) -> Result<Vec<PeerMessageResponse>, anyhow::Error>,
     ) -> TestNodePeer {
         let server_address = format!("0.0.0.0:{}", connect_to_node_port)
             .parse::<SocketAddr>()
@@ -133,7 +133,7 @@ impl TestNodePeer {
         pow_target: f64,
         log: Logger,
         tokio_runtime: &Runtime,
-    ) -> Result<(), failure::Error> {
+    ) -> Result<(), anyhow::Error> {
         let server_address = format!("0.0.0.0:{}", connect_to_node_port)
             .parse::<SocketAddr>()
             .expect("Failed to parse server address");
@@ -198,7 +198,7 @@ impl TestNodePeer {
         test_mempool: Arc<RwLock<Mempool>>,
         handle_message_callback: fn(
             PeerMessageResponse,
-        ) -> Result<Vec<PeerMessageResponse>, failure::Error>,
+        ) -> Result<Vec<PeerMessageResponse>, anyhow::Error>,
     ) {
         info!(log, "[{}] Starting to accept messages", name; "ip" => format!("{:?}", &peer_address));
 
@@ -281,7 +281,7 @@ impl TestNodePeer {
 
     const IO_TIMEOUT: Duration = Duration::from_secs(6);
 
-    pub fn send_msg<Msg: Into<PeerMessage>>(&mut self, msg: Msg) -> Result<(), failure::Error> {
+    pub fn send_msg<Msg: Into<PeerMessage>>(&mut self, msg: Msg) -> Result<(), anyhow::Error> {
         // need to at first wait for tx to be initialized in bootstrap
         if !self.connected.load(Ordering::Acquire) {
             assert!(self
@@ -313,7 +313,7 @@ impl TestNodePeer {
     pub fn wait_for_connection(
         &mut self,
         (timeout, delay): (Duration, Duration),
-    ) -> Result<(), failure::Error> {
+    ) -> Result<(), anyhow::Error> {
         let start = Instant::now();
 
         loop {
@@ -325,7 +325,7 @@ impl TestNodePeer {
             if start.elapsed().le(&timeout) {
                 std::thread::sleep(delay);
             } else {
-                break Err(failure::format_err!("[{}] wait_for_connection - something is wrong - timeout (timeout: {:?}, delay: {:?}) exceeded!", self.name, timeout, delay));
+                break Err(anyhow::format_err!("[{}] wait_for_connection - something is wrong - timeout (timeout: {:?}, delay: {:?}) exceeded!", self.name, timeout, delay));
             }
         }
     }
@@ -336,7 +336,7 @@ impl TestNodePeer {
         marker: &str,
         expected_operations: &HashSet<OperationHash>,
         (timeout, delay): (Duration, Duration),
-    ) -> Result<(), failure::Error> {
+    ) -> Result<(), anyhow::Error> {
         let start = Instant::now();
 
         let result = loop {
@@ -355,7 +355,7 @@ impl TestNodePeer {
             if start.elapsed().le(&timeout) {
                 thread::sleep(delay);
             } else {
-                break Err(failure::format_err!("[{}] wait_for_mempool_contains_operations() - timeout (timeout: {:?}, delay: {:?}) exceeded! marker: {}", self.name, timeout, delay, marker));
+                break Err(anyhow::format_err!("[{}] wait_for_mempool_contains_operations() - timeout (timeout: {:?}, delay: {:?}) exceeded! marker: {}", self.name, timeout, delay, marker));
             }
         };
         result

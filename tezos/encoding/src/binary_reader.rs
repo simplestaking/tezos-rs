@@ -5,10 +5,10 @@
 
 use std::fmt;
 
-use failure::Fail;
+use thiserror::Error;
 
 /// Error produced by a [BinaryReader].
-#[derive(Debug, Clone, Fail)]
+#[derive(Debug, Clone, Error)]
 pub enum BinaryReaderError {
     Error(String),
     UnknownTag(String),

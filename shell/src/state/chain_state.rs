@@ -711,7 +711,7 @@ mod tests {
 
     /// This test is rewritten according to [test_state.ml -> test_locator]
     #[test]
-    fn test_history_and_compute_locator() -> Result<(), failure::Error> {
+    fn test_history_and_compute_locator() -> Result<(), anyhow::Error> {
         let log = create_logger(Level::Debug);
         let storage = TmpStorage::create_to_out_dir("__test_history")?;
         let block_meta_storage = BlockMetaStorage::new(storage.storage());

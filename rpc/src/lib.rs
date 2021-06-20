@@ -47,7 +47,7 @@ pub(crate) fn make_json_response<T: serde::Serialize>(content: &T) -> ServiceRes
 
 /// Function to generate JSON response from a stream
 pub(crate) fn make_json_stream_response<
-    T: futures::Stream<Item = Result<String, failure::Error>> + Send + 'static,
+    T: futures::Stream<Item = Result<String, anyhow::Error>> + Send + 'static,
 >(
     content: T,
 ) -> ServiceResult {
@@ -65,7 +65,7 @@ pub(crate) fn make_json_stream_response<
 
 /// Returns result as a JSON response.
 pub(crate) fn result_to_json_response<T: serde::Serialize>(
-    res: Result<T, failure::Error>,
+    res: Result<T, anyhow::Error>,
     log: &Logger,
 ) -> ServiceResult {
     match res {
@@ -79,7 +79,7 @@ pub(crate) fn result_to_json_response<T: serde::Serialize>(
 
 /// Returns optional result as a JSON response.
 pub(crate) fn result_option_to_json_response<T: serde::Serialize>(
-    res: Result<Option<T>, failure::Error>,
+    res: Result<Option<T>, anyhow::Error>,
     log: &Logger,
 ) -> ServiceResult {
     match res {
@@ -96,7 +96,7 @@ pub(crate) fn result_option_to_json_response<T: serde::Serialize>(
 
 /// Returns result as a empty JSON response: `{}`.
 pub(crate) fn result_to_empty_json_response(
-    res: Result<(), failure::Error>,
+    res: Result<(), anyhow::Error>,
     log: &Logger,
 ) -> ServiceResult {
     match res {
@@ -133,7 +133,7 @@ pub(crate) fn not_found() -> ServiceResult {
 }
 
 /// Generate 500 error
-pub(crate) fn error(error: failure::Error) -> ServiceResult {
+pub(crate) fn error(error: anyhow::Error) -> ServiceResult {
     error_with_message(format!("{:?}", error))
 }
 

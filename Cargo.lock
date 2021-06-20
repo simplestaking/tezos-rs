@@ -3,21 +3,6 @@
 version = 3
 
 [[package]]
-name = "addr2line"
-version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a55f82cfe485775d02112886f4169bde0c5894d75e79ead7eafe7e40a25e45f7"
-dependencies = [
- "gimli",
-]
-
-[[package]]
-name = "adler"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f26201604c87b1e01bd3d98f8d5d9a8fcbb815e8cedb41ffccbeb4bf593a35fe"
-
-[[package]]
 name = "adler32"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -55,6 +40,12 @@ checksum = "ee49baf6cb617b853aa8d93bf420db2383fab46d314482ca2803b40d5fde979b"
 dependencies = [
  "winapi",
 ]
+
+[[package]]
+name = "anyhow"
+version = "1.0.41"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15af2628f6890fe2609a3b91bef4c83450512802e59489f9c1cb1fa5df064a61"
 
 [[package]]
 name = "arbitrary"
@@ -270,20 +261,6 @@ name = "autocfg"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
-
-[[package]]
-name = "backtrace"
-version = "0.3.56"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d117600f438b1707d4e4ae15d3595657288f8235a0eb593e80ecc98ab34e1bc"
-dependencies = [
- "addr2line",
- "cfg-if 1.0.0",
- "libc",
- "miniz_oxide 0.4.4",
- "object",
- "rustc-demangle",
-]
 
 [[package]]
 name = "base58"
@@ -777,15 +754,15 @@ checksum = "7a81dae078cea95a014a339291cec439d2f232ebe854a9d672b796c6afafa9b7"
 name = "crypto"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "base58",
- "failure",
- "failure_derive",
  "hex",
  "num-bigint 0.3.1",
  "num-traits 0.2.14",
  "rand 0.7.3",
  "serde 1.0.123",
  "sodiumoxide",
+ "thiserror",
 ]
 
 [[package]]
@@ -896,10 +873,10 @@ dependencies = [
 name = "deploy-monitoring"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "chrono",
  "clap",
- "failure",
  "fs2",
  "fs_extra",
  "getset",
@@ -916,6 +893,7 @@ dependencies = [
  "slog-async",
  "slog-term",
  "sysinfo",
+ "thiserror",
  "tokio",
  "wait-timeout",
  "warp",
@@ -1048,28 +1026,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7531096570974c3a9dcf9e4b8e1cede1ec26cf5046219fb3b9d897503b9be59"
 
 [[package]]
-name = "failure"
-version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d32e9bd16cc02eae7db7ef620b392808b89f6a5e16bb3497d159c6b92a0f4f86"
-dependencies = [
- "backtrace",
- "failure_derive",
-]
-
-[[package]]
-name = "failure_derive"
-version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa4da3c766cd7a0db8242e326e9e4e081edd567072893ed320008189715366a4"
-dependencies = [
- "proc-macro2 1.0.24",
- "quote 1.0.9",
- "syn 1.0.60",
- "synstructure",
-]
-
-[[package]]
 name = "fake-simd"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1117,7 +1073,7 @@ dependencies = [
  "cfg-if 0.1.10",
  "crc32fast",
  "libc",
- "miniz_oxide 0.3.7",
+ "miniz_oxide",
 ]
 
 [[package]]
@@ -1455,12 +1411,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gimli"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6503fe142514ca4799d4c26297c4248239fe8838d827db6bd6065c6ed29a6ce"
-
-[[package]]
 name = "glob"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1771,14 +1721,14 @@ dependencies = [
 name = "ipc"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "bincode",
- "failure",
- "failure_derive",
  "ipmpsc",
  "libc",
  "rand 0.7.3",
  "serde 1.0.123",
  "serial_test",
+ "thiserror",
 ]
 
 [[package]]
@@ -1980,7 +1930,6 @@ version = "1.6.0"
 dependencies = [
  "clap",
  "crypto",
- "failure",
  "fs_extra",
  "futures",
  "ipc",
@@ -2005,6 +1954,7 @@ dependencies = [
  "tezos_messages",
  "tezos_new_context",
  "tezos_wrapper",
+ "thiserror",
  "tokio",
 ]
 
@@ -2144,16 +2094,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "miniz_oxide"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a92518e98c078586bc6c934028adcca4c92a53d6a958196de835170a01d84e4b"
-dependencies = [
- "adler",
- "autocfg",
-]
-
-[[package]]
 name = "mio"
 version = "0.7.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2249,11 +2189,11 @@ dependencies = [
 name = "networking"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "async-std",
  "bytes 1.0.1",
  "criterion",
  "crypto",
- "failure",
  "futures",
  "hex",
  "riker",
@@ -2264,6 +2204,7 @@ dependencies = [
  "tezos_encoding",
  "tezos_identity",
  "tezos_messages",
+ "thiserror",
  "tokio",
  "tokio-test",
 ]
@@ -2433,12 +2374,6 @@ dependencies = [
  "hermit-abi",
  "libc",
 ]
-
-[[package]]
-name = "object"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9a7ab5d64814df0fe4a4b5ead45ed6c5f181ee3ff04ba344313a6c80446c5d4"
 
 [[package]]
 name = "ocaml-boxroot-sys"
@@ -2802,8 +2737,6 @@ dependencies = [
  "clap",
  "crypto",
  "ctrlc",
- "failure",
- "failure_derive",
  "jemallocator",
  "slog",
  "slog-async",
@@ -2813,6 +2746,7 @@ dependencies = [
  "tezos_interop",
  "tezos_messages",
  "tezos_wrapper",
+ "thiserror",
 ]
 
 [[package]]
@@ -3122,10 +3056,10 @@ dependencies = [
 name = "rpc"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "assert-json-diff 2.0.1 (git+https://github.com/tezedge/assert-json-diff.git?tag=v2.0.1-public-diff-module)",
  "chrono",
  "crypto",
- "failure",
  "futures",
  "getset",
  "hex",
@@ -3149,6 +3083,7 @@ dependencies = [
  "tezos_new_context",
  "tezos_timing",
  "tezos_wrapper",
+ "thiserror",
  "tokio",
  "url",
 ]
@@ -3173,12 +3108,6 @@ name = "rust-ini"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e52c148ef37f8c375d49d5a73aa70713125b7f19095948a923f80afdeb22ec2"
-
-[[package]]
-name = "rustc-demangle"
-version = "0.1.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e3bad0ee36814ca07d7968269dd4b7ec89ec2da10c4bb613928d3077083c232"
 
 [[package]]
 name = "rustc-hash"
@@ -3235,9 +3164,9 @@ dependencies = [
 name = "sandbox"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "clap",
  "colored",
- "failure",
  "hex",
  "itertools 0.10.0",
  "nix 0.19.1",
@@ -3250,6 +3179,7 @@ dependencies = [
  "slog-async",
  "slog-term",
  "tezos_api",
+ "thiserror",
  "tokio",
  "wait-timeout",
  "warp",
@@ -3487,10 +3417,10 @@ dependencies = [
 name = "shell"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "crypto",
  "dns-lookup",
- "failure",
  "fs_extra",
  "futures",
  "getset",
@@ -3521,6 +3451,7 @@ dependencies = [
  "tezos_messages",
  "tezos_new_context",
  "tezos_wrapper",
+ "thiserror",
  "tokio",
  "zip",
 ]
@@ -3736,6 +3667,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 name = "storage"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "assert-json-diff 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bincode",
  "blake2",
@@ -3745,7 +3677,6 @@ dependencies = [
  "criterion",
  "crypto",
  "derive_builder",
- "failure",
  "flate2",
  "getset",
  "hex",
@@ -3767,6 +3698,7 @@ dependencies = [
  "strum_macros",
  "tezos_api",
  "tezos_messages",
+ "thiserror",
 ]
 
 [[package]]
@@ -3824,18 +3756,6 @@ checksum = "c700597eca8a5a762beb35753ef6b94df201c81cca676604f547495a0d7f0081"
 dependencies = [
  "proc-macro2 1.0.24",
  "quote 1.0.9",
- "unicode-xid 0.2.1",
-]
-
-[[package]]
-name = "synstructure"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b834f2d66f734cb897113e34aaff2f1ab4719ca946f9a7358dba8f8064148701"
-dependencies = [
- "proc-macro2 1.0.24",
- "quote 1.0.9",
- "syn 1.0.60",
  "unicode-xid 0.2.1",
 ]
 
@@ -3938,11 +3858,11 @@ dependencies = [
 name = "tezos_api"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "assert-json-diff 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono",
  "crypto",
  "derive_builder",
- "failure",
  "hex",
  "lazy_static",
  "nom 6.1.2",
@@ -3955,15 +3875,16 @@ dependencies = [
  "tezos-sys",
  "tezos_encoding",
  "tezos_messages",
+ "thiserror",
 ]
 
 [[package]]
 name = "tezos_client"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "assert-json-diff 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "crypto",
- "failure",
  "hex",
  "serde_json",
  "serial_test",
@@ -3971,18 +3892,19 @@ dependencies = [
  "tezos_api",
  "tezos_interop",
  "tezos_messages",
+ "thiserror",
 ]
 
 [[package]]
 name = "tezos_encoding"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "bit-vec",
  "byteorder",
  "bytes 1.0.1",
  "chrono",
  "crypto",
- "failure",
  "hex",
  "lazy_static",
  "nom 6.1.2",
@@ -3990,6 +3912,7 @@ dependencies = [
  "num-traits 0.2.14",
  "serde 1.0.123",
  "tezos_encoding_derive",
+ "thiserror",
 ]
 
 [[package]]
@@ -4007,22 +3930,22 @@ dependencies = [
 name = "tezos_identity"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "assert-json-diff 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "crypto",
- "failure",
- "failure_derive",
  "hex",
  "serde 1.0.123",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]
 name = "tezos_interop"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "criterion",
  "crypto",
- "failure",
  "futures",
  "hex",
  "lazy_static",
@@ -4033,12 +3956,14 @@ dependencies = [
  "tezos_api",
  "tezos_messages",
  "tezos_new_context",
+ "thiserror",
 ]
 
 [[package]]
 name = "tezos_messages"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "assert-json-diff 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 1.0.1",
  "chrono",
@@ -4046,7 +3971,6 @@ dependencies = [
  "crypto",
  "csv",
  "derive_builder",
- "failure",
  "getset",
  "hex",
  "lazy_static",
@@ -4060,6 +3984,7 @@ dependencies = [
  "tezos_encoding",
  "tezos_encoding_derive",
  "tezos_identity",
+ "thiserror",
  "tyname",
 ]
 
@@ -4067,6 +3992,7 @@ dependencies = [
 name = "tezos_new_context"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "bincode",
  "blake2",
  "bytes 1.0.1",
@@ -4074,7 +4000,6 @@ dependencies = [
  "commitlog",
  "crypto",
  "derive_builder",
- "failure",
  "flate2",
  "getset",
  "hex",
@@ -4097,6 +4022,7 @@ dependencies = [
  "tezos_api",
  "tezos_messages",
  "tezos_timing",
+ "thiserror",
 ]
 
 [[package]]
@@ -4115,8 +4041,6 @@ name = "tezos_wrapper"
 version = "1.6.0"
 dependencies = [
  "crypto",
- "failure",
- "failure_derive",
  "getset",
  "ipc",
  "lazy_static",
@@ -4129,6 +4053,7 @@ dependencies = [
  "tezos_api",
  "tezos_messages",
  "tezos_new_context",
+ "thiserror",
  "wait-timeout",
 ]
 

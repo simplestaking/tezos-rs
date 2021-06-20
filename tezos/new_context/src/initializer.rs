@@ -3,11 +3,11 @@
 
 use std::sync::{Arc, RwLock};
 
-use failure::Fail;
 use ipc::IpcError;
 use ocaml_interop::BoxRoot;
 pub use tezos_api::ffi::ContextKvStoreConfiguration;
 use tezos_api::ffi::TezosContextTezEdgeStorageConfiguration;
+use thiserror::Error;
 
 use crate::gc::mark_move_gced::MarkMoveGCed;
 use crate::kv_store::readonly_ipc::ReadonlyIpcBackend;
@@ -18,11 +18,11 @@ use crate::{PatchContextFunction, TezedgeContext, TezedgeIndex};
 const PRESERVE_CYCLE_COUNT: usize = 7;
 
 /// IPC communication errors
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum IndexInitializationError {
-    #[fail(display = "Failure when initializing IPC context: {}", reason)]
+    #[error("Failure when initializing IPC context: {reason}")]
     IpcError { reason: IpcError },
-    #[fail(display = "Attempted to initialize an IPC context without a socket path")]
+    #[error("Attempted to initialize an IPC context without a socket path")]
     IpcSocketPathMissing,
 }
 

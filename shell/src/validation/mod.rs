@@ -9,7 +9,7 @@
 use std::time::Duration;
 
 use chrono::TimeZone;
-use failure::Fail;
+use thiserror::Error;
 
 use crypto::hash::{BlockHash, ChainId, OperationHash, ProtocolHash};
 use storage::block_meta_storage::Meta;
@@ -56,7 +56,7 @@ pub fn is_fitness_increases_or_same(head: &Head, new_fitness: &Fitness) -> bool 
 }
 
 /// Returns true only if we recieve the same head as is our current_head
-pub fn is_same_head(head: &Head, incoming_header: &BlockHeader) -> Result<bool, failure::Error> {
+pub fn is_same_head(head: &Head, incoming_header: &BlockHeader) -> Result<bool, anyhow::Error> {
     let mut is_same = head.block_hash().as_ref() == &incoming_header.message_hash()?;
     is_same &= head.fitness() == incoming_header.fitness();
     is_same &= head.level() == &incoming_header.level();
@@ -64,7 +64,7 @@ pub fn is_same_head(head: &Head, incoming_header: &BlockHeader) -> Result<bool, 
 }
 
 /// Returns only true, if timestamp of header is not in the far future
-pub fn is_future_block(block_header: &BlockHeader) -> Result<bool, failure::Error> {
+pub fn is_future_block(block_header: &BlockHeader) -> Result<bool, anyhow::Error> {
     let future_margin =
         chrono::offset::Utc::now() + chrono::Duration::from_std(Duration::from_secs(15))?;
     let block_timestamp = chrono::Utc.from_utc_datetime(&chrono::NaiveDateTime::from_timestamp(
@@ -177,39 +177,24 @@ where
 }
 
 /// Error produced by a [prevalidate_operation].
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum PrevalidateOperationError {
-    #[fail(display = "Unknown branch ({}), cannot inject the operation.", branch)]
+    #[error("Unknown branch ({branch}), cannot inject the operation.")]
     UnknownBranch { branch: String },
-    #[fail(
-        display = "Branch is not applied yet ({}), cannot inject the operation.",
-        branch
-    )]
+    #[error("Branch is not applied yet ({branch}), cannot inject the operation.")]
     BranchNotAppliedYet { branch: String },
-    #[fail(
-        display = "Prevalidator is not running ({}), cannot inject the operation.",
-        reason
-    )]
+    #[error("Prevalidator is not running ({reason}), cannot inject the operation.")]
     PrevalidatorNotInitialized { reason: String },
-    #[fail(display = "Storage read error, reason: {:?}", error)]
+    #[error("Storage read error, reason: {error:?}")]
     StorageError { error: StorageError },
-    #[fail(
-        display = "Failed to prevalidate operation: {}, reason: {:?}",
-        operation_hash, reason
-    )]
+    #[error("Failed to prevalidate operation: {operation_hash}, reason: {reason:?}")]
     ValidationError {
         operation_hash: String,
         reason: ProtocolServiceError,
     },
-    #[fail(
-        display = "Operation ({}) is already in mempool, cannot inject the operation.",
-        operation_hash
-    )]
+    #[error("Operation ({operation_hash}) is already in mempool, cannot inject the operation.")]
     AlreadyInMempool { operation_hash: String },
-    #[fail(
-        display = "Failed to prevalidate operation ({}), cannot inject the operation, reason: {}",
-        operation_hash, reason
-    )]
+    #[error("Failed to prevalidate operation ({operation_hash}), cannot inject the operation, reason: {reason}")]
     UnexpectedError {
         operation_hash: String,
         reason: String,
@@ -350,7 +335,7 @@ pub fn check_multipass_validation(
 ///     - shortest lists are smaller
 ///     - lexicographical order for lists of the same length.
 pub mod fitness_comparator {
-    use failure::_core::cmp::Ordering;
+    use core::cmp::Ordering;
 
     use tezos_messages::p2p::encoding::block_header::Fitness;
 
@@ -436,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn test_can_update_current_head() -> Result<(), failure::Error> {
+    fn test_can_update_current_head() -> Result<(), anyhow::Error> {
         assert_eq!(
             false,
             can_update_current_head(
@@ -516,7 +501,7 @@ mod tests {
         Ok(())
     }
 
-    fn new_head(fitness: Fitness) -> Result<BlockHeaderWithHash, failure::Error> {
+    fn new_head(fitness: Fitness) -> Result<BlockHeaderWithHash, anyhow::Error> {
         Ok(BlockHeaderWithHash {
             hash: "BKyQ9EofHrgaZKENioHyP4FZNsTmiSEcVmcghgzCC9cGhE7oCET".try_into()?,
             header: Arc::new(
@@ -538,7 +523,7 @@ mod tests {
         })
     }
 
-    fn current_head(fitness: Fitness) -> Result<Head, failure::Error> {
+    fn current_head(fitness: Fitness) -> Result<Head, anyhow::Error> {
         Ok(Head::new(
             "BKzyxvaMgoY5M3BUD7UaUCPivAku2NRiYRA1z1LQUzB7CX6e8yy".try_into()?,
             5,

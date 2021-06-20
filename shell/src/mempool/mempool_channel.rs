@@ -18,7 +18,7 @@ use crate::utils::CondvarResult;
 pub struct MempoolOperationReceived {
     pub operation_hash: OperationHash,
     pub operation_type: MempoolOperationType,
-    pub result_callback: Option<CondvarResult<(), failure::Error>>,
+    pub result_callback: Option<CondvarResult<(), anyhow::Error>>,
 }
 
 /// Channel event message.

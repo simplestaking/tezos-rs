@@ -19,35 +19,35 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
-use failure::Fail;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 /// IPC communication errors
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum IpcError {
-    #[fail(display = "Receive message length error: {}", reason)]
+    #[error("Receive message length error: {reason}")]
     ReceiveMessageLengthError { reason: io::Error },
-    #[fail(display = "Receive message error: {}", reason)]
+    #[error("Receive message error: {reason}")]
     ReceiveMessageError { reason: io::Error },
-    #[fail(display = "Send error: {}", reason)]
+    #[error("Send error: {reason}")]
     SendError { reason: io::Error },
-    #[fail(display = "Accept connection timed out, timout: {:?}", timeout)]
+    #[error("Accept connection timed out, timout: {timeout:?}")]
     AcceptTimeout { timeout: Duration },
-    #[fail(display = "Receive message timed out - handle WouldBlock scenario if needed")]
+    #[error("Receive message timed out - handle WouldBlock scenario if needed")]
     ReceiveMessageTimeouted,
-    #[fail(display = "Connection error: {}", reason)]
+    #[error("Connection error: {reason}")]
     ConnectionError { reason: io::Error },
-    #[fail(display = "Serialization error: {}", reason)]
+    #[error("Serialization error: {reason}")]
     SerializationError { reason: String },
-    #[fail(display = "Deserialization error: {}", reason)]
+    #[error("Deserialization error: {reason}")]
     DeserializationError { reason: String },
-    #[fail(display = "Split stream error: {}", reason)]
+    #[error("Split stream error: {reason}")]
     SplitError { reason: io::Error },
-    #[fail(display = "Socker configuration error: {}", reason)]
+    #[error("Socker configuration error: {reason}")]
     SocketConfigurationError { reason: io::Error },
-    #[fail(display = "IPC error: {}", reason)]
+    #[error("IPC error: {reason}")]
     OtherError { reason: String },
 }
 

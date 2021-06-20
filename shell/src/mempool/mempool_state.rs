@@ -247,7 +247,7 @@ mod tests {
     use crate::mempool::MempoolState;
 
     #[test]
-    fn test_state_reinit() -> Result<(), failure::Error> {
+    fn test_state_reinit() -> Result<(), anyhow::Error> {
         let op_hash1 = "opJ4FdKumPfykAP9ZqwY7rNB8y1SiMupt44RqBDMWL7cmb4xbNr".try_into()?;
         let op_hash2 = "onvN8U6QJ6DGJKVYkHXYRtFm3tgBJScj9P5bbPjSZUuFaGzwFuJ".try_into()?;
 

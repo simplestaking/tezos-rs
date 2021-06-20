@@ -7,10 +7,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use failure::{Error, Fail};
 use futures::lock::Mutex;
 use riker::actors::*;
 use slog::{debug, info, o, trace, warn, Logger};
+use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::runtime::Handle;
@@ -44,31 +44,31 @@ const IO_TIMEOUT: Duration = Duration::from_secs(6);
 /// There is a 90-second timeout for ping peers with GetCurrentHead
 const READ_TIMEOUT_LONG: Duration = Duration::from_secs(120);
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum PeerError {
-    #[fail(
-        display = "Unsupported protocol - shell: ({}) is not compatible with peer: ({})",
-        supported_version, incompatible_version
-    )]
+    #[error("Unsupported protocol - shell: ({supported_version}) is not compatible with peer: ({incompatible_version})")]
     UnsupportedProtocol {
         supported_version: String,
         incompatible_version: String,
     },
-    #[fail(display = "Received NACK from remote peer")]
+    #[error("Received NACK from remote peer")]
     NackReceived,
-    #[fail(display = "Received NACK from remote peer with info: {:?}", nack_info)]
+    #[error("Received NACK from remote peer with info: {nack_info:?}")]
     NackWithMotiveReceived { nack_info: NackInfo },
-    #[fail(display = "Network error: {}, reason: {}", message, error)]
-    NetworkError { error: Error, message: &'static str },
-    #[fail(display = "Message serialization error, reason: {}", error)]
+    #[error("Network error: {message}, reason: {error}")]
+    NetworkError {
+        error: anyhow::Error,
+        message: &'static str,
+    },
+    #[error("Message serialization error, reason: {error}")]
     SerializationError { error: BinaryWriterError },
-    #[fail(display = "Message deserialization error, reason: {}", error)]
+    #[error("Message deserialization error, reason: {error}")]
     DeserializationError { error: BinaryReaderError },
-    #[fail(display = "Crypto error, reason: {}", error)]
+    #[error("Crypto error, reason: {error}")]
     CryptoError { error: crypto::CryptoError },
-    #[fail(display = "Public key error: {}", _0)]
+    #[error("Public key error: {0}")]
     PublicKeyError(PublicKeyError),
-    #[fail(display = "Not enough proof of work: {}", _0)]
+    #[error("Not enough proof of work: {0}")]
     PowError(PowError),
 }
 

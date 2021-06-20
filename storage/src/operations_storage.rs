@@ -167,7 +167,7 @@ impl BincodeEncoded for OperationsForBlocksMessage {}
 mod tests {
     use std::convert::TryInto;
 
-    use failure::Error;
+    use anyhow::Error;
 
     use super::*;
 

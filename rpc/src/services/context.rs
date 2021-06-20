@@ -32,7 +32,7 @@ pub(crate) struct ContextStats {
 pub(crate) fn make_block_stats(
     db_path: Option<&PathBuf>,
     block_hash: BlockHash,
-) -> Result<Option<BlockStats>, failure::Error> {
+) -> Result<Option<BlockStats>, anyhow::Error> {
     let db_path = match db_path {
         Some(db_path) => {
             let mut db_path = db_path.to_path_buf();
@@ -49,7 +49,7 @@ pub(crate) fn make_block_stats(
 pub(crate) fn make_context_stats(
     db_path: Option<&PathBuf>,
     context_name: &str,
-) -> Result<ContextStats, failure::Error> {
+) -> Result<ContextStats, anyhow::Error> {
     let db_path = match db_path {
         Some(db_path) => {
             let mut db_path = db_path.to_path_buf();
@@ -66,7 +66,7 @@ pub(crate) fn make_context_stats(
 fn make_context_stats_impl(
     sql: &Connection,
     context_name: &str,
-) -> Result<ContextStats, failure::Error> {
+) -> Result<ContextStats, anyhow::Error> {
     let mut stmt = sql.prepare(
         "
     SELECT
@@ -222,7 +222,7 @@ fn make_context_stats_impl(
 fn make_block_stats_impl(
     sql: &Connection,
     block_hash: BlockHash,
-) -> Result<Option<BlockStats>, failure::Error> {
+) -> Result<Option<BlockStats>, anyhow::Error> {
     let block_hash = hash_to_string(block_hash.as_ref());
 
     let (

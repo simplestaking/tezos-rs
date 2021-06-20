@@ -6,8 +6,8 @@ use std::{convert::TryFrom, fmt};
 use std::{fmt::Debug, path::PathBuf};
 
 use derive_builder::Builder;
-use failure::Fail;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crypto::hash::{
     BlockHash, BlockMetadataHash, ChainId, ContextHash, FromBytesError, OperationHash,
@@ -463,19 +463,16 @@ pub struct TezosErrorTrace {
     pub trace_json: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Fail)]
+#[derive(Serialize, Deserialize, Debug, Error)]
 pub enum CallError {
-    #[fail(
-        display = "Failed to call - error_id: {} message: {:?}!",
-        error_id, trace_message
-    )]
+    #[error("Failed to call - error_id: {error_id} message: {trace_message:?}!")]
     FailedToCall {
         error_id: String,
         trace_message: String,
     },
-    #[fail(display = "Invalid request data - message: {}!", message)]
+    #[error("Invalid request data - message: {message}!")]
     InvalidRequestData { message: String },
-    #[fail(display = "Invalid response data - message: {}!", message)]
+    #[error("Invalid response data - message: {message}!")]
     InvalidResponseData { message: String },
 }
 
@@ -488,9 +485,9 @@ impl From<TezosErrorTrace> for CallError {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Fail)]
+#[derive(Serialize, Deserialize, Debug, Error)]
 pub enum TezosRuntimeConfigurationError {
-    #[fail(display = "Change OCaml settings failed, message: {}!", message)]
+    #[error("Change OCaml settings failed, message: {message}!")]
     ChangeConfigurationError { message: String },
 }
 
@@ -502,9 +499,9 @@ impl From<TezosErrorTrace> for TezosRuntimeConfigurationError {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Fail)]
+#[derive(Serialize, Deserialize, Debug, Error)]
 pub enum TezosStorageInitError {
-    #[fail(display = "OCaml storage init failed, message: {}!", message)]
+    #[error("OCaml storage init failed, message: {message}!")]
     InitializeError { message: String },
 }
 
@@ -524,9 +521,9 @@ impl From<FromBytesError> for TezosStorageInitError {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Fail)]
+#[derive(Serialize, Deserialize, Debug, Error)]
 pub enum GetDataError {
-    #[fail(display = "OCaml failed to get data, message: {}!", message)]
+    #[error("OCaml failed to get data, message: {message}!")]
     ReadError { message: String },
 }
 
@@ -538,23 +535,17 @@ impl From<TezosErrorTrace> for GetDataError {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Fail, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Error, PartialEq)]
 pub enum ApplyBlockError {
-    #[fail(
-        display = "Incomplete operations, exptected: {}, has actual: {}!",
-        expected, actual
-    )]
+    #[error("Incomplete operations, exptected: {expected}, has actual: {actual}!")]
     IncompleteOperations { expected: usize, actual: usize },
-    #[fail(display = "Failed to apply block - message: {}!", message)]
+    #[error("Failed to apply block - message: {message}!")]
     FailedToApplyBlock { message: String },
-    #[fail(
-        display = "Unknown predecessor context - try to apply predecessor at first message: {}!",
-        message
-    )]
+    #[error("Unknown predecessor context - try to apply predecessor at first message: {message}!")]
     UnknownPredecessorContext { message: String },
-    #[fail(display = "Predecessor does not match - message: {}!", message)]
+    #[error("Predecessor does not match - message: {message}!")]
     PredecessorMismatch { message: String },
-    #[fail(display = "Invalid request/response data - message: {}!", message)]
+    #[error("Invalid request/response data - message: {message}!")]
     InvalidRequestResponseData { message: String },
 }
 
@@ -587,16 +578,13 @@ impl From<CallError> for ApplyBlockError {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Fail)]
+#[derive(Serialize, Deserialize, Debug, Error)]
 pub enum BeginApplicationError {
-    #[fail(display = "Failed to begin application - message: {}!", message)]
+    #[error("Failed to begin application - message: {message}!")]
     FailedToBeginApplication { message: String },
-    #[fail(
-        display = "Unknown predecessor context - try to apply predecessor at first message: {}!",
-        message
-    )]
+    #[error("Unknown predecessor context - try to apply predecessor at first message: {message}!")]
     UnknownPredecessorContext { message: String },
-    #[fail(display = "Invalid request/response data - message: {}!", message)]
+    #[error("Invalid request/response data - message: {message}!")]
     InvalidRequestResponseData { message: String },
 }
 
@@ -626,16 +614,13 @@ impl From<CallError> for BeginApplicationError {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Fail)]
+#[derive(Serialize, Deserialize, Debug, Error)]
 pub enum BeginConstructionError {
-    #[fail(display = "Failed to begin construction - message: {}!", message)]
+    #[error("Failed to begin construction - message: {message}!")]
     FailedToBeginConstruction { message: String },
-    #[fail(
-        display = "Unknown predecessor context - try to apply predecessor at first message: {}!",
-        message
-    )]
+    #[error("Unknown predecessor context - try to apply predecessor at first message: {message}!")]
     UnknownPredecessorContext { message: String },
-    #[fail(display = "Invalid request/response data - message: {}!", message)]
+    #[error("Invalid request/response data - message: {message}!")]
     InvalidRequestResponseData { message: String },
 }
 
@@ -665,11 +650,11 @@ impl From<CallError> for BeginConstructionError {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Fail)]
+#[derive(Serialize, Deserialize, Debug, Error)]
 pub enum ValidateOperationError {
-    #[fail(display = "Failed to validate operation - message: {}!", message)]
+    #[error("Failed to validate operation - message: {message}!")]
     FailedToValidateOperation { message: String },
-    #[fail(display = "Invalid request/response data - message: {}!", message)]
+    #[error("Invalid request/response data - message: {message}!")]
     InvalidRequestResponseData { message: String },
 }
 
@@ -692,9 +677,9 @@ impl From<CallError> for ValidateOperationError {
 }
 
 // NOTE: used by decode_context_data, which is unused at the moment
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum ContextDataError {
-    #[fail(display = "Resolve/decode context data failed to decode: {}!", message)]
+    #[error("Resolve/decode context data failed to decode: {message}!")]
     DecodeError { message: String },
 }
 
@@ -706,9 +691,9 @@ impl From<TezosErrorTrace> for ContextDataError {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Fail)]
+#[derive(Serialize, Deserialize, Debug, Error)]
 pub enum ProtocolDataError {
-    #[fail(display = "Resolve/decode context data failed to decode: {}!", message)]
+    #[error("Resolve/decode context data failed to decode: {message}!")]
     DecodeError { message: String },
 }
 
@@ -728,9 +713,9 @@ impl From<FromBytesError> for ProtocolDataError {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Fail)]
+#[derive(Serialize, Deserialize, Debug, Error)]
 pub enum FfiJsonEncoderError {
-    #[fail(display = "FFI JSON encoding error: {}!", message)]
+    #[error("FFI JSON encoding error: {message}!")]
     EncodeError { message: String },
 }
 
@@ -809,24 +794,21 @@ pub struct RpcArgDesc {
     pub descr: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Fail)]
+#[derive(Serialize, Deserialize, Debug, Error)]
 pub enum ProtocolRpcError {
-    #[fail(display = "RPC: cannot parse body: {}", _0)]
+    #[error("RPC: cannot parse body: {0}")]
     RPCErrorCannotParseBody(String),
-    #[fail(
-        display = "RPC: cannot parse path: {:?}, arg_desc={:?}, message: {}",
-        _0, _1, _2
-    )]
+    #[error("RPC: cannot parse path: {0:?}, arg_desc={1:?}, message: {2}")]
     RPCErrorCannotParsePath(Vec<String>, RpcArgDesc, String),
-    #[fail(display = "RPC: cannot parse query: {}", _0)]
+    #[error("RPC: cannot parse query: {0}")]
     RPCErrorCannotParseQuery(String),
-    #[fail(display = "RPC: invalid method string: {}", _0)]
+    #[error("RPC: invalid method string: {0}")]
     RPCErrorInvalidMethodString(String),
-    #[fail(display = "RPC: method not allowed: {:?}", _0)]
+    #[error("RPC: method not allowed: {0:?}")]
     RPCErrorMethodNotAllowed(Vec<RpcMethod>),
-    #[fail(display = "RPC: service not found")]
+    #[error("RPC: service not found")]
     RPCErrorServiceNotFound,
-    #[fail(display = "RPC: Failed to call protocol RPC - message: {}!", _0)]
+    #[error("RPC: Failed to call protocol RPC - message: {0}!")]
     FailedToCallProtocolRpc(String),
 }
 
@@ -839,13 +821,13 @@ pub struct ProtocolRpcRequest {
     pub request: RpcRequest,
 }
 
-#[derive(Serialize, Deserialize, Debug, Fail)]
+#[derive(Serialize, Deserialize, Debug, Error)]
 pub enum HelpersPreapplyError {
-    #[fail(display = "Failed to call protocol rpc - message: {}!", message)]
+    #[error("Failed to call protocol rpc - message: {message}!")]
     FailedToCallProtocolRpc { message: String },
-    #[fail(display = "Invalid request data - message: {}!", message)]
+    #[error("Invalid request data - message: {message}!")]
     InvalidRequestData { message: String },
-    #[fail(display = "Invalid response data - message: {}!", message)]
+    #[error("Invalid response data - message: {message}!")]
     InvalidResponseData { message: String },
 }
 
@@ -896,11 +878,11 @@ pub struct ComputePathResponse {
     pub operations_hashes_path: Vec<Path>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Fail)]
+#[derive(Serialize, Deserialize, Debug, Error)]
 pub enum ComputePathError {
-    #[fail(display = "Path computation failed, message: {}!", message)]
+    #[error("Path computation failed, message: {message}!")]
     PathError { message: String },
-    #[fail(display = "Path computation failed, message: {}!", message)]
+    #[error("Path computation failed, message: {message}!")]
     InvalidRequestResponseData { message: String },
 }
 
@@ -967,7 +949,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_operation_result_merge_items() -> Result<(), failure::Error> {
+    fn test_validate_operation_result_merge_items() -> Result<(), anyhow::Error> {
         let mut validate_result = ValidateOperationResult {
             applied: vec![],
             refused: vec![],
@@ -1098,7 +1080,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_format_user_activated_upgrades() -> Result<(), failure::Error> {
+    fn test_rpc_format_user_activated_upgrades() -> Result<(), anyhow::Error> {
         let expected_json = serde_json::json!(
             [
               {
@@ -1134,7 +1116,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_format_user_activated_protocol_overrides() -> Result<(), failure::Error> {
+    fn test_rpc_format_user_activated_protocol_overrides() -> Result<(), anyhow::Error> {
         let expected_json = serde_json::json!(
             [
               {

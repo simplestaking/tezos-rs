@@ -7,9 +7,9 @@ use std::{collections::HashMap, io::prelude::*};
 use std::{convert::TryFrom, fs::OpenOptions};
 use std::{fs, path::PathBuf};
 
+use anyhow::Error;
 use clap::{App, Arg};
 use crypto::hash::{BlockHash, ContextHash};
-use failure::Error;
 use slog::{debug, info, warn, Drain, Level, Logger};
 
 use tezos_api::ffi::TezosContextTezEdgeStorageConfiguration;
@@ -365,7 +365,7 @@ fn main() -> Result<(), Error> {
     // check actions file
     let actions_file_path = params.input;
     if !actions_file_path.exists() {
-        return Err(failure::format_err!(
+        return Err(anyhow::format_err!(
             "Input action file does not exists: {:?}",
             actions_file_path.to_str().unwrap(),
         ));

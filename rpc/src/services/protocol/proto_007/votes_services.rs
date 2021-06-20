@@ -1,8 +1,8 @@
 // Copyright (c) SimpleStaking and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
+use anyhow::format_err;
 use crypto::hash::ContextHash;
-use failure::format_err;
 use itertools::Itertools;
 
 use storage::num_from_slice;

@@ -7,7 +7,7 @@ use std::io::Read;
 use std::ops::Deref;
 
 use bytes::Buf;
-use failure::Error;
+
 
 use crate::gc::NotGarbageCollected;
 use crate::hash::EntryHash;
@@ -99,7 +99,7 @@ impl Flushable for SledBackend {
     fn flush(&self) -> Result<(), Error> {
         match self.db.flush() {
             Ok(_) => Ok(()),
-            Err(e) => Err(failure::format_err!(
+            Err(e) => Err(anyhow::format_err!(
                 "Failed to flush sled db for context, reason: {:?}",
                 e
             )),

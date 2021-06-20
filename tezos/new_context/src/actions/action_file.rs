@@ -4,19 +4,19 @@
 use crate::actions::ContextAction;
 use bytes::Buf;
 use crypto::hash::BlockHash;
-use failure::Fail;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use thiserror::Error;
 
 /// Possible errors for storage
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum ActionFileError {
-    #[fail(display = "Blocks out of sequence")]
+    #[error("Blocks out of sequence")]
     BlocksOutOfSequence,
-    #[fail(display = "IOError detected, reason: {}", error)]
+    #[error("IOError detected, reason: {error}")]
     IOError { error: std::io::Error },
-    #[fail(display = "Serialization error, reason: {}", error)]
+    #[error("Serialization error, reason: {error}")]
     SerializeError { error: bincode::Error },
 }
 

@@ -5,11 +5,12 @@ authors = ["Tomas Sedlak <tomas.sedlak@simplestaking.com>"]
 edition = "2018"
 
 [dependencies]
+anyhow = "1.0"
 bit-vec = "0.6.2"
 byteorder = "1.4"
 bytes = "1"
 chrono = "0.4"
-failure = "0.1"
+thiserror = "1.0"
 hex = "0.4"
 num-bigint = "0.3"
 num-traits = "0.2.8"

@@ -6,7 +6,7 @@ use std::convert::TryInto;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use failure::{bail, format_err};
+use anyhow::{bail, format_err};
 use riker::actors::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -57,7 +57,7 @@ pub struct InjectedBlockWithOperations {
 pub fn get_pending_operations(
     _chain_id: &ChainId,
     current_mempool_state_storage: CurrentMempoolStateStorageRef,
-) -> Result<(MempoolOperations, Option<ProtocolHash>), failure::Error> {
+) -> Result<(MempoolOperations, Option<ProtocolHash>), anyhow::Error> {
     // get actual known state of mempool
     let current_mempool_state = current_mempool_state_storage
         .read()
@@ -98,7 +98,7 @@ pub fn get_pending_operations(
 fn convert_applied(
     applied: &Vec<Applied>,
     operations: &HashMap<OperationHash, Operation>,
-) -> Result<Vec<HashMap<String, Value>>, failure::Error> {
+) -> Result<Vec<HashMap<String, Value>>, anyhow::Error> {
     let mut result: Vec<HashMap<String, Value>> = Vec::new();
     for a in applied {
         let operation_hash = a.hash.to_base58_check();
@@ -130,7 +130,7 @@ fn convert_errored(
     errored: &Vec<Errored>,
     operations: &HashMap<OperationHash, Operation>,
     protocol: &ProtocolHash,
-) -> Result<Vec<Value>, failure::Error> {
+) -> Result<Vec<Value>, anyhow::Error> {
     let mut result: Vec<Value> = Vec::new();
     let protocol = protocol.to_base58_check();
 
@@ -186,7 +186,7 @@ pub fn inject_operation(
     operation_data: &str,
     env: &RpcServiceEnvironment,
     mempool_channel: &MempoolChannelRef,
-) -> Result<String, failure::Error> {
+) -> Result<String, anyhow::Error> {
     info!(env.log(),
           "Operation injection requested";
           "chain_id" => chain_id.to_base58_check(),
@@ -301,7 +301,7 @@ pub fn inject_block(
     injection_data: &str,
     env: &RpcServiceEnvironment,
     shell_channel: &ShellChannelRef,
-) -> Result<String, failure::Error> {
+) -> Result<String, anyhow::Error> {
     let block_with_op: InjectedBlockWithOperations = serde_json::from_str(injection_data)?;
     let chain_id = Arc::new(chain_id);
 
@@ -425,7 +425,7 @@ pub fn inject_block(
     Ok(block_hash_b58check_string)
 }
 
-pub fn request_operations(shell_channel: ShellChannelRef) -> Result<(), failure::Error> {
+pub fn request_operations(shell_channel: ShellChannelRef) -> Result<(), anyhow::Error> {
     // request current head from the peers
     shell_channel.tell(
         Publish {
@@ -451,7 +451,7 @@ mod tests {
     use crate::services::mempool_services::{convert_applied, convert_errored};
 
     #[test]
-    fn test_convert_applied() -> Result<(), failure::Error> {
+    fn test_convert_applied() -> Result<(), anyhow::Error> {
         let data = vec![
             Applied {
                 hash: "onvN8U6QJ6DGJKVYkHXYRtFm3tgBJScj9P5bbPjSZUuFaGzwFuJ".try_into()?,
@@ -488,7 +488,7 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_errored() -> Result<(), failure::Error> {
+    fn test_convert_errored() -> Result<(), anyhow::Error> {
         let data = vec![
             Errored {
                 hash: "onvN8U6QJ6DGJKVYkHXYRtFm3tgBJScj9P5bbPjSZUuFaGzwFuJ".try_into()?,
@@ -534,7 +534,7 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_errored_missing_protocol_data() -> Result<(), failure::Error> {
+    fn test_convert_errored_missing_protocol_data() -> Result<(), anyhow::Error> {
         let data = vec![
             Errored {
                 hash: "onvN8U6QJ6DGJKVYkHXYRtFm3tgBJScj9P5bbPjSZUuFaGzwFuJ".try_into()?,

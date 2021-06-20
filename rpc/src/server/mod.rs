@@ -128,11 +128,11 @@ pub type HResult = Result<Response<Body>, Box<dyn std::error::Error + Sync + Sen
 
 pub type Handler = Arc<
     dyn Fn(
-        Request<Body>,
-        Params,
-        Query,
-        RpcServiceEnvironment,
-    ) -> Box<dyn Future<Output = HResult> + Send>
+            Request<Body>,
+            Params,
+            Query,
+            RpcServiceEnvironment,
+        ) -> Box<dyn Future<Output = HResult> + Send>
         + Send
         + Sync,
 >;

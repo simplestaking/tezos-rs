@@ -8,10 +8,10 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Arc, RwLock};
 
-use failure::Fail;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use slog::{error, info, warn, Logger};
+use thiserror::Error;
 use warp::http::StatusCode;
 use warp::reject;
 
@@ -19,39 +19,33 @@ use crate::handlers::ErrorMessage;
 use crate::node_runner::NodeRpcIpPort;
 use crate::rand_chars;
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum TezosClientRunnerError {
     /// IO Error.
-    #[fail(display = "IO error during process creation, reason: {}", reason)]
+    #[error("IO error during process creation, reason: {reason}")]
     IOError { reason: std::io::Error },
 
     /// Protocol parameters json error
-    #[fail(
-        display = "Error while deserializing protocol parameters, json: {}",
-        json
-    )]
+    #[error("Error while deserializing protocol parameters, json: {json}")]
     ProtocolParameterError { json: serde_json::Value },
 
     /// Wallet does not exists error
-    #[fail(display = "Alias ({}) does not exists among the known wallets", alias)]
+    #[error("Alias ({alias}) does not exists among the known wallets")]
     NonexistantWallet { alias: String },
 
     /// Serde Error.
-    #[fail(display = "Error in serde, reason: {}", reason)]
+    #[error("Error in serde, reason: {reason}")]
     SerdeError { reason: serde_json::Error },
 
     /// Call Error.
-    #[fail(display = "Tezos-client call error, message: {}", message)]
+    #[error("Tezos-client call error, message: {message}")]
     CallError { message: ErrorMessage },
 
     /// Sandbox node is not running.
-    #[fail(display = "Sandbox node is not running/reachable!")]
+    #[error("Sandbox node is not running/reachable!")]
     UnavailableSandboxNodeError,
 
-    #[fail(
-        display = "System error - sandbox data dir was not initialized for node_ref: {}",
-        node_ref
-    )]
+    #[error("System error - sandbox data dir was not initialized for node_ref: {node_ref}")]
     SandboxDataDirNotInitialized { node_ref: NodeRpcIpPort },
 }
 
@@ -346,7 +340,7 @@ impl TezosClientRunner {
     }
 
     /// Cleanup the tezos-client directory
-    pub fn cleanup(&mut self, node_ref: &NodeRpcIpPort) -> Result<(), failure::Error> {
+    pub fn cleanup(&mut self, node_ref: &NodeRpcIpPort) -> Result<(), anyhow::Error> {
         // clear node sandbox data
         if let Some(data) = self.sandbox_data.remove(node_ref) {
             // remove work dir

@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
+use anyhow::Error;
 use assert_json_diff::assert_json_eq;
-use failure::Error;
 use serde_json::{json, Value};
 
 use crypto::hash::ProtocolHash;

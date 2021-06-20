@@ -6,9 +6,10 @@ edition = "2018"
 build = "build.rs"
 
 [dependencies]
+anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 getset = "0.1"
-failure = "0.1"
+thiserror = "1.0"
 futures = "0.3"
 hex = "0.4"
 hyper = { version = "0.14", features = ["server", "http1", "http2", "stream", "tcp", "runtime"] }

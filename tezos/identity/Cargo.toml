@@ -5,8 +5,8 @@ authors = ["Branislav Kontur <branislav.kontur@simplestaking.com>"]
 edition = "2018"
 
 [dependencies]
-failure = "0.1"
-failure_derive = "0.1"
+anyhow = "1.0"
+thiserror = "1.0"
 hex = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -15,4 +15,4 @@ crypto = { path = "../../crypto" }
 
 [dev-dependencies]
 assert-json-diff = "2"
-failure = "0.1"
+thiserror = "1.0"

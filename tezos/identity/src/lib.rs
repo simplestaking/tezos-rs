@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use std::{collections::HashMap, convert::TryFrom};
 use std::{fs, io};
 
-use failure::Fail;
 use hex::{FromHex, FromHexError};
 use serde_json::Value;
+use thiserror::Error;
 
 use crypto::{crypto_box::PublicKeyError, hash::CryptoboxPublicKeyHash};
 use crypto::{
@@ -16,24 +16,24 @@ use crypto::{
     proof_of_work::ProofOfWork,
 };
 
-#[derive(Fail, Debug)]
+#[derive(Error, Debug)]
 pub enum IdentityError {
-    #[fail(display = "I/O error: {}", reason)]
+    #[error("I/O error: {reason}")]
     IoError { reason: io::Error },
 
-    #[fail(display = "Serde error, reason: {}", reason)]
+    #[error("Serde error, reason: {reason}")]
     IdentitySerdeError { reason: serde_json::Error },
 
-    #[fail(display = "Invalid field error, reason: {}", reason)]
+    #[error("Invalid field error, reason: {reason}")]
     IdentityFieldError { reason: String },
 
-    #[fail(display = "Invalid public key, reason: {}", reason)]
+    #[error("Invalid public key, reason: {reason}")]
     InvalidPublicKeyError { reason: FromHexError },
 
-    #[fail(display = "Identity invalid peer_id check")]
+    #[error("Identity invalid peer_id check")]
     InvalidPeerIdError,
 
-    #[fail(display = "Public key error: {}", _0)]
+    #[error("Public key error: {0}")]
     PublicKeyError(PublicKeyError),
 }
 
@@ -186,7 +186,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_identity_generate() -> Result<(), failure::Error> {
+    fn test_identity_generate() -> Result<(), anyhow::Error> {
         // generate
         let identity = Identity::generate(16f64)?;
 
@@ -207,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn test_identity_json_serde_generated_by_tezos() -> Result<(), failure::Error> {
+    fn test_identity_json_serde_generated_by_tezos() -> Result<(), anyhow::Error> {
         let expected_json = serde_json::json!(
             {
               "peer_id": "idtqxHUjbjbCfaDn4jczoPGsnhacKX",

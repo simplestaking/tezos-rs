@@ -110,7 +110,7 @@ mod tests {
     //tz3bEQoFCZEEfZMskefZ8q8e4eiHH1pssRax - p2pk66G3vbHoscNYJdgQU72xSkrCWzoXNnFwroADcRTUtrHDvwnUNyW
 
     #[test]
-    fn test_from_b58_hash() -> Result<(), failure::Error> {
+    fn test_from_b58_hash() -> Result<(), anyhow::Error> {
         let decoded = decode_pk("edpkv2CiwuithtFAYEvH3QKfrJkq4JZuL4YS7i9W1vaKFfHZHLP2JP");
         assert!(decoded.is_some());
 
@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_hex_hash_and_curve() -> Result<(), failure::Error> {
+    fn test_from_hex_hash_and_curve() -> Result<(), anyhow::Error> {
         let result = SignaturePublicKey::from_hex_hash_and_curve(
             &"b59a30aa9fa3ce235411eacd0050428d72cc4d4ccc6c534c27ce80cef7aa4871",
             &"ed25519",

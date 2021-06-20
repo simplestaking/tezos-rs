@@ -9,7 +9,7 @@ use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
-use failure::Error;
+use anyhow::Error;
 
 use crate::hash::EntryHash;
 use crate::persistent::database::DBError;

@@ -6,10 +6,10 @@
 use std::{cmp, convert::TryFrom};
 use std::{convert::TryInto, mem::size_of};
 
+use anyhow::Context;
 use bit_vec::BitVec;
 use byteorder::{BigEndian, WriteBytesExt};
 use bytes::BufMut;
-use failure::ResultExt;
 use serde::ser::{Error as SerdeError, Serialize};
 
 use crate::bit_utils::{BitTrim, Bits};
@@ -91,7 +91,9 @@ fn encode_record(
                 let encoding = field.get_encoding();
 
                 bytes_sz = bytes_sz
-                    .checked_add(encode_any(data, value, encoding).with_context(|e| e.field(name))?)
+                    // TODO - NEWERRORS: revise
+                    // Was: .checked_add(encode_any(data, value, encoding).with_context(|e| e.field(name))?)
+                    .checked_add(encode_any(data, value, encoding).map_err(|e| e.field(name))?)
                     .ok_or_else(|| {
                         Error::custom(format!(
                             "Encoded message size overflow while encoding record field {}",
@@ -286,7 +288,9 @@ fn encode_value(
                     // write data
                     for value in values {
                         encode_value(data, value, list_inner_encoding)
-                            .with_context(BinaryWriterError::element_of)?;
+                            // TODO - NEWERRORS: revise
+                            // Was: .with_context(BinaryWriterError::element_of)?;
+                            .map_err(|e| e.element_of())?;
                     }
                     Ok(data
                         .len()
@@ -308,7 +312,9 @@ fn encode_value(
                     // write data
                     for value in values {
                         encode_value(data, value, list_inner_encoding)
-                            .with_context(BinaryWriterError::element_of)?;
+                            // TODO - NEWERRORS: revise
+                            // Was: .with_context(BinaryWriterError::element_of)?;
+                            .map_err(|e| e.element_of())?;
                     }
                     Ok(data
                         .len()

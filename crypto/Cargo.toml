@@ -5,9 +5,9 @@ authors = ["Tomas Sedlak <tomas.sedlak@simplestaking.com>"]
 edition = "2018"
 
 [dependencies]
+anyhow = "1.0"
 base58 = "0.1.0"
-failure = "0.1"
-failure_derive = "0.1"
+thiserror = "1.0"
 hex = "0.4"
 num-bigint = { version = "0.3", features = ["serde", "rand"] }
 num-traits = "0.2.8"

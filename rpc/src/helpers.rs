@@ -4,7 +4,7 @@
 use std::{collections::HashMap, convert::TryFrom};
 use std::{convert::TryInto, ops::Neg};
 
-use failure::{bail, format_err};
+use anyhow::{bail, format_err};
 use hyper::{Body, Request};
 use riker::actor::ActorReference;
 use serde::{Deserialize, Serialize};
@@ -41,7 +41,7 @@ macro_rules! required_param {
     ($params:expr, $param_name:expr) => {{
         match $params.get_str($param_name) {
             Some(param_value) => Ok(param_value),
-            None => Err(failure::format_err!("Missing parameter '{}'", $param_name)),
+            None => Err(anyhow::format_err!("Missing parameter '{}'", $param_name)),
         }
     }};
 }
@@ -351,7 +351,7 @@ pub const TEST_CHAIN_ID: &str = "test";
 pub(crate) fn parse_chain_id(
     chain_id_param: &str,
     env: &RpcServiceEnvironment,
-) -> Result<ChainId, failure::Error> {
+) -> Result<ChainId, anyhow::Error> {
     Ok(match chain_id_param {
         MAIN_CHAIN_ID => env.main_chain_id().clone(),
         TEST_CHAIN_ID => {
@@ -396,7 +396,7 @@ fn split_block_id_param(
     block_id_param: &str,
     split_char: char,
     negate: bool,
-) -> Result<(&str, Option<i32>), failure::Error> {
+) -> Result<(&str, Option<i32>), anyhow::Error> {
     let splits: Vec<&str> = block_id_param.split(split_char).collect();
     Ok(match splits.len() {
         1 => (splits[0], None),
@@ -435,7 +435,7 @@ pub(crate) fn parse_block_hash(
     chain_id: &ChainId,
     block_id_param: &str,
     env: &RpcServiceEnvironment,
-) -> Result<BlockHash, failure::Error> {
+) -> Result<BlockHash, anyhow::Error> {
     // split header and optional offset (+, -, ~)
     let (block_param, offset_param) = {
         match block_id_param {
@@ -534,7 +534,7 @@ pub(crate) fn parse_block_hash(
 pub(crate) fn get_context_hash(
     block_hash: &BlockHash,
     env: &RpcServiceEnvironment,
-) -> Result<ContextHash, failure::Error> {
+) -> Result<ContextHash, anyhow::Error> {
     let block_storage = BlockStorage::new(env.persistent_storage());
     match block_storage.get(block_hash)? {
         Some(header) => Ok(header.header.context().clone()),
@@ -545,7 +545,7 @@ pub(crate) fn get_context_hash(
     }
 }
 
-pub(crate) async fn create_rpc_request(req: Request<Body>) -> Result<RpcRequest, failure::Error> {
+pub(crate) async fn create_rpc_request(req: Request<Body>) -> Result<RpcRequest, anyhow::Error> {
     let context_path = req.uri().path_and_query().unwrap().as_str().to_string();
     let meth = RpcMethod::try_from(req.method().to_string().as_str()).unwrap(); // TODO: handle correctly
     let content_type = match req.headers().get(hyper::header::CONTENT_TYPE) {
@@ -579,7 +579,7 @@ pub(crate) struct Prevalidator {
 pub(crate) fn get_prevalidators(
     env: &RpcServiceEnvironment,
     filter_by_chain_id: Option<&ChainId>,
-) -> Result<Vec<Prevalidator>, failure::Error> {
+) -> Result<Vec<Prevalidator>, anyhow::Error> {
     // expecting max one prevalidator by name
     let mempool_prevalidator = env
         .sys()

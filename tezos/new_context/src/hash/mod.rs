@@ -9,7 +9,7 @@ use std::{array::TryFromSliceError, convert::TryInto, io};
 
 use blake2::digest::{InvalidOutputSize, Update, VariableOutput};
 use blake2::VarBlake2b;
-use failure::Fail;
+use thiserror::Error;
 
 use ocaml::ocaml_hash_string;
 
@@ -27,23 +27,23 @@ pub type EntryHash = [u8; ENTRY_HASH_LEN];
 
 impl BincodeEncoded for EntryHash {}
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum HashingError {
-    #[fail(display = "Failed to encode LEB128 value: {}", error)]
+    #[error("Failed to encode LEB128 value: {error}")]
     Leb128EncodeFailure { error: io::Error },
-    #[fail(display = "Invalid output size")]
+    #[error("Invalid output size")]
     InvalidOutputSize,
-    #[fail(display = "Failed to convert hash to array: {}", error)]
+    #[error("Failed to convert hash to array: {error}")]
     ConversionError { error: TryFromSliceError },
-    #[fail(display = "Expected value instead of `None` for {}", _0)]
+    #[error("Expected value instead of `None` for {0}")]
     ValueExpected(&'static str),
-    #[fail(display = "Got an unexpected empty inode")]
+    #[error("Got an unexpected empty inode")]
     UnexpectedEmptyInode,
-    #[fail(display = "Invalid hash value, reason: {}", _0)]
+    #[error("Invalid hash value, reason: {0}")]
     InvalidHash(String),
-    #[fail(display = "Missing Entry")]
+    #[error("Missing Entry")]
     MissingEntry,
-    #[fail(display = "The Entry is borrowed more than once")]
+    #[error("The Entry is borrowed more than once")]
     EntryBorrow,
 }
 

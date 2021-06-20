@@ -22,7 +22,7 @@ jobs:
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly-2020-12-31
+          toolchain: nightly-2021-06-09
           default: true
       - name: Settings for cargo in Linux
         if: matrix.sanitizer == 'address'

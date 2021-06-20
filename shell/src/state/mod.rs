@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::sync::{Arc, PoisonError};
 
-use failure::Fail;
+use thiserror::Error;
 
 use crypto::hash::BlockHash;
 use storage::StorageError;
@@ -19,13 +19,13 @@ pub mod peer_state;
 pub mod synchronization_state;
 
 /// Possible errors for state processing
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum StateError {
-    #[fail(display = "Storage read/write error, reason: {:?}", error)]
+    #[error("Storage read/write error, reason: {error:?}")]
     StorageError { error: StorageError },
-    #[fail(display = "Mutex/lock error, reason: {:?}", reason)]
+    #[error("Mutex/lock error, reason: {reason:?}")]
     LockError { reason: String },
-    #[fail(display = "State processing error, reason: {:?}", reason)]
+    #[error("State processing error, reason: {reason:?}")]
     ProcessingError { reason: String },
 }
 
@@ -54,8 +54,8 @@ impl From<StorageError> for StateError {
     }
 }
 
-impl From<failure::Error> for StateError {
-    fn from(error: failure::Error) -> Self {
+impl From<anyhow::Error> for StateError {
+    fn from(error: anyhow::Error) -> Self {
         StateError::ProcessingError {
             reason: format!("{}", error),
         }

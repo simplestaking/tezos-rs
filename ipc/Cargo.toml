@@ -5,9 +5,9 @@ authors = ["Tomas Sedlak <tomas.sedlak@simplestaking.com>"]
 edition = "2018"
 
 [dependencies]
+anyhow = "1.0"
 bincode = "1.3"
-failure = "0.1"
-failure_derive = "0.1"
+thiserror = "1.0"
 rand = "0.7.3"
 serde = { version = "1.0", features = ["derive"] }
 

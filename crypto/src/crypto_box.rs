@@ -21,7 +21,7 @@ use crate::{blake2b::Blake2bError, hash::FromBytesError, CryptoError};
 
 use super::{hash::CryptoboxPublicKeyHash, nonce::Nonce};
 
-use failure::Fail;
+use thiserror::Error;
 
 pub const BOX_ZERO_BYTES: usize = 32;
 pub const CRYPTO_KEY_SIZE: usize = 32;
@@ -30,24 +30,12 @@ pub trait CryptoKey: Sized {
     fn from_bytes<B: AsRef<[u8]>>(buf: B) -> Result<Self, CryptoError>;
 }
 
-#[derive(Debug, Fail, PartialEq)]
+#[derive(Debug, Error, PartialEq)]
 pub enum PublicKeyError {
-    #[fail(display = "Error constructing hash: {}", _0)]
-    HashError(FromBytesError),
-    #[fail(display = "Blake2b digest error: {}", _0)]
-    Blake2bError(Blake2bError),
-}
-
-impl From<FromBytesError> for PublicKeyError {
-    fn from(source: FromBytesError) -> Self {
-        PublicKeyError::HashError(source)
-    }
-}
-
-impl From<Blake2bError> for PublicKeyError {
-    fn from(source: Blake2bError) -> Self {
-        PublicKeyError::Blake2bError(source)
-    }
+    #[error("Error constructing hash: {0}")]
+    HashError(#[from] FromBytesError),
+    #[error("Blake2b digest error: {0}")]
+    Blake2bError(#[from] Blake2bError),
 }
 
 fn ensure_crypto_key_bytes<B: AsRef<[u8]>>(buf: B) -> Result<[u8; CRYPTO_KEY_SIZE], CryptoError> {
@@ -191,7 +179,6 @@ impl From<FromHexError> for CryptoError {
 
 #[cfg(test)]
 mod tests {
-    use failure::Error;
 
     use super::*;
     use crate::nonce::NONCE_SIZE;
@@ -203,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn generate_precomputed_key() -> Result<(), Error> {
+    fn generate_precomputed_key() -> Result<(), anyhow::Error> {
         let pk = PublicKey::from_hex(
             "96678b88756dd6cfd6c129980247b70a6e44da77823c3672a2ec0eae870d8646",
         )?;
@@ -221,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn encrypt_message() -> Result<(), Error> {
+    fn encrypt_message() -> Result<(), anyhow::Error> {
         let pk = PublicKey::from_hex(
             "96678b88756dd6cfd6c129980247b70a6e44da77823c3672a2ec0eae870d8646",
         )?;
@@ -243,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn decrypt_message() -> Result<(), Error> {
+    fn decrypt_message() -> Result<(), anyhow::Error> {
         let pk = PublicKey::from_hex(
             "96678b88756dd6cfd6c129980247b70a6e44da77823c3672a2ec0eae870d8646",
         )?;
@@ -265,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn decryption_of_encrypted_should_equal_message() -> Result<(), Error> {
+    fn decryption_of_encrypted_should_equal_message() -> Result<(), anyhow::Error> {
         let pk = PublicKey::from_hex(
             "96678b88756dd6cfd6c129980247b70a6e44da77823c3672a2ec0eae870d8646",
         )?;

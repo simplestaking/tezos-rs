@@ -10,47 +10,44 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 
-use failure::Fail;
 use itertools::Itertools;
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use serde::{Deserialize, Serialize};
 use slog::{error, info, warn, Logger};
+use thiserror::Error;
 use wait_timeout::ChildExt;
 use warp::reject;
 
 use crate::{create_temp_dir, rand_chars};
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum LightNodeRunnerError {
     /// Already running error.
-    #[fail(display = "Sandbox light-node is already running")]
+    #[error("Sandbox light-node is already running")]
     NodeAlreadyRunning,
 
     /// Already running error.
-    #[fail(display = "Sandbox light-node is not running, node_ref: {}", node_ref)]
+    #[error("Sandbox light-node is not running, node_ref: {node_ref}")]
     NodeNotRunning { node_ref: NodeRpcIpPort },
 
     /// IO Error.
-    #[fail(display = "IOError - {}, reason: {}", message, reason)]
+    #[error("IOError - {message}, reason: {reason}")]
     IOError {
         message: String,
         reason: std::io::Error,
     },
 
     /// Json argument parsing error.
-    #[fail(display = "Json argument parsing error, json: {}", json)]
+    #[error("Json argument parsing error, json: {json}")]
     JsonParsingError { json: serde_json::Value },
 
     /// Startup Error
-    #[fail(display = "Error after light-node process spawned, reason: {}", reason)]
+    #[error("Error after light-node process spawned, reason: {reason}")]
     NodeStartupError { reason: String },
 
     /// Rpc port is missing in cfg
-    #[fail(
-        display = "Failed to start light-node - missing or invalid u16 `rpc_port` in configuration, value: {:?}",
-        value
-    )]
+    #[error("Failed to start light-node - missing or invalid u16 `rpc_port` in configuration, value: {value:?}")]
     ConfigurationMissingValidRpcPort { value: Option<String> },
 }
 

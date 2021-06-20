@@ -14,10 +14,10 @@ use std::time::Duration;
 use std::{collections::HashMap, collections::HashSet, fmt::Debug};
 
 use clap::{App, Arg};
-use failure::Fail;
 use slog::{Drain, Duplicate, Logger, Never, SendSyncRefUnwindSafeDrain};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
+use thiserror::Error;
 
 use crypto::hash::BlockHash;
 use logging::detailed_json;
@@ -131,8 +131,8 @@ impl MultipleValueArg for LoggerType {
     }
 }
 
-#[derive(Debug, Fail)]
-#[fail(display = "No logger target was provided")]
+#[derive(Debug, Error)]
+#[error("No logger target was provided")]
 pub struct NoDrainError;
 
 #[derive(Debug, Clone)]
