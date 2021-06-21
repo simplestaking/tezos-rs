@@ -197,7 +197,7 @@ pub struct TezedgeState {
     pub(crate) config: TezedgeConfig,
     pub(crate) identity: Identity,
     pub(crate) network_version: NetworkVersion,
-    pub(crate) potential_peers: Vec<PeerAddress>,
+    pub(crate) potential_peers: HashSet<PeerAddress>,
     pub(crate) connected_peers: HashMap<PeerAddress, ConnectedPeer>,
     pub(crate) blacklisted_peers: HashMap<PeerAddress, BlacklistedPeer>,
     // TODO: blacklist identities as well.
@@ -220,7 +220,7 @@ impl TezedgeState {
             identity,
             network_version,
             listening_for_connection_requests: false,
-            potential_peers: Vec::new(),
+            potential_peers: HashSet::new(),
             connected_peers: HashMap::new(),
             blacklisted_peers: HashMap::new(),
             p2p_state: P2pState::Pending {
@@ -313,7 +313,15 @@ impl TezedgeState {
 
         let limit = self.config.max_potential_peers - self.potential_peers.len();
 
-        self.potential_peers.extend(peers.into_iter().take(limit));
+        let connected_peers = &self.connected_peers;
+        let blacklisted_peers = &self.blacklisted_peers;
+
+        self.potential_peers.extend(
+            peers
+                .into_iter()
+                .take(limit)
+                .filter(|addr| !connected_peers.contains_key(&addr) && !blacklisted_peers.contains_key(&addr))
+        );
     }
 
     pub fn get_peer_crypto(&mut self, peer_address: &PeerAddress) -> Option<&mut PeerCrypto> {
@@ -565,7 +573,14 @@ impl TezedgeState {
                 let end = potential_peers.len();
                 let start = end - len;
 
-                for peer in potential_peers.drain(start..end) {
+
+                let peers = potential_peers.iter()
+                    .take(len)
+                    .cloned()
+                    .collect::<Vec<_>>();
+
+                for peer in peers {
+                    potential_peers.remove(&peer);
                     pending_peers.insert(peer, Handshake::Outgoing(
                         HandshakeStep::Connect {
                             sent_conn_msg: ConnectionMessage::try_new(
