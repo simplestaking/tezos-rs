@@ -58,7 +58,7 @@ impl Acceptor<PendingRequestProposal> for TezedgeState {
                         }
                         PendingRequestMsg::DisconnectPeerSuccess => {
                             if let Some((peer_address, _)) = self.connected_peers.remove_entry(peer) {
-                                self.potential_peers.push(peer_address);
+                                self.extend_potential_peers(std::iter::once(peer_address));
                             }
                             self.requests.remove(proposal.req_id);
                         }
@@ -71,6 +71,22 @@ impl Acceptor<PendingRequestProposal> for TezedgeState {
                             req.status = RequestState::Pending { at: proposal.at };
                         }
                         PendingRequestMsg::BlacklistPeerSuccess => {
+                            self.requests.remove(proposal.req_id);
+                        }
+                        _ => eprintln!("unexpected request type"),
+                    }
+                }
+                PendingRequest::PeerMessageReceived { .. } => {
+                    match proposal.message {
+                        PendingRequestMsg::PeerMessageReceivedNotified => {
+                            self.requests.remove(proposal.req_id);
+                        }
+                        _ => eprintln!("unexpected request type"),
+                    }
+                }
+                PendingRequest::NotifyHandshakeSuccessful { .. } => {
+                    match proposal.message {
+                        PendingRequestMsg::HandshakeSuccessfulNotified => {
                             self.requests.remove(proposal.req_id);
                         }
                         _ => eprintln!("unexpected request type"),

@@ -1,9 +1,12 @@
 use std::mem;
 use std::fmt::{self, Debug};
 use std::time::{Duration, Instant};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use crypto::crypto_box::{CryptoKey, PublicKey};
+use crypto::hash::CryptoboxPublicKeyHash;
 use getset::{Getters, CopyGetters};
 
+use tezos_messages::p2p::encoding::peer::PeerMessageResponse;
 pub use tla_sm::{Proposal, GetRequests};
 use crypto::nonce::Nonce;
 use tezos_identity::Identity;
@@ -139,9 +142,9 @@ pub struct TezedgeConfig {
     pub port: Port,
     pub disable_mempool: bool,
     pub private_node: bool,
-    pub min_connected_peers: u32,
-    pub max_connected_peers: u32,
-    pub max_pending_peers: u32,
+    pub min_connected_peers: usize,
+    pub max_connected_peers: usize,
+    pub max_pending_peers: usize,
     pub max_potential_peers: usize,
     pub periodic_react_interval: Duration,
     pub peer_blacklist_duration: Duration,
@@ -361,7 +364,9 @@ impl TezedgeState {
         peer_address: PeerAddress,
         result: HandshakeResult,
     ) {
-        self.connected_peers.insert(peer_address, ConnectedPeer {
+        // TODO: put public key in state instead of having unwrap here.
+        let public_key_hash = PublicKey::from_bytes(&result.conn_msg.public_key).unwrap().public_key_hash().unwrap();
+        let connected_peer = ConnectedPeer {
             connected_since: at,
             port: result.conn_msg.port,
             version: result.conn_msg.version,
@@ -370,7 +375,22 @@ impl TezedgeState {
             crypto: result.crypto,
             disable_mempool: result.meta_msg.disable_mempool(),
             private_node: result.meta_msg.private_node(),
+        };
+
+        self.requests.insert(PendingRequestState {
+            request: PendingRequest::NotifyHandshakeSuccessful {
+                peer_address: peer_address.clone(),
+                peer_public_key_hash: public_key_hash,
+                metadata: MetadataMessage::new(
+                    connected_peer.disable_mempool,
+                    connected_peer.private_node,
+                ),
+                network_version: connected_peer.version.clone(),
+            },
+            status: RequestState::Idle { at },
         });
+
+        self.connected_peers.insert(peer_address, connected_peer);
     }
 
     pub(crate) fn adjust_p2p_state(&mut self, at: Instant) {
@@ -553,7 +573,7 @@ impl TezedgeState {
         for address in whitelist_peers {
             self.blacklisted_peers.remove(&address);
             self.extend_potential_peers(
-                std::iter::once(address.clone()),
+                std::iter::once(address),
             );
         }
     }
@@ -570,9 +590,6 @@ impl TezedgeState {
                 let len = potential_peers.len().min(
                     max_pending - pending_peers.len(),
                 );
-                let end = potential_peers.len();
-                let start = end - len;
-
 
                 let peers = potential_peers.iter()
                     .take(len)
@@ -621,16 +638,12 @@ impl TezedgeState {
     ) {
         use P2pState::*;
 
-        match &mut self.p2p_state {
-            ReadyMaxed => {}
-            Pending { pending_peers }
-            | PendingFull { pending_peers }
-            | Ready { pending_peers }
-            | ReadyFull { pending_peers } => {
-                pending_peers.remove(&peer);
-            }
+        if let Some(pending_peers) = self.pending_peers_mut() {
+            pending_peers.remove(&peer);
         }
+
         self.connected_peers.remove(&peer);
+        self.extend_potential_peers(std::iter::once(peer));
 
         self.requests.insert(PendingRequestState {
             request: PendingRequest::DisconnectPeer { peer },
@@ -666,7 +679,7 @@ impl TezedgeState {
     ) {
         if let Some(pending_peers) = self.pending_peers_mut() {
             if let Some((peer_address, _)) = pending_peers.remove_entry(&peer) {
-                self.potential_peers.push(peer_address);
+                self.extend_potential_peers(std::iter::once(peer_address));
                 let entry = self.requests.vacant_entry();
                 entry.insert(PendingRequestState {
                     request: PendingRequest::NackAndDisconnectPeer {
@@ -734,6 +747,18 @@ pub enum TezedgeRequest {
         req_id: usize,
         peer: PeerAddress,
     },
+    PeerMessageReceived {
+        req_id: usize,
+        peer: PeerAddress,
+        message: PeerMessageResponse,
+    },
+    NotifyHandshakeSuccessful {
+        req_id: usize,
+        peer_address: PeerAddress,
+        peer_public_key_hash: CryptoboxPublicKeyHash,
+        metadata: MetadataMessage,
+        network_version: NetworkVersion,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -750,6 +775,18 @@ pub enum PendingRequest {
     BlacklistPeer {
         peer: PeerAddress,
     },
+
+    // -- TODO: temporary until everything is handled inside TezedgeState.
+    PeerMessageReceived {
+        peer: PeerAddress,
+        message: PeerMessageResponse,
+    },
+    NotifyHandshakeSuccessful {
+        peer_address: PeerAddress,
+        peer_public_key_hash: CryptoboxPublicKeyHash,
+        metadata: MetadataMessage,
+        network_version: NetworkVersion,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -837,6 +874,25 @@ impl GetRequests for TezedgeState {
                     PendingRequest::BlacklistPeer { peer } => {
                         let peer = peer.clone();
                         TezedgeRequest::BlacklistPeer { req_id, peer }
+                    }
+                    PendingRequest::PeerMessageReceived { peer, message } => {
+                        TezedgeRequest::PeerMessageReceived {
+                            req_id,
+                            peer: peer.clone(),
+                            // TODO: find a way to get rid of cloning.
+                            message: message.clone(),
+                        }
+                    }
+                    PendingRequest::NotifyHandshakeSuccessful {
+                        peer_address, peer_public_key_hash, metadata, network_version
+                    } => {
+                        TezedgeRequest::NotifyHandshakeSuccessful {
+                            req_id,
+                            peer_address: peer_address.clone(),
+                            peer_public_key_hash: peer_public_key_hash.clone(),
+                            metadata: metadata.clone(),
+                            network_version: network_version.clone(),
+                        }
                     }
                 })
             }

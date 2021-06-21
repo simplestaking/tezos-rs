@@ -8,41 +8,19 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crypto::hash::CryptoboxPublicKeyHash;
+use p2p::network_channel::NetworkChannelRef;
 use tezos_identity::Identity;
 use tezos_messages::p2p::encoding::ack::NackMotive;
 use tezos_messages::p2p::encoding::prelude::NetworkVersion;
+pub use tezedge_state::PeerAddress;
 
-use crate::p2p::peer::PeerRef;
+#[derive(Debug, Clone)]
+pub struct PeerId {
+    pub address: PeerAddress,
+    pub public_key_hash: CryptoboxPublicKeyHash,
+}
 
 pub mod p2p;
-
-/// Unificated Peer identification
-#[derive(Clone, Debug)]
-pub struct PeerId {
-    /// Peer actor ref
-    pub peer_ref: PeerRef,
-    /// Peer public key hash (hash of PublicKey)
-    pub peer_public_key_hash: CryptoboxPublicKeyHash,
-    pub peer_id_marker: String,
-    /// Peer address
-    pub peer_address: SocketAddr,
-}
-
-impl PeerId {
-    pub fn new(
-        peer_ref: PeerRef,
-        peer_public_key_hash: CryptoboxPublicKeyHash,
-        peer_id_marker: String,
-        peer_address: SocketAddr,
-    ) -> Self {
-        Self {
-            peer_ref,
-            peer_public_key_hash,
-            peer_id_marker,
-            peer_address,
-        }
-    }
-}
 
 /// Local peer info
 pub struct LocalPeerInfo {
@@ -73,6 +51,18 @@ impl LocalPeerInfo {
 
     pub fn listener_port(&self) -> u16 {
         self.listener_port
+    }
+
+    pub fn identity(&self) -> Arc<Identity> {
+        self.identity.clone()
+    }
+
+    pub fn version(&self) -> Arc<ShellCompatibilityVersion> {
+        self.version.clone()
+    }
+
+    pub fn pow_target(&self) -> f64 {
+        self.pow_target
     }
 }
 

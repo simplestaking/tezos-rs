@@ -17,6 +17,11 @@ pub enum PendingRequestMsg {
 
     BlacklistPeerPending,
     BlacklistPeerSuccess,
+
+    PeerMessageReceivedNotified,
+
+    /// Handshake which was successful was notified.
+    HandshakeSuccessfulNotified,
 }
 
 #[derive(Debug, Clone)]

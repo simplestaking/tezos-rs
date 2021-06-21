@@ -8,28 +8,22 @@ use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, PoisonError, RwLock};
+use std::sync::{mpsc, Arc, Weak, Mutex, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
 use dns_lookup::LookupError;
 use failure::Fail;
-use futures::lock::Mutex;
 use rand::seq::SliceRandom;
 use riker::actors::*;
 use slog::{crit, debug, info, trace, warn, Logger};
+use tezos_messages::p2p::binary_message::{BinaryWrite, BinaryRead};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Handle;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::timeout;
 
-use networking::p2p::peer::{bootstrap, Bootstrap, BootstrapOutput, Peer, PeerRef, SendMessage};
-use networking::p2p::{
-    network_channel::{
-        NetworkChannelMsg, NetworkChannelRef, NetworkChannelTopic, PeerBootstrapFailed,
-    },
-    peer::PeerError,
-};
-use networking::{LocalPeerInfo, PeerId, ShellCompatibilityVersion};
+use networking::p2p::network_channel::{NetworkChannelMsg, NetworkChannelRef, NetworkChannelTopic, PeerBootstrapFailed, PeerMessageReceived};
+use networking::{PeerId, LocalPeerInfo, ShellCompatibilityVersion};
 use tezos_identity::Identity;
 use tezos_messages::p2p::encoding::limits::ADVERTISE_ID_LIST_MAX_LENGTH_FOR_SEND;
 use tezos_messages::p2p::encoding::prelude::*;
@@ -38,50 +32,18 @@ use crate::shell_channel::{ShellChannelMsg, ShellChannelRef};
 use crate::subscription::*;
 use crate::PeerConnectionThreshold;
 
-/// Timeout for outgoing connections
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
-/// Whitelist all IP addresses after 30 minutes
-const WHITELIST_INTERVAL: Duration = Duration::from_secs(1_800);
-/// How often to do DNS peer discovery
-const DISCOVERY_INTERVAL: Duration = Duration::from_secs(60);
-/// Limit how often we allow to trigger check of a peer count
-const CHECK_PEER_COUNT_LIMIT: Duration = Duration::from_secs(5);
-///  Sequencer used for peer actor name generation
-/// TODO: refactor to somehow better/infinite way
-static ACTOR_ID_GENERATOR: AtomicU64 = AtomicU64::new(0);
-/// How often to print stats in logs
-const LOG_INTERVAL: Duration = Duration::from_secs(60);
-/// Limit how often we can ask peer for Bootstrap
-const BOOTSTRAP_MESSAGE_REQUEST_PER_PEER_LIMIT: Duration = Duration::from_secs(60 * 5);
+
+use tla_sm::Acceptor;
+
+use tezedge_state::{TezedgeState, TezedgeConfig};
+use tezedge_state::proposals::ExtendPotentialPeersProposal;
+
+use tezedge_state::proposer::{TezedgeProposer, TezedgeProposerConfig, Notification};
+use tezedge_state::proposer::mio_manager::{MioManager, MioEvents};
 
 /// Message commands [`PeerManager`] to log its internal stats.
 #[derive(Clone, Debug)]
 pub struct LogPeerStats;
-
-/// Check peer threshold
-/// Received message instructs this actor to check whether number of connected peers is within desired bounds
-#[derive(Clone, Debug)]
-pub struct CheckPeerCount;
-
-/// Whitelist all IP address.
-#[derive(Clone, Debug)]
-pub struct WhitelistAllIpAddresses;
-
-pub type IncomingConnectionPermit = Arc<OwnedSemaphorePermit>;
-
-/// Accept incoming peer connection.
-#[derive(Clone, Debug)]
-pub struct AcceptPeer {
-    stream: Arc<Mutex<Option<TcpStream>>>,
-    permit: IncomingConnectionPermit,
-    address: SocketAddr,
-}
-
-/// Open connection to the remote peer node.
-#[derive(Clone, Debug)]
-pub struct ConnectToPeer {
-    pub address: SocketAddr,
-}
 
 #[derive(Debug, Clone)]
 pub struct P2p {
@@ -124,21 +86,55 @@ impl<T> From<PoisonError<T>> for PeerManagerError {
     }
 }
 
+enum ProposerMsg {
+    NetworkChannel(NetworkChannelMsg),
+}
+
+impl From<NetworkChannelMsg> for ProposerMsg {
+    fn from(msg: NetworkChannelMsg) -> Self {
+        Self::NetworkChannel(msg)
+    }
+}
+
+#[derive(Debug, Fail)]
+enum NotifyProposerError {
+    #[fail(display = "notify proposer failed, reason: {:?}", _0)]
+    IO(std::io::Error),
+}
+
+impl From<std::io::Error> for NotifyProposerError {
+    fn from(err: std::io::Error) -> Self {
+        Self::IO(err)
+    }
+}
+
+struct ProposerHandle {
+    waker: Arc<mio::Waker>,
+    sender: mpsc::Sender<ProposerMsg>,
+}
+
+impl ProposerHandle {
+    pub fn new(waker: Arc<mio::Waker>, sender: mpsc::Sender<ProposerMsg>) -> Self {
+        Self { waker, sender }
+    }
+
+    pub fn notify<T>(&self, msg: T) -> Result<(), NotifyProposerError>
+        where T: Into<ProposerMsg>,
+    {
+        self.sender.send(msg.into());
+        self.waker.wake()?;
+        Ok(())
+    }
+}
+
 /// This actor is responsible for peer management.
 ///
 /// It monitors number of connected peers. If the number of connected peers is too low it tries to
 /// connect to more peers. If the number of connected peers is too high, then randomly selected peers
 /// are disconnected.
 #[actor(
-    CheckPeerCount,
-    WhitelistAllIpAddresses,
-    AcceptPeer,
-    ConnectToPeer,
-    LogPeerStats,
     NetworkChannelMsg,
     ShellChannelMsg,
-    SystemEvent,
-    DeadLetter
 )]
 pub struct PeerManager {
     /// All events generated by the network layer will end up in this channel
@@ -148,43 +144,19 @@ pub struct PeerManager {
     /// Tokio runtime
     tokio_executor: Handle,
 
-    /// Peer count threshold
-    threshold: Arc<PeerConnectionThreshold>,
-
-    // PeerManager's state of peers (potential and connected)
-    peers: Arc<P2pPeers>,
+    config: P2p,
+    proposer: Option<ProposerHandle>,
 
     /// Bootstrap peer, which we try to connect all the the, if no other peers presents
     bootstrap_addresses: HashSet<(String, u16)>,
-
-    /// Indicates that mempool should be disabled
-    disable_mempool: bool,
-
-    /// Indicates that blacklist should be disabled
-    disable_blacklist: bool,
-
-    /// Indicates that p2p is working in private mode
-    private_node: bool,
 
     /// Local node info covers:
     /// - listener_port - we will listen for incoming connection at this port
     /// - identity
     /// - Network/protocol version
     local_node_info: Arc<LocalPeerInfo>,
-    /// P2p socket address, where node listens for incoming p2p connections
-    listener_address: SocketAddr,
-
-    /// Message receiver boolean indicating whether
-    /// more connections should be accepted from network
-    rx_run: Arc<AtomicBool>,
-    /// set of blacklisted IP addresses
-    ip_blacklist: HashSet<IpAddr>,
     /// Last time we did DNS peer discovery
     discovery_last: Option<Instant>,
-    /// Last time we checked peer count
-    check_peer_count_last: Option<Instant>,
-    /// Indicates that system is shutting down
-    shutting_down: bool,
 }
 
 /// Reference to [peer manager](PeerManager) actor.
@@ -219,298 +191,6 @@ impl PeerManager {
     /// we won't support multiple names per instance.
     fn name() -> &'static str {
         "peer-manager"
-    }
-
-    /// Try to discover new remote peers to connect
-    fn discover_peers(&mut self, log: &Logger) -> Result<(), PeerManagerError> {
-        if self.peers.connected_peers.read()?.is_empty()
-            || self
-                .discovery_last
-                .filter(|discovery_last| discovery_last.elapsed() <= DISCOVERY_INTERVAL)
-                .is_none()
-        {
-            self.discovery_last = Some(Instant::now());
-
-            info!(log, "Doing peer DNS lookup"; "bootstrap_addresses" => format!("{:?}", &self.bootstrap_addresses));
-            self.process_new_potential_peers(dns_lookup_peers(&self.bootstrap_addresses, &log))?;
-        } else {
-            let msg: Arc<PeerMessageResponse> = Arc::new(PeerMessage::Bootstrap.into());
-            self.peers
-                .connected_peers
-                .write()?
-                .values_mut()
-                .filter(|peer_state| match peer_state.bootstrap_requested_last {
-                    None => true,
-                    Some(bootstrap_requested_last) => {
-                        bootstrap_requested_last.elapsed()
-                            > BOOTSTRAP_MESSAGE_REQUEST_PER_PEER_LIMIT
-                    }
-                })
-                .for_each(|peer_state| {
-                    info!(log, "Asking peer for new peers with bootstrap message"; "peer" => peer_state.peer_ref.name());
-                    peer_state
-                        .peer_ref
-                        .tell(SendMessage::new(msg.clone()), None);
-                    peer_state.bootstrap_requested_last = Some(Instant::now());
-                });
-        }
-
-        Ok(())
-    }
-
-    fn try_to_connect_to_potential_peers(
-        &mut self,
-        ctx: &Context<PeerManagerMsg>,
-    ) -> Result<(), PeerManagerError> {
-        let num_of_required_peers = self.calculate_count_of_required_peers()?;
-
-        // write lock for potential peers
-        let mut potential_peers = self.peers.potential_peers.write()?;
-        if potential_peers.is_empty() {
-            return Ok(());
-        }
-
-        // randomize potential peers as a security measurement
-        let mut addresses_to_connect = potential_peers.iter().cloned().collect::<Vec<SocketAddr>>();
-        addresses_to_connect.shuffle(&mut rand::thread_rng());
-
-        // drain required count
-        addresses_to_connect
-            .drain(0..cmp::min(num_of_required_peers, addresses_to_connect.len()))
-            .for_each(|address| {
-                potential_peers.remove(&address);
-                ctx.myself()
-                    .tell(ConnectToPeer { address }, ctx.myself().into())
-            });
-
-        Ok(())
-    }
-
-    fn calculate_count_of_required_peers(&mut self) -> Result<usize, PeerManagerError> {
-        Ok(count_of_required_peers(
-            self.peers.connected_peers.read()?.len(),
-            self.threshold.low,
-            self.threshold.high,
-        ))
-    }
-
-    /// Create new peer actor
-    fn create_peer(
-        sys: &impl ActorRefFactory,
-        network_channel: NetworkChannelRef,
-        tokio_executor: Handle,
-        info: BootstrapOutput,
-    ) -> Result<PeerRef, CreateError> {
-        Peer::actor(
-            &P2pPeers::generate_next_peer_actor_name(),
-            sys,
-            network_channel,
-            tokio_executor,
-            info,
-        )
-    }
-
-    /// Check if given ip address is blacklisted to connect to
-    fn is_blacklisted(&self, ip_address: &IpAddr) -> bool {
-        self.ip_blacklist.contains(ip_address)
-    }
-
-    fn blacklist_address(&mut self, address: SocketAddr, reason: String, log: &Logger) {
-        if self.disable_blacklist {
-            return;
-        }
-
-        info!(log, "Blacklisting IP";
-                   "ip" => format!("{}", address.ip()),
-                   "reason" => reason,
-        );
-        self.ip_blacklist.insert(address.ip());
-
-        // TODO: call firewall
-    }
-
-    fn blacklist_peer(&mut self, peer_id: Arc<PeerId>, reason: String, actor_system: &ActorSystem) {
-        if self.disable_blacklist {
-            return;
-        }
-
-        let log = actor_system.log();
-        warn!(log, "Blacklisting peer";
-                   "peer_uri" => peer_id.peer_ref.uri().to_string(),
-                   "peer_id" => peer_id.peer_id_marker.clone(),
-                   "reason" => reason.clone(),
-        );
-
-        // blacklist
-        self.blacklist_address(peer_id.peer_address, reason, &log);
-
-        // stop actor
-        actor_system.stop(peer_id.peer_ref.clone());
-
-        // send message
-        self.network_channel.tell(
-            Publish {
-                msg: NetworkChannelMsg::PeerBlacklisted(peer_id),
-                topic: NetworkChannelTopic::NetworkEvents.into(),
-            },
-            None,
-        );
-    }
-
-    fn trigger_check_peer_count(&mut self, ctx: &Context<PeerManagerMsg>) {
-        if self.shutting_down {
-            return;
-        }
-
-        let should_trigger = self
-            .check_peer_count_last
-            .map(|check_peer_count_last| check_peer_count_last.elapsed() > CHECK_PEER_COUNT_LIMIT)
-            .unwrap_or(true);
-
-        if should_trigger {
-            self.check_peer_count_last = Some(Instant::now());
-            ctx.myself().tell(CheckPeerCount, None);
-        }
-    }
-
-    fn process_new_potential_peers<I: IntoIterator<Item = SocketAddr>>(
-        &mut self,
-        new_potential_peers: I,
-    ) -> Result<(), PeerManagerError> {
-        let sock_addresses = new_potential_peers
-            .into_iter()
-            .filter(|address: &SocketAddr| !self.is_blacklisted(&address.ip()))
-            .collect::<Vec<_>>();
-
-        // we want to make sure, that we dont want to have unlimited potential peers (num_of_required_peers * 10)
-        let num_of_max_potential_peers = self.calculate_count_of_required_peers()? * 10;
-
-        // write lock for potential peers
-        let mut potential_peers = self.peers.potential_peers.write()?;
-
-        // collect all
-        let mut addresses_to_connect = potential_peers.iter().cloned().collect::<Vec<SocketAddr>>();
-        addresses_to_connect.extend(sock_addresses);
-        // randomize peers as a security measurement
-        addresses_to_connect.shuffle(&mut rand::thread_rng());
-
-        // try to limit
-        if addresses_to_connect.len() > num_of_max_potential_peers {
-            addresses_to_connect = addresses_to_connect
-                .into_iter()
-                .take(num_of_max_potential_peers)
-                .collect::<Vec<_>>();
-        }
-
-        potential_peers.clear();
-        potential_peers.extend(addresses_to_connect);
-
-        Ok(())
-    }
-
-    fn check_peer_count(&mut self, ctx: &Context<PeerManagerMsg>) -> Result<(), PeerManagerError> {
-        let connected_peers_count = self.peers.connected_peers.read()?.len();
-
-        if connected_peers_count < self.threshold.low {
-            let potential_peers_count = self.peers.potential_peers.read()?.len();
-
-            // peer count is too low, try to connect to more peers
-            let log = ctx.system.log();
-            warn!(log, "Peer count is too low"; "actual" => connected_peers_count, "required" => self.threshold.low, "potential_peers_count" => potential_peers_count);
-            if potential_peers_count < self.threshold.low {
-                if let Err(e) = self.discover_peers(&log) {
-                    warn!(log, "Failed to discovery peers"; "reason" => format!("{:?}", e));
-                }
-            }
-            self.try_to_connect_to_potential_peers(ctx)?;
-        } else if connected_peers_count > self.threshold.high {
-            // peer count is too high, disconnect some peers
-            warn!(ctx.system.log(), "Peer count is too high. Some peers will be stopped"; "actual" => connected_peers_count, "limit" => self.threshold.high);
-
-            // stop some (random) peers
-            let mut connected_peers = self
-                .peers
-                .connected_peers
-                .read()?
-                .values()
-                .cloned()
-                .collect::<Vec<_>>();
-            connected_peers.shuffle(&mut rand::thread_rng());
-            connected_peers
-                .iter()
-                .take(connected_peers_count - self.threshold.high)
-                .for_each(|peer_state| ctx.system.stop(peer_state.peer_ref.clone()))
-        }
-
-        self.check_peer_count_last = Some(Instant::now());
-
-        Ok(())
-    }
-
-    fn process_network_channel_message(
-        &mut self,
-        ctx: &Context<PeerManagerMsg>,
-        msg: NetworkChannelMsg,
-    ) -> Result<(), PeerManagerError> {
-        match msg {
-            NetworkChannelMsg::ProcessAdvertisedPeers(peer, message) => {
-                // extract potential peers from the advertise message
-                info!(ctx.system.log(), "Received advertise message"; "peer_id" => peer.peer_id_marker.clone(), "peers" => format!("{:?}", message.id().join(", ")));
-                self.process_new_potential_peers(
-                    message
-                        .id()
-                        .iter()
-                        .filter_map(|str_ip_port| str_ip_port.parse().ok())
-                        .collect::<Vec<SocketAddr>>(),
-                )?;
-            }
-            NetworkChannelMsg::SendBootstrapPeers(peer) => {
-                // to a bootstrap message we will respond with list of potential peers
-                trace!(ctx.system.log(), "Received bootstrap message"; "peer_id" => peer.peer_id_marker.clone());
-                let addresses = self
-                    .peers
-                    .connected_peers
-                    .read()?
-                    .values()
-                    .filter(|peer_state| peer_state.peer_ref != peer.peer_ref)
-                    .map(|peer_state| peer_state.peer_address)
-                    .take(ADVERTISE_ID_LIST_MAX_LENGTH_FOR_SEND)
-                    .collect::<Vec<_>>();
-
-                let msg = Arc::new(AdvertiseMessage::new(&addresses).into());
-                peer.peer_ref.tell(SendMessage::new(msg), None);
-            }
-            NetworkChannelMsg::ProcessFailedBootstrapAddress(PeerBootstrapFailed {
-                address,
-                potential_peers_to_connect,
-            }) => {
-                // received message that bootstrap process failed for the peer
-                match potential_peers_to_connect {
-                    Some(peers) => {
-                        self.process_new_potential_peers(
-                            peers
-                                .iter()
-                                .filter_map(|str_ip_port| str_ip_port.parse().ok())
-                                .collect::<Vec<SocketAddr>>(),
-                        )?;
-                        self.trigger_check_peer_count(ctx);
-                    }
-                    None => {
-                        self.blacklist_address(
-                            address,
-                            String::from("peer failed at bootstrap process"),
-                            &ctx.system.log(),
-                        );
-                    }
-                }
-            }
-            NetworkChannelMsg::BlacklistPeer(peer_id, reason) => {
-                self.blacklist_peer(peer_id, reason, &ctx.system);
-            }
-            _ => (),
-        }
-
-        Ok(())
     }
 }
 
@@ -555,33 +235,24 @@ impl
 
         // if lookup enabled, add also configuted lookup addresses
         if !p2p_config.disable_bootstrap_lookup {
-            bootstrap_addresses.extend(p2p_config.bootstrap_lookup_addresses);
+            bootstrap_addresses.extend(p2p_config.bootstrap_lookup_addresses.iter().cloned());
         };
-
-        let peers_threshold = Arc::new(p2p_config.peer_threshold);
+        let listener_port = p2p_config.listener_port;
 
         PeerManager {
             network_channel,
             shell_channel,
             tokio_executor,
             bootstrap_addresses,
-            threshold: peers_threshold.clone(),
+            config: p2p_config,
+            proposer: None,
             local_node_info: Arc::new(LocalPeerInfo::new(
-                p2p_config.listener_port,
+                listener_port,
                 identity,
                 shell_compatibility_version,
                 pow_target,
             )),
-            listener_address: p2p_config.listener_address,
-            disable_mempool: p2p_config.disable_mempool,
-            disable_blacklist: p2p_config.disable_blacklist,
-            private_node: p2p_config.private_node,
-            rx_run: Arc::new(AtomicBool::new(true)),
-            peers: Arc::new(P2pPeers::new(peers_threshold)),
-            ip_blacklist: HashSet::new(),
             discovery_last: None,
-            check_peer_count_last: None,
-            shutting_down: false,
         }
     }
 }
@@ -590,138 +261,66 @@ impl Actor for PeerManager {
     type Msg = PeerManagerMsg;
 
     fn pre_start(&mut self, ctx: &Context<Self::Msg>) {
-        subscribe_to_actor_terminated(ctx.system.sys_events(), ctx.myself());
         subscribe_to_shell_shutdown(&self.shell_channel, ctx.myself());
-        subscribe_to_dead_letters(ctx.system.dead_letters(), ctx.myself());
         subscribe_to_network_commands(&self.network_channel, ctx.myself());
+        subscribe_to_network_events(&self.network_channel, ctx.myself());
 
-        ctx.schedule::<Self::Msg, _>(
-            Duration::from_secs(10),
-            Duration::from_secs(15),
-            ctx.myself(),
-            None,
-            CheckPeerCount.into(),
-        );
-        ctx.schedule::<Self::Msg, _>(
-            WHITELIST_INTERVAL,
-            WHITELIST_INTERVAL,
-            ctx.myself(),
-            None,
-            WhitelistAllIpAddresses.into(),
-        );
-        ctx.schedule::<Self::Msg, _>(
-            LOG_INTERVAL / 2,
-            LOG_INTERVAL,
-            ctx.myself(),
-            None,
-            LogPeerStats.into(),
+        let (proposer_tx, proposer_rx) = mpsc::channel();
+
+        let mio_manager = MioManager::new(self.config.listener_port);
+        self.proposer = Some(ProposerHandle::new(
+            mio_manager.waker(),
+            proposer_tx,
+        ));
+
+        let mut tezedge_state = TezedgeState::new(
+            TezedgeConfig {
+                port: self.config.listener_port,
+                disable_mempool: self.config.disable_mempool,
+                private_node: self.config.private_node,
+                min_connected_peers: self.config.peer_threshold.low,
+                max_connected_peers: self.config.peer_threshold.high,
+                max_pending_peers: self.config.peer_threshold.high,
+                max_potential_peers: self.config.peer_threshold.high * 20,
+                periodic_react_interval: Duration::from_millis(250),
+                peer_blacklist_duration: Duration::from_secs(8 * 60),
+                peer_timeout: Duration::from_secs(8),
+            },
+            (*self.local_node_info.identity()).clone(),
+            // TODO: maybe use ShellCompatibilityVersion in TezedgeState instead of NetworkVersion.
+            self.local_node_info.version().to_network_version(),
+            Instant::now(),
         );
 
-        let listener_address = self.listener_address.clone();
-        let peers = self.peers.clone();
-        let myself = ctx.myself();
-        let rx_run = self.rx_run.clone();
+        info!(ctx.system.log(), "Doing peer DNS lookup"; "bootstrap_addresses" => format!("{:?}", &self.bootstrap_addresses));
+        tezedge_state.accept(ExtendPotentialPeersProposal {
+            at: Instant::now(),
+            peers: dbg!(dns_lookup_peers(&self.bootstrap_addresses, &ctx.system.log()))
+                .into_iter()
+                .map(|x| x.into()),
+        });
+
+        let proposer = TezedgeProposer::new(
+            TezedgeProposerConfig {
+                wait_for_events_timeout: Some(Duration::from_millis(250)),
+                events_limit: 1024,
+            },
+            tezedge_state,
+            MioEvents::new(),
+            mio_manager,
+        );
+
+        let network_channel = self.network_channel.clone();
         let log = ctx.system.log();
 
         // start to listen for incoming p2p connections
-        self.tokio_executor.spawn(async move {
-            begin_listen_incoming(listener_address, peers, myself, rx_run, &log).await;
+        std::thread::spawn(move || {
+            run(proposer, proposer_rx, network_channel, &log);
         });
-    }
-
-    fn post_start(&mut self, ctx: &Context<Self::Msg>) {
-        if let Err(e) = self.discover_peers(&ctx.system.log()) {
-            warn!(ctx.system.log(), "Failed to discovery peers on startup"; "reason" => format!("{:?}", e));
-        }
-        if let Err(e) = self.try_to_connect_to_potential_peers(ctx) {
-            warn!(ctx.system.log(), "Failed to connect to potential peers on startup"; "reason" => format!("{:?}", e));
-        }
-    }
-
-    fn post_stop(&mut self) {
-        self.rx_run.store(false, Ordering::Relaxed);
-    }
-
-    fn sys_recv(
-        &mut self,
-        ctx: &Context<Self::Msg>,
-        msg: SystemMsg,
-        sender: Option<BasicActorRef>,
-    ) {
-        if let SystemMsg::Event(evt) = msg {
-            self.receive(ctx, evt, sender);
-        }
     }
 
     fn recv(&mut self, ctx: &Context<Self::Msg>, msg: Self::Msg, sender: Sender) {
         self.receive(ctx, msg, sender);
-    }
-}
-
-impl Receive<DeadLetter> for PeerManager {
-    type Msg = PeerManagerMsg;
-
-    fn receive(
-        &mut self,
-        ctx: &Context<Self::Msg>,
-        msg: DeadLetter,
-        _sender: Option<BasicActorRef>,
-    ) {
-        // ignore other actors
-        if !P2pPeers::is_peer_actor_name(msg.recipient.name()) {
-            return;
-        }
-
-        // try to remove peers actor
-        let peer_actor_uri = msg.recipient.uri();
-        match self.peers.try_remove_peer_actor(peer_actor_uri) {
-            Ok(was_removed) => {
-                if was_removed {
-                    // kick immediatelly if it is a peer's actor and try_remove
-                    ctx.system.stop(msg.recipient);
-                } else {
-                    // just send stalled peer msg (to give chance to cleanup)
-                    self.network_channel.tell(
-                        Publish {
-                            msg: NetworkChannelMsg::PeerStalled(Arc::new(peer_actor_uri.clone())),
-                            topic: NetworkChannelTopic::NetworkEvents.into(),
-                        },
-                        None,
-                    );
-                }
-            }
-            Err(e) => {
-                warn!(ctx.system.log(), "Failed to lock `peers` state and remove peer (dead letter)";
-                                                                  "peer_actor" => peer_actor_uri.to_string(),
-                                                                  "reason" => format!("{:?}", e))
-            }
-        }
-    }
-}
-
-impl Receive<LogPeerStats> for PeerManager {
-    type Msg = PeerManagerMsg;
-
-    fn receive(&mut self, ctx: &Context<Self::Msg>, _: LogPeerStats, _: Sender) {
-        // TODO: TE-490 - check actors vs peers and vice versa - kil//stop/remove
-        let connected_peers_count = match self.peers.connected_peers.read() {
-            Ok(connected_peers) => connected_peers.len().to_string(),
-            Err(_) => "-failed-to-collect-".to_string(),
-        };
-        let potential_peers_count = match self.peers.potential_peers.read() {
-            Ok(potential_peers) => potential_peers.len().to_string(),
-            Err(_) => "-failed-to-collect-".to_string(),
-        };
-        info!(ctx.system.log(), "Peer manager info";
-            "connected_peers_count" => connected_peers_count,
-            "potential_peers_count" => potential_peers_count,
-            "incoming_connection_tickets_available" => self.peers.incoming_connection_tickets.available_permits(),
-            "blacklisted_ip_count" => self.ip_blacklist.len(),
-            "check_peer_count_last_elapsed" => match self.check_peer_count_last.as_ref() {
-                Some(time) => format!("{:?}", time.elapsed()),
-                None => "--none--".to_string()
-            },
-        );
     }
 }
 
@@ -730,55 +329,10 @@ impl Receive<ShellChannelMsg> for PeerManager {
 
     fn receive(&mut self, ctx: &Context<Self::Msg>, msg: ShellChannelMsg, _sender: Sender) {
         if let ShellChannelMsg::ShuttingDown(_) = msg {
-            unsubscribe_from_dead_letters(ctx.system.dead_letters(), ctx.myself());
-            self.shutting_down = true;
-            self.rx_run.store(false, Ordering::Release);
-        }
-    }
-}
-
-impl Receive<SystemEvent> for PeerManager {
-    type Msg = PeerManagerMsg;
-
-    fn receive(
-        &mut self,
-        ctx: &Context<Self::Msg>,
-        msg: SystemEvent,
-        _sender: Option<BasicActorRef>,
-    ) {
-        if let SystemEvent::ActorTerminated(evt) = msg {
-            // ignore other actors
-            if !P2pPeers::is_peer_actor_name(evt.actor.name()) {
-                return;
+            if let Some(proposer) = self.proposer.take() {
+                drop(proposer.sender);
+                proposer.waker.wake().unwrap();
             }
-
-            // try to remove peers actor
-            let peer_actor_uri = evt.actor.uri();
-            match self.peers.try_remove_peer_actor(peer_actor_uri) {
-                Ok(was_removed) => {
-                    if was_removed {
-                        self.trigger_check_peer_count(ctx);
-                    }
-                }
-                Err(e) => {
-                    warn!(ctx.system.log(), "Failed to lock `peers` state and remove peer (actor terminated)";
-                                                                  "peer_actor" => peer_actor_uri.to_string(),
-                                                                  "reason" => format!("{:?}", e))
-                }
-            }
-        }
-    }
-}
-
-impl Receive<CheckPeerCount> for PeerManager {
-    type Msg = PeerManagerMsg;
-
-    fn receive(&mut self, ctx: &Context<Self::Msg>, _msg: CheckPeerCount, _: Sender) {
-        if self.shutting_down {
-            return;
-        }
-        if let Err(e) = self.check_peer_count(ctx) {
-            warn!(ctx.system.log(), "Failed to check peer count"; "reason" => format!("{:?}", e));
         }
     }
 }
@@ -787,239 +341,123 @@ impl Receive<NetworkChannelMsg> for PeerManager {
     type Msg = PeerManagerMsg;
 
     fn receive(&mut self, ctx: &Context<Self::Msg>, msg: NetworkChannelMsg, _: Sender) {
-        if let Err(e) = self.process_network_channel_message(ctx, msg) {
-            warn!(ctx.system.log(), "Failed to process network channel message"; "reason" => format!("{:?}", e));
-        }
-    }
-}
-
-impl Receive<WhitelistAllIpAddresses> for PeerManager {
-    type Msg = PeerManagerMsg;
-
-    fn receive(
-        &mut self,
-        ctx: &Context<Self::Msg>,
-        _msg: WhitelistAllIpAddresses,
-        _sender: Sender,
-    ) {
-        info!(ctx.system.log(), "Whitelisting all IP addresses");
-        self.ip_blacklist.clear();
-    }
-}
-
-impl Receive<ConnectToPeer> for PeerManager {
-    type Msg = PeerManagerMsg;
-
-    fn receive(&mut self, ctx: &Context<Self::Msg>, msg: ConnectToPeer, _sender: Sender) {
-        // received message instructing this actor that it should open new p2p connection to the remote peer
-
-        if self.is_blacklisted(&msg.address.ip()) {
-            debug!(ctx.system.log(), "Peer is blacklisted - will not connect"; "ip" => format!("{}", msg.address.ip()));
-            return;
-        }
-
-        // spawn non-blocking tcp stream for outgoing connection
-        let system = ctx.system.clone();
-        let local_node_info = self.local_node_info.clone();
-        let network_channel = self.network_channel.clone();
-        let tokio_executor = self.tokio_executor.clone();
-        let disable_mempool = self.disable_mempool;
-        let private_node = self.private_node;
-        let peers = self.peers.clone();
-
-        self.tokio_executor.spawn(async move {
-            let log = system.log();
-            debug!(log, "(Outgoing) Connecting to IP"; "ip" => msg.address);
-            match timeout(CONNECT_TIMEOUT, TcpStream::connect(&msg.address)).await {
-                Ok(Ok(stream)) => {
-                    debug!(log, "(Outgoing) Connection to peer successful, so start bootstrapping"; "incoming" => false, "ip" => msg.address);
-                    match bootstrap(Bootstrap::outgoing(stream, msg.address.clone(), disable_mempool, private_node), local_node_info, &log).await {
-                        Ok(bootstrap_output) => {
-                            match Self::create_peer(&system, network_channel.clone(), tokio_executor, bootstrap_output) {
-                                Ok(peer) => {
-                                    if let Err(e) = peers.add_outgoing_peer(peer.clone(), msg.address) {
-                                        warn!(log, "Failed to add outgoing peer to state - stopping peer actor"; "reason" => format!("{:?}", e));
-                                        system.stop(peer);
-                                    }
-                                }
-                                Err(e) => {
-                                    warn!(log, "(Outgoing) Connection failed to create peer actor"; "ip" => format!("{}", msg.address.ip()), "reason" => format!("{}", e))
-                                }
-                            }
-                        }
-                        Err(err) => {
-                            warn!(log, "(Outgoing) Connection handshake to peer failed"; "incoming" => false, "reason" => format!("{}", &err), "ip" => &msg.address);
-                            failed_bootstrap_peer(err, msg.address, network_channel);
-                        }
-                    }
-                }
-                Ok(Err(e)) => {
-                    info!(log, "(Outgoing) Connection to peer failed"; "ip" => msg.address, "reason" => format!("{:?}", e));
-                }
-                Err(_) => {
-                    info!(log, "(Outgoing) Connection timed out"; "ip" => msg.address);
-                }
-            }
-        });
-    }
-}
-
-impl Receive<AcceptPeer> for PeerManager {
-    type Msg = PeerManagerMsg;
-
-    fn receive(&mut self, ctx: &Context<Self::Msg>, msg: AcceptPeer, _sender: Sender) {
-        if self.is_blacklisted(&msg.address.ip()) {
-            warn!(ctx.system.log(), "Peer is blacklisted - will not accept connection"; "ip" => format!("{}", msg.address.ip()));
-            return;
-        }
-
-        // TODO: TE-490 - allow here accept randomly more connections
-        // if we came here we wont drop connection here, just send correct Nack
-        match self.peers.is_max_connections_exceeded() {
-            Ok(false) => {
-                debug!(ctx.system.log(), "Connection from"; "ip" => msg.address);
-
-                let system = ctx.system.clone();
-                let local_node_info = self.local_node_info.clone();
-                let network_channel = self.network_channel.clone();
-                let tokio_executor = self.tokio_executor.clone();
-                let disable_mempool = self.disable_mempool;
-                let private_node = self.private_node;
-                let peers = self.peers.clone();
-
-                self.tokio_executor.spawn(async move {
-                    let log = system.log();
-                    debug!(log, "Bootstrapping"; "incoming" => true, "ip" => &msg.address);
-                    match bootstrap(Bootstrap::incoming(msg.stream, msg.address.clone(), disable_mempool, private_node), local_node_info, &log).await {
-                        Ok(bootstrap_output) => {
-                            match Self::create_peer(&system, network_channel.clone(), tokio_executor, bootstrap_output) {
-                                Ok(peer) => {
-                                    if let Err(e) = peers.add_incoming_peer(peer.clone(), msg.address) {
-                                        warn!(log, "Failed to add incoming peer to state - stopping peer actor"; "reason" => format!("{:?}", e));
-                                        system.stop(peer);
-                                    }
-                                },
-                                Err(e) => {
-                                    warn!(log, "Failed to process connection from peer - create peer actor error"; "ip" => format!("{}", msg.address.ip()), "reason" => format!("{}", e));
-                                }
-                            }
-                        }
-                        Err(err) => {
-                            warn!(log, "Connection to peer failed"; "incoming" => true, "reason" => format!("{}", &err), "ip" => &msg.address);
-                            failed_bootstrap_peer(err, msg.address, network_channel);
-                        }
-                    }
-                });
-            }
-            Ok(true) => {
-                debug!(
-                    ctx.system.log(),
-                    "Cannot accept incoming peer connection because peer limit was reached - dropping incoming connection"
-                );
-                // TODO: TE-490 - better handle Nack TooManyConnetions here instead of drop
-                // not needed, just wanted to be explicit here
-                drop(msg.stream);
-                drop(msg.permit);
-            }
-            Err(e) => {
-                warn!(
-                    ctx.system.log(),
-                    "Failed to resolve `max_connections_exceeded` - dropping incoming connection";
-                    "reason" => format!("{:?}", e)
-                );
-                // not needed, just wanted to be explicit here
-                drop(msg.stream);
-                drop(msg.permit);
+        if let Some(proposer) = self.proposer.as_ref() {
+            if let Err(err) = proposer.notify(msg) {
+                warn!(ctx.system.log(), "Failed to notify proposer"; "reason" => format!("{:?}", err));
             }
         }
     }
 }
 
-fn failed_bootstrap_peer(
-    err: PeerError,
-    peer_address: SocketAddr,
+fn run(
+    mut proposer: TezedgeProposer<MioEvents, MioManager>,
+    rx: mpsc::Receiver<ProposerMsg>,
     network_channel: NetworkChannelRef,
-) {
-    let potential_peers = match err {
-        PeerError::NackWithMotiveReceived { nack_info } => {
-            Some(nack_info.potential_peers_to_connect().clone())
-        }
-        _ => None,
-    };
-
-    // notify that peer failed at bootstrap process
-    network_channel.tell(
-        Publish {
-            msg: NetworkChannelMsg::ProcessFailedBootstrapAddress(PeerBootstrapFailed {
-                address: peer_address,
-                potential_peers_to_connect: potential_peers,
-            }),
-            topic: NetworkChannelTopic::NetworkCommands.into(),
-        },
-        None,
-    );
-}
-
-/// Start to listen for incoming connections indefinitely.
-async fn begin_listen_incoming(
-    listener_address: SocketAddr,
-    peers: Arc<P2pPeers>,
-    peer_manager: PeerManagerRef,
-    rx_run: Arc<AtomicBool>,
     log: &Logger,
 ) {
-    // TODO: TE-386 - remove expect and handle bind error
-    let listener = TcpListener::bind(&listener_address)
-        .await
-        .expect("Failed to bind to address");
-    info!(log, "Start to listen for incoming p2p connections"; "listener_address" => listener_address);
+    let bootstrap_message = PeerMessageResponse::from(PeerMessage::Bootstrap).as_bytes().unwrap();
+    loop {
+        proposer.make_progress();
 
-    while rx_run.load(Ordering::Acquire) {
-        match listener.accept().await {
-            Ok((stream, address)) => {
-                if rx_run.load(Ordering::Acquire) {
-                    // here we are very strict, if we exceeded max incoming connections threashold,
-                    // we will drop next connections
-                    match peers.try_acquire_incoming_connection_permit() {
-                        Ok(Some(permit)) => {
-                            peer_manager.tell(
-                                AcceptPeer {
-                                    stream: Arc::new(Mutex::new(Some(stream))),
-                                    permit,
-                                    address,
-                                },
-                                None,
-                            );
-                        }
-                        Ok(None) => {
-                            debug!(
-                                log,
-                                "No more permits (exceeded) for incoming connection - dropping incoming connection";
-                                "socket_addr" => address.to_string(),
-                            );
-                            // not needed, just wanted to be explicit here
-                            drop(stream);
-                        }
-                        Err(e) => {
-                            warn!(
-                                log,
-                                "Failed to get permit for incoming connection - dropping incoming connection";
-                                "socket_addr" => address.to_string(),
-                                "reason" => format!("{:?}", e),
-                            );
-                            // not needed, just wanted to be explicit here
-                            drop(stream);
-                        }
-                    }
+        for notification in proposer.take_notifications() {
+            match notification {
+                Notification::HandshakeSuccessful {
+                    peer_address,
+                    peer_public_key_hash,
+                    metadata,
+                    network_version,
+                } => {
+                    network_channel.tell(Publish {
+                        msg: NetworkChannelMsg::PeerBootstrapped(
+                            Arc::new(PeerId {
+                                address: peer_address,
+                                public_key_hash: peer_public_key_hash,
+                            }),
+                            metadata,
+                            Arc::new(network_version),
+                        ),
+                        topic: NetworkChannelTopic::NetworkEvents.into(),
+                    }, None);
+
+                    proposer.send_message_to_peer_or_queue(peer_address, &bootstrap_message);
+                }
+                Notification::MessageReceived { peer, message } => {
+                    network_channel.tell(Publish {
+                        msg: NetworkChannelMsg::PeerMessageReceived(PeerMessageReceived {
+                            peer_address: peer,
+                            message: Arc::new(message.into()),
+                        }),
+                        topic: NetworkChannelTopic::NetworkEvents.into(),
+                    }, None);
+                }
+                Notification::PeerDisconnected { peer } => {
+                    network_channel.tell(
+                        Publish {
+                            // TODO: probably this should be separate Disconnect msg.
+                            msg: NetworkChannelMsg::PeerDisconnected(peer),
+                            topic: NetworkChannelTopic::NetworkEvents.into(),
+                        },
+                        None,
+                    );
+                }
+                Notification::PeerBlacklisted { peer } => {
+                    network_channel.tell(
+                        Publish {
+                            msg: NetworkChannelMsg::PeerBlacklisted(peer),
+                            topic: NetworkChannelTopic::NetworkEvents.into(),
+                        },
+                        None,
+                    );
                 }
             }
-            Err(e) => crit!(log, "Failed to accept on p2p socket";
-                                 "reason" => e,
-                                 "listener_address" => listener_address),
+        }
+
+        loop {
+            match rx.try_recv() {
+                Ok(ProposerMsg::NetworkChannel(msg)) => {
+                    match msg {
+                        NetworkChannelMsg::ProcessAdvertisedPeers(peer_id, message) => {
+                            // extract potential peers from the advertise message
+                            info!(log, "Received advertise message"; "peer_ip" => peer_id.address.to_string(), "peers" => format!("{:?}", message.id().join(", ")));
+                            proposer.state.accept(ExtendPotentialPeersProposal {
+                                at: Instant::now(),
+                                peers: message
+                                    .id()
+                                    .iter()
+                                    .filter_map(|str_ip_port| str_ip_port.parse().ok())
+                                    .map(|addr: SocketAddr| addr.into()),
+                            })
+                        }
+                        NetworkChannelMsg::SendBootstrapPeers(peer_id) => {
+                            trace!(log, "Received bootstrap message"; "peer_ip" => peer_id.address.to_string());
+                            // TODO: send some potential peers
+                            let msg = Arc::new(AdvertiseMessage::new(&vec![]).into());
+                            network_channel.tell(Publish {
+                                msg: NetworkChannelMsg::SendMessage(peer_id, msg),
+                                topic: NetworkChannelTopic::NetworkCommands.into(),
+                            }, None);
+                        }
+                        NetworkChannelMsg::PeerStalled(peer_id) => {
+                            proposer.disconnect_peer(Instant::now(), peer_id.address);
+                        }
+                        NetworkChannelMsg::BlacklistPeer(peer_id, reason) => {
+                            proposer.blacklist_peer(Instant::now(), peer_id.address);
+                        }
+                        NetworkChannelMsg::SendMessage(peer_id, message) => {
+                            if let Ok(msg) = message.as_bytes() {
+                                proposer.send_message_to_peer_or_queue(peer_id.address, &msg);
+                            } else {
+                                trace!(log, "failed to encode PeerMessageResponse"; "message" => format!("{:?}", message));
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => return,
+            }
         }
     }
-
-    info!(log, "Stop listening for incoming p2p connections"; "listener_address" => listener_address);
 }
 
 /// Do DNS lookup for collection of names and create collection of socket addresses
@@ -1071,332 +509,4 @@ fn resolve_dns_name_to_peer_address(
             })
             .collect();
     Ok(addrs)
-}
-
-/// Holds information about a specific peer.
-#[derive(Clone)]
-struct P2pPeerState {
-    peer_ref: PeerRef,
-    peer_address: SocketAddr,
-    bootstrap_requested_last: Option<Instant>,
-}
-
-/// Represents inner state of PeerManager about p2p peers sharable between threads
-pub(crate) struct P2pPeers {
-    /// Threshold configration for peers
-    peers_threshold: Arc<PeerConnectionThreshold>,
-
-    /// Map of all connected peers (incoming + outgoing)
-    connected_peers: Arc<RwLock<HashMap<ActorUri, P2pPeerState>>>,
-
-    /// Semaphore for limiting incoming connections
-    incoming_connection_tickets: Arc<Semaphore>,
-
-    /// List of potential peers to connect to
-    potential_peers: Arc<RwLock<HashSet<SocketAddr>>>,
-}
-
-impl P2pPeers {
-    fn new(peers_threshold: Arc<PeerConnectionThreshold>) -> Self {
-        let max_incoming_connection_tickets = {
-            if peers_threshold.high == 1 {
-                1
-            } else {
-                match peers_threshold.high.checked_div(2) {
-                    Some(half) => half,
-                    None => peers_threshold.low,
-                }
-            }
-        };
-        Self {
-            potential_peers: Arc::new(RwLock::new(HashSet::new())),
-            incoming_connection_tickets: Arc::new(Semaphore::new(max_incoming_connection_tickets)),
-            connected_peers: Arc::new(RwLock::new(HashMap::new())),
-            peers_threshold,
-        }
-    }
-
-    fn add_outgoing_peer(
-        &self,
-        peer_ref: PeerRef,
-        peer_address: SocketAddr,
-    ) -> Result<(), PeerManagerError> {
-        // TODO: TE-490 - handle AlreadyConnected
-        let _ = self.connected_peers.write()?.insert(
-            peer_ref.uri().clone(),
-            P2pPeerState {
-                peer_ref,
-                peer_address,
-                bootstrap_requested_last: None,
-            },
-        );
-        Ok(())
-    }
-
-    fn add_incoming_peer(
-        &self,
-        peer_ref: PeerRef,
-        peer_address: SocketAddr,
-    ) -> Result<(), PeerManagerError> {
-        // TODO: TE-490 - handle AlreadyConnected
-        let _ = self.connected_peers.write()?.insert(
-            peer_ref.uri().clone(),
-            P2pPeerState {
-                peer_ref,
-                peer_address,
-                bootstrap_requested_last: None,
-            },
-        );
-        Ok(())
-    }
-
-    /// Tries to remove peer_actor_uri from state.
-    /// Returns true if contained and was removed.
-    fn try_remove_peer_actor(&self, peer_actor_uri: &ActorUri) -> Result<bool, PeerManagerError> {
-        // try remove peers from map
-        let removed_peer_state = self.connected_peers.write()?.remove(peer_actor_uri);
-
-        // try remove SocketAddr also from potential_peers (avoid connecting to the same peeer)
-        if let Some(removed_peer_state) = removed_peer_state {
-            let _ = self
-                .potential_peers
-                .write()?
-                .remove(&removed_peer_state.peer_address);
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    fn try_acquire_incoming_connection_permit(
-        &self,
-    ) -> Result<Option<IncomingConnectionPermit>, PeerManagerError> {
-        match self.incoming_connection_tickets.clone().try_acquire_owned() {
-            Ok(permit) => {
-                // if total connections is exceeded, we cannot pass
-                if self.is_max_connections_exceeded()? {
-                    // not needed, just to be explicit
-                    drop(permit);
-                    return Ok(None);
-                }
-                Ok(Some(Arc::new(permit)))
-            }
-            Err(_) => Ok(None),
-        }
-    }
-
-    fn is_max_connections_exceeded(&self) -> Result<bool, PeerManagerError> {
-        Ok(self.connected_peers.read()?.len() >= self.peers_threshold.high)
-    }
-
-    fn generate_next_peer_actor_name() -> String {
-        let actor_id = ACTOR_ID_GENERATOR.fetch_add(1, Ordering::SeqCst);
-        format!("peer-{}", actor_id)
-    }
-
-    fn is_peer_actor_name(actor_name: &str) -> bool {
-        if let Some(rest) = actor_name.strip_prefix("peer-") {
-            rest.chars().all(char::is_numeric)
-        } else {
-            false
-        }
-    }
-}
-
-/// Calculates the number of required peers to reach `low + (high - low)/4`.
-fn count_of_required_peers(connected: usize, low: usize, high: usize) -> usize {
-    debug_assert!(low <= high);
-    (high / 4)
-        .checked_sub(low / 4)
-        .and_then(|v| v.checked_add(low))
-        .and_then(|v| v.checked_sub(connected))
-        .unwrap_or(0)
-}
-
-#[cfg(test)]
-pub mod tests {
-    use super::*;
-
-    use crate::state::peer_state::PeerState;
-    use crate::state::tests::prerequisites::{
-        create_logger, create_test_actor_system, create_test_tokio_runtime, test_peer,
-    };
-    use networking::p2p::network_channel::NetworkChannel;
-    use slog::Level;
-
-    #[test]
-    fn test_peer_actor_name() {
-        assert!(P2pPeers::is_peer_actor_name(
-            &P2pPeers::generate_next_peer_actor_name()
-        ));
-        assert!(P2pPeers::is_peer_actor_name("peer-1"));
-        assert!(P2pPeers::is_peer_actor_name("peer-6100"));
-        assert!(P2pPeers::is_peer_actor_name("peer-456566100"));
-        assert!(!P2pPeers::is_peer_actor_name("peer-456566100-"));
-        assert!(!P2pPeers::is_peer_actor_name("peer-456566100-b"));
-        assert!(!P2pPeers::is_peer_actor_name("peer-456566100-0"));
-        assert!(!P2pPeers::is_peer_actor_name(
-            "peer-456566100-branch-bootstrap"
-        ));
-    }
-
-    #[test]
-    fn test_p2p_peers_max_connection_management() {
-        // prerequisities
-        let log = create_logger(Level::Debug);
-        let tokio_runtime = create_test_tokio_runtime();
-        let actor_system = create_test_actor_system(log.clone());
-        let network_channel =
-            NetworkChannel::actor(&actor_system).expect("Failed to create network channel");
-
-        // cfg
-        let threshold_high = 3;
-        let incoming_threshold_high = 2;
-
-        let p2p_peers = P2pPeers {
-            potential_peers: Arc::new(RwLock::new(HashSet::new())),
-            incoming_connection_tickets: Arc::new(Semaphore::new(incoming_threshold_high)),
-            connected_peers: Arc::new(RwLock::new(HashMap::new())),
-            peers_threshold: Arc::new(
-                PeerConnectionThreshold::try_new(0, threshold_high, None).expect("Incorrect range"),
-            ),
-        };
-
-        // test
-        assert!(!p2p_peers.is_max_connections_exceeded().unwrap());
-
-        // test incoming
-        {
-            // needs to be in scope (after scope it is released)
-            // can have max incoming_threshold_high
-            let permit1 = p2p_peers.try_acquire_incoming_connection_permit().unwrap();
-            assert!(permit1.is_some());
-            let permit2 = p2p_peers.try_acquire_incoming_connection_permit().unwrap();
-            assert!(permit2.is_some());
-            let permit3 = p2p_peers.try_acquire_incoming_connection_permit().unwrap();
-            assert!(permit3.is_none());
-        }
-
-        // add peer 1 as incoming
-        {
-            // try permit for incoming
-            assert_eq!(2, p2p_peers.incoming_connection_tickets.available_permits());
-            let permit = p2p_peers.try_acquire_incoming_connection_permit().unwrap();
-            assert!(permit.is_some());
-            assert_eq!(1, p2p_peers.incoming_connection_tickets.available_permits());
-
-            // register as incoming
-            let PeerState { peer_id, .. } =
-                test_peer(&actor_system, network_channel.clone(), &tokio_runtime, 7777);
-            p2p_peers
-                .add_incoming_peer(peer_id.peer_ref.clone(), peer_id.peer_address)
-                .unwrap();
-
-            // we have more left
-            assert!(!p2p_peers.is_max_connections_exceeded().unwrap());
-            assert_eq!(1, p2p_peers.connected_peers.read().unwrap().len());
-        }
-
-        // add peer 2 as incoming
-        {
-            // try permit for incoming
-            assert_eq!(2, p2p_peers.incoming_connection_tickets.available_permits());
-            let permit = p2p_peers.try_acquire_incoming_connection_permit().unwrap();
-            assert!(permit.is_some());
-            assert_eq!(1, p2p_peers.incoming_connection_tickets.available_permits());
-
-            // register as incoming
-            let PeerState { peer_id, .. } =
-                test_peer(&actor_system, network_channel.clone(), &tokio_runtime, 7778);
-            p2p_peers
-                .add_incoming_peer(peer_id.peer_ref.clone(), peer_id.peer_address)
-                .unwrap();
-
-            // we have more left
-            assert!(!p2p_peers.is_max_connections_exceeded().unwrap());
-            assert_eq!(2, p2p_peers.connected_peers.read().unwrap().len());
-        }
-
-        // not exceeded yet
-        assert!(!p2p_peers.is_max_connections_exceeded().unwrap());
-
-        // register as outgoing
-        let PeerState { peer_id, .. } =
-            test_peer(&actor_system, network_channel.clone(), &tokio_runtime, 7779);
-        p2p_peers
-            .add_outgoing_peer(peer_id.peer_ref.clone(), peer_id.peer_address)
-            .unwrap();
-
-        // exceeded yet
-        assert!(p2p_peers.is_max_connections_exceeded().unwrap());
-
-        // check permits for incoming - all available
-        assert_eq!(2, p2p_peers.incoming_connection_tickets.available_permits());
-        // but aquire failed - because total exceeded
-        assert!(p2p_peers
-            .try_acquire_incoming_connection_permit()
-            .unwrap()
-            .is_none());
-
-        // now remove one peers
-        assert!(p2p_peers
-            .try_remove_peer_actor(peer_id.peer_ref.uri())
-            .expect("error"));
-
-        // not exceeded
-        assert!(!p2p_peers.is_max_connections_exceeded().unwrap());
-
-        // now aquire works
-        assert!(p2p_peers
-            .try_acquire_incoming_connection_permit()
-            .unwrap()
-            .is_some());
-    }
-
-    fn check_count_of_required_peers(current: usize, low: usize, high: usize) {
-        if low > high {
-            return;
-        }
-        let required = super::count_of_required_peers(current, low, high);
-        if current <= high {
-            assert!((low..=high).contains(&(current + required)));
-        } else {
-            assert_eq!(required, 0);
-        }
-    }
-
-    #[test]
-    fn test_count_of_required_peers() {
-        let thresh: &[(usize, usize)] = &[
-            (0, 0),
-            (0, 1),
-            (1, 1),
-            (10, 10),
-            (10, 15),
-            (60, 80),
-            (100, 150),
-        ];
-        for i in thresh.into_iter() {
-            let (low, high) = i;
-            for current in 0..high * 2 {
-                check_count_of_required_peers(current, *low, *high);
-            }
-        }
-    }
-
-    // tests for overflow with extreme values
-    #[test]
-    fn test_count_of_required_peers_extreme() {
-        let m = usize::max_value();
-        let m2 = m / 2;
-        let vals = &[0, 1, m2 - 1, m2, m2 + 1, m - 1, m];
-
-        for curr in vals {
-            for low in vals {
-                for high in vals {
-                    check_count_of_required_peers(*curr, *low, *high);
-                }
-            }
-        }
-    }
 }

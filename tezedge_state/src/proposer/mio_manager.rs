@@ -200,6 +200,13 @@ impl Manager for MioManager {
         self.peers.get_mut(event.token().into())
     }
 
+    fn get_peer(&mut self, address: &PeerAddress) -> Option<&mut NetPeer> {
+        match self.address_to_token.get(address) {
+            Some(&token) => self.peers.get_mut(token),
+            None => None,
+        }
+    }
+
     fn get_peer_or_connect_mut(&mut self, address: &PeerAddress) -> io::Result<&mut NetPeer> {
         if let Some(&token) = self.address_to_token.get(address) {
             if let Some(_) = self.peers.get(token) {

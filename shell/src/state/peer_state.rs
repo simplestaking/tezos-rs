@@ -6,11 +6,11 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use networking::p2p::network_channel::{NetworkChannelMsg, NetworkChannelRef, NetworkChannelTopic};
 use riker::actors::*;
 
 use crypto::hash::{BlockHash, OperationHash};
-use networking::p2p::peer::SendMessage;
-use networking::PeerId;
+use networking::{PeerId, PeerAddress};
 use storage::mempool_storage::MempoolOperationType;
 use storage::BlockHeaderWithHash;
 use tezos_messages::p2p::encoding::block_header::Level;
@@ -156,7 +156,10 @@ impl PeerState {
             .push((operation_hash, mempool_type));
     }
 
-    pub fn schedule_missing_operations_for_mempool(peers: &mut HashMap<ActorUri, PeerState>) {
+    pub fn schedule_missing_operations_for_mempool(
+        network_channel: NetworkChannelRef,
+        peers: &mut HashMap<PeerAddress, PeerState>,
+    ) {
         peers
             .values_mut()
             .filter(|peer| !peer.missing_mempool_operations.is_empty())
@@ -189,10 +192,18 @@ impl PeerState {
                     ops_to_get
                         .chunks(limits::GET_OPERATIONS_MAX_LENGTH)
                         .for_each(|ops_to_get| {
-                            tell_peer(GetOperationsMessage::new(ops_to_get.into()).into(), peer)
+                            tell_peer(
+                                network_channel.clone(),
+                                peer,
+                                GetOperationsMessage::new(ops_to_get.into()).into(),
+                            )
                         });
                 } else {
-                    tell_peer(GetOperationsMessage::new(ops_to_get).into(), peer);
+                    tell_peer(
+                        network_channel.clone(),
+                        peer,
+                        GetOperationsMessage::new(ops_to_get).into(),
+                    );
                 }
             });
     }
@@ -332,6 +343,13 @@ impl UpdateIsBootstrapped for PeerState {
     }
 }
 
-pub fn tell_peer(msg: Arc<PeerMessageResponse>, peer: &PeerState) {
-    peer.peer_id.peer_ref.tell(SendMessage::new(msg), None);
+pub fn tell_peer(
+    network_channel: NetworkChannelRef,
+    peer: &PeerState,
+    msg: Arc<PeerMessageResponse>,
+) {
+    network_channel.tell(Publish {
+        msg: NetworkChannelMsg::SendMessage(peer.peer_id.clone(), msg),
+        topic: NetworkChannelTopic::NetworkCommands.into(),
+    }, None);
 }

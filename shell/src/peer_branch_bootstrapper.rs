@@ -9,6 +9,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use networking::PeerAddress;
+use networking::p2p::network_channel::NetworkChannelMsg;
+use networking::p2p::network_channel::NetworkChannelRef;
+use networking::p2p::network_channel::NetworkChannelTopic;
 use rand::Rng;
 use riker::actors::*;
 use slog::{info, warn, Logger};
@@ -22,7 +26,6 @@ use crate::shell_channel::ShellChannelRef;
 use crate::state::bootstrap_state::{AddBranchState, BootstrapState, InnerBlockState};
 use crate::state::data_requester::DataRequesterRef;
 use crate::state::peer_state::DataQueues;
-use crate::subscription::subscribe_to_actor_terminated;
 
 /// After this interval, we will check peers, if no activity is done on any pipeline
 /// So if peer does not change any branch bootstrap, we will disconnect it
@@ -39,7 +42,7 @@ const LOG_INTERVAL: Duration = Duration::from_secs(60);
 pub struct DisconnectStalledBootstraps;
 
 #[derive(Clone, Debug)]
-pub struct CleanPeerData(pub Arc<ActorUri>);
+pub struct CleanPeerData(pub Arc<PeerId>);
 
 #[derive(Clone, Debug)]
 pub struct LogStats;
@@ -182,9 +185,9 @@ pub type PeerBranchBootstrapperRef = ActorRef<PeerBranchBootstrapperMsg>;
     DisconnectStalledBootstraps,
     CleanPeerData,
     LogStats,
-    SystemEvent
 )]
 pub struct PeerBranchBootstrapper {
+    network_channel: NetworkChannelRef,
     chain_id: Arc<ChainId>,
     bootstrap_state: BootstrapState,
     /// Count of received messages from the last log
@@ -207,11 +210,12 @@ impl PeerBranchBootstrapper {
         chain_id: Arc<ChainId>,
         requester: DataRequesterRef,
         shell_channel: ShellChannelRef,
+        network_channel: NetworkChannelRef,
         cfg: PeerBranchBootstrapperConfiguration,
     ) -> Result<PeerBranchBootstrapperRef, CreateError> {
         sys.actor_of_props::<PeerBranchBootstrapper>(
             &format!("peer-branch-bootstrapper-{}", &chain_id.to_base58_check()),
-            Props::new_args((chain_id, requester, shell_channel, cfg)),
+            Props::new_args((chain_id, requester, shell_channel, network_channel, cfg)),
         )
     }
 
@@ -240,7 +244,7 @@ impl PeerBranchBootstrapper {
         peer_id: Arc<PeerId>,
     ) {
         // if not scheduled for peer, schedule one
-        if let Some(peer_state) = self.bootstrap_state.peers.get_mut(peer_id.peer_ref.uri()) {
+        if let Some(peer_state) = self.bootstrap_state.peers.get_mut(&peer_id.address) {
             if !peer_state.is_already_scheduled_ping_for_process_all_bootstrap_pipelines {
                 peer_state.is_already_scheduled_ping_for_process_all_bootstrap_pipelines = true;
                 // schedule with delay
@@ -263,8 +267,8 @@ impl PeerBranchBootstrapper {
         std::mem::replace(&mut self.actor_received_messages_count, 0)
     }
 
-    fn clean_peer_data(&mut self, actor: &ActorUri) {
-        self.bootstrap_state.clean_peer_data(actor);
+    fn clean_peer_data(&mut self, peer_address: &PeerAddress) {
+        self.bootstrap_state.clean_peer_data(peer_address);
     }
 
     fn process_bootstrap_pipelines(
@@ -306,18 +310,21 @@ impl
         Arc<ChainId>,
         DataRequesterRef,
         ShellChannelRef,
+        NetworkChannelRef,
         PeerBranchBootstrapperConfiguration,
     )> for PeerBranchBootstrapper
 {
     fn create_args(
-        (chain_id, requester, shell_channel, cfg): (
+        (chain_id, requester, shell_channel, network_channel, cfg): (
             Arc<ChainId>,
             DataRequesterRef,
             ShellChannelRef,
+            NetworkChannelRef,
             PeerBranchBootstrapperConfiguration,
         ),
     ) -> Self {
         PeerBranchBootstrapper {
+            network_channel,
             chain_id,
             bootstrap_state: BootstrapState::new(requester, shell_channel),
             actor_received_messages_count: 0,
@@ -331,8 +338,6 @@ impl Actor for PeerBranchBootstrapper {
     type Msg = PeerBranchBootstrapperMsg;
 
     fn pre_start(&mut self, ctx: &Context<Self::Msg>) {
-        subscribe_to_actor_terminated(ctx.system.sys_events(), ctx.myself());
-
         ctx.schedule::<Self::Msg, _>(
             STALE_BOOTSTRAP_PEER_INTERVAL,
             STALE_BOOTSTRAP_PEER_INTERVAL,
@@ -373,7 +378,6 @@ impl Actor for PeerBranchBootstrapper {
             }
             PeerBranchBootstrapperMsg::CleanPeerData(_) => "CleanPeerData",
             PeerBranchBootstrapperMsg::LogStats(_) => "LogStats",
-            PeerBranchBootstrapperMsg::SystemEvent(_) => "SystemEvent",
         };
 
         self.receive(ctx, msg, sender);
@@ -385,28 +389,6 @@ impl Actor for PeerBranchBootstrapper {
                 msg_type,
                 timer.elapsed()
             );
-        }
-    }
-
-    fn sys_recv(
-        &mut self,
-        ctx: &Context<Self::Msg>,
-        msg: SystemMsg,
-        sender: Option<BasicActorRef>,
-    ) {
-        if let SystemMsg::Event(evt) = msg {
-            self.actor_received_messages_count += 1;
-            self.receive(ctx, evt, sender);
-        }
-    }
-}
-
-impl Receive<SystemEvent> for PeerBranchBootstrapper {
-    type Msg = PeerBranchBootstrapperMsg;
-
-    fn receive(&mut self, _: &Context<Self::Msg>, msg: SystemEvent, _: Option<BasicActorRef>) {
-        if let SystemEvent::ActorTerminated(evt) = msg {
-            self.clean_peer_data(evt.actor.uri());
         }
     }
 }
@@ -429,7 +411,7 @@ impl Receive<StartBranchBootstraping> for PeerBranchBootstrapper {
                 .collect::<Vec<String>>()
                 .join(", "),
             "to_level" => &msg.to_level,
-            "peer_id" => msg.peer_id.peer_id_marker.clone(), "peer_ip" => msg.peer_id.peer_address.to_string(), "peer" => msg.peer_id.peer_ref.name(), "peer_uri" => msg.peer_id.peer_ref.uri().to_string(),
+            "peer_ip" => msg.peer_id.address.to_string(),
         );
 
         // bootstrapper supports just one chain, if this will be issue, we need to create a new bootstrapper per chain_id
@@ -438,7 +420,7 @@ impl Receive<StartBranchBootstraping> for PeerBranchBootstrapper {
                 "peer_branch_bootstrapper_chain_id" => self.chain_id.to_base58_check(),
                 "requested_branch_chain_id" => msg.chain_id.to_base58_check(),
                 "last_applied_block" => msg.last_applied_block.to_base58_check(),
-                "peer_id" => msg.peer_id.peer_id_marker.clone(), "peer_ip" => msg.peer_id.peer_address.to_string(), "peer" => msg.peer_id.peer_ref.name(), "peer_uri" => msg.peer_id.peer_ref.uri().to_string(),
+                "peer_ip" => msg.peer_id.address.to_string(),
             );
             return;
         }
@@ -463,7 +445,7 @@ impl Receive<StartBranchBootstraping> for PeerBranchBootstrapper {
                        "started_in" => format!("{:?}", timer.elapsed()),
                        "to_level" => msg.to_level,
                        "new_branch" => if was_merged { "merged" } else { "created" },
-                       "peer_id" => msg.peer_id.peer_id_marker.clone(), "peer_ip" => msg.peer_id.peer_address.to_string(), "peer" => msg.peer_id.peer_ref.name(), "peer_uri" => msg.peer_id.peer_ref.uri().to_string(),
+                       "peer_ip" => msg.peer_id.address.to_string(),
             );
         }
     }
@@ -487,7 +469,7 @@ impl Receive<UpdateBranchBootstraping> for PeerBranchBootstrapper {
             let log = ctx.system.log();
             info!(log, "Branch bootstrapping process was updated with new block";
                        "new_block" => msg.current_head.hash.to_base58_check(),
-                       "peer_id" => msg.peer_id.peer_id_marker.clone(), "peer_ip" => msg.peer_id.peer_address.to_string(), "peer" => msg.peer_id.peer_ref.name(), "peer_uri" => msg.peer_id.peer_ref.uri().to_string(),
+                       "peer_ip" => msg.peer_id.address.to_string(),
             );
             // process
             self.process_bootstrap_pipelines(msg.peer_id, ctx, &log);
@@ -505,7 +487,7 @@ impl Receive<PingBootstrapPipelinesProcessing> for PeerBranchBootstrapper {
         _: Option<BasicActorRef>,
     ) {
         if let Some(peer) = ping.peer_id {
-            if let Some(peer_state) = self.bootstrap_state.peers.get_mut(peer.peer_ref.uri()) {
+            if let Some(peer_state) = self.bootstrap_state.peers.get_mut(&peer.address) {
                 peer_state.is_already_scheduled_ping_for_process_all_bootstrap_pipelines = false;
                 // if we have ping for peer, we trigger processing
                 self.process_bootstrap_pipelines(peer, ctx, &ctx.system.log());
@@ -532,7 +514,7 @@ impl Receive<CleanPeerData> for PeerBranchBootstrapper {
     type Msg = PeerBranchBootstrapperMsg;
 
     fn receive(&mut self, _: &Context<Self::Msg>, msg: CleanPeerData, _: Option<BasicActorRef>) {
-        self.clean_peer_data(&msg.0);
+        self.clean_peer_data(&msg.0.address);
     }
 }
 
@@ -672,6 +654,7 @@ impl Receive<DisconnectStalledBootstraps> for PeerBranchBootstrapper {
         let log = ctx.system.log();
 
         let PeerBranchBootstrapper {
+            network_channel,
             bootstrap_state,
             cfg,
             ..
@@ -679,7 +662,10 @@ impl Receive<DisconnectStalledBootstraps> for PeerBranchBootstrapper {
 
         bootstrap_state.check_bootstrapped_branches(&None, &log);
         bootstrap_state.check_stalled_peers(&cfg, &log, |peer| {
-            ctx.system.stop(peer.peer_ref.clone());
+            network_channel.tell(Publish {
+                msg: NetworkChannelMsg::PeerStalled(Arc::new(peer.clone())),
+                topic: NetworkChannelTopic::NetworkEvents.into(),
+            }, None);
         });
 
         self.schedule_process_all_bootstrap_pipelines(ctx);

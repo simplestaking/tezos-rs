@@ -4,7 +4,7 @@ use itertools::Itertools;
 
 use crypto::nonce::Nonce;
 use crypto::proof_of_work::ProofOfWork;
-use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryMessage};
+use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryWrite, BinaryRead};
 use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, MetadataMessage, NetworkVersion};
 use tezos_messages::p2p::encoding::ack::{AckMessage, NackInfo};
 use tezos_identity::Identity;
@@ -124,6 +124,7 @@ fn sequence_to_str(seq: &Vec<Messages>) -> String {
                 PeerDecodedMessageType::Ack(AckMessage::Ack) => "receive_ack",
                 PeerDecodedMessageType::Ack(AckMessage::NackV0) => "receive_nack_v0",
                 PeerDecodedMessageType::Ack(AckMessage::Nack(_)) => "receive_nack",
+                PeerDecodedMessageType::Message(_) => "message",
             }
         })
         .collect::<Vec<_>>()

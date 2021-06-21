@@ -7,7 +7,7 @@ use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryWrite};
 use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, AckMessage};
 use tezos_messages::p2p::encoding::ack::NackMotive;
 
-use crate::{Handshake, HandshakeStep, P2pState, PeerCrypto, RequestState, TezedgeState};
+use crate::{Handshake, HandshakeStep, P2pState, PeerCrypto, PendingRequest, PendingRequestState, RequestState, TezedgeState};
 use crate::proposals::{PeerProposal, PeerMessage};
 
 impl<M> Acceptor<PeerProposal<M>> for TezedgeState
@@ -24,6 +24,13 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
             // handle connected peer messages.
             match proposal.message.as_peer_msg(&mut peer.crypto) {
                 Ok(message) => {
+                    self.requests.insert(PendingRequestState {
+                        request: PendingRequest::PeerMessageReceived {
+                            peer: proposal.peer,
+                            message,
+                        },
+                        status: RequestState::Idle { at: proposal.at },
+                    });
                 }
                 Err(err) => {
                     eprintln!("ERROR while decoding/decrypting peer message {:?}, {:?}", proposal.message, err);

@@ -1,13 +1,16 @@
+use std::collections::VecDeque;
 use std::time::{Instant, Duration};
 use std::io::{self, Read, Write};
 use std::fmt::Debug;
 use bytes::Buf;
 
+use crypto::hash::CryptoboxPublicKeyHash;
 use tla_sm::{Acceptor, GetRequests};
 
+use tezos_messages::p2p::encoding::peer::PeerMessageResponse;
 use tezos_messages::p2p::binary_message::{BinaryMessage, BinaryChunk, BinaryChunkError, CONTENT_LENGTH_FIELD_BYTES};
 use tezos_messages::p2p::encoding::prelude::{
-    ConnectionMessage, MetadataMessage, AckMessage,
+    ConnectionMessage, MetadataMessage, AckMessage, NetworkVersion,
 };
 use crate::{TezedgeState, TezedgeRequest, PeerCrypto, PeerAddress};
 use crate::proposals::{
@@ -15,12 +18,26 @@ use crate::proposals::{
     NewPeerConnectProposal,
     PeerProposal,
     PeerDisconnectProposal,
+    PeerBlacklistProposal,
     PendingRequestProposal, PendingRequestMsg,
     HandshakeProposal, HandshakeMsg,
 };
 use crate::proposals::peer_message::PeerBinaryMessage;
 
 pub mod mio_manager;
+
+#[derive(Debug)]
+pub enum Notification {
+    PeerDisconnected { peer: PeerAddress },
+    PeerBlacklisted { peer: PeerAddress },
+    MessageReceived { peer: PeerAddress, message: PeerMessageResponse },
+    HandshakeSuccessful {
+        peer_address: PeerAddress,
+        peer_public_key_hash: CryptoboxPublicKeyHash,
+        metadata: MetadataMessage,
+        network_version: NetworkVersion,
+    },
+}
 
 pub trait GetMessageType {
     fn get_message_type(&self) -> SendMessageType;
@@ -46,6 +63,7 @@ pub enum SendMessageType {
     Connect,
     Meta,
     Ack,
+    Other,
 }
 
 #[derive(Debug)]
@@ -190,6 +208,22 @@ impl<M> AsSendMessage for M
     }
 }
 
+impl AsEncryptedSendMessage for [u8] {
+    type Error = failure::Error;
+
+    fn as_encrypted_send_message(
+        &self,
+        crypto: &mut PeerCrypto,
+    ) -> Result<SendMessage, Self::Error>
+    {
+        let encrypted = crypto.encrypt(&self)?;
+        Ok(SendMessage {
+            bytes: BinaryChunk::from_content(&encrypted)?,
+            message_type: SendMessageType::Other,
+        })
+    }
+}
+
 impl<M> AsEncryptedSendMessage for M
     where M: BinaryMessage + GetMessageType
 {
@@ -267,7 +301,7 @@ impl ReadBuffer {
                     *self = ReadBuffer::ReadContent {
                         expected_len,
                         buf,
-                        index: CONTENT_LENGTH_FIELD_BYTES,
+                        index: CONTENT_LENGTH_FIELD_BYTES.min(expected_len - 1),
                     };
                 }
             }
@@ -500,6 +534,7 @@ pub trait Manager {
 
     fn wait_for_events(&mut self, events_container: &mut Self::Events, timeout: Option<Duration>);
 
+    fn get_peer(&mut self, address: &PeerAddress) -> Option<&mut Peer<Self::Stream>>;
     fn get_peer_or_connect_mut(&mut self, address: &PeerAddress) -> io::Result<&mut Peer<Self::Stream>>;
     fn get_peer_for_event_mut(&mut self, event: &Self::NetworkEvent) -> Option<&mut Peer<Self::Stream>>;
 
@@ -602,6 +637,8 @@ fn handle_send_message_result(
                 SendMessageType::Connect => HandshakeMsg::SendConnectError,
                 SendMessageType::Meta => HandshakeMsg::SendMetaError,
                 SendMessageType::Ack => HandshakeMsg::SendAckError,
+                // TODO temporary panic
+                SendMessageType::Other => panic!(),
             };
 
             tezedge_state.accept(HandshakeProposal {
@@ -616,6 +653,7 @@ fn handle_send_message_result(
 
 pub struct TezedgeProposer<Es, M> {
     config: TezedgeProposerConfig,
+    notifications: Vec<Notification>,
     pub state: TezedgeState,
     pub events: Es,
     pub manager: M,
@@ -634,6 +672,7 @@ impl<Es, M> TezedgeProposer<Es, M>
         events.set_limit(config.events_limit);
         Self {
             config,
+            notifications: vec![],
             state,
             events,
             manager,
@@ -648,6 +687,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
 {
     fn handle_event(
         event: Event<NetE>,
+        notifications: &mut Vec<Notification>,
         state: &mut TezedgeState,
         manager: &mut M,
     ) {
@@ -656,13 +696,14 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
                 state.accept(TickProposal { at });
             }
             Event::Network(event) => {
-                Self::handle_network_event(&event, state, manager);
+                Self::handle_network_event(&event, notifications, state, manager);
             }
         }
     }
 
     fn handle_event_ref<'a>(
         event: EventRef<'a, NetE>,
+        notifications: &mut Vec<Notification>,
         state: &mut TezedgeState,
         manager: &mut M,
     ) {
@@ -671,13 +712,14 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
                 state.accept(TickProposal { at });
             }
             Event::Network(event) => {
-                Self::handle_network_event(event, state, manager);
+                Self::handle_network_event(event, notifications, state, manager);
             }
         }
     }
 
     fn handle_network_event(
         event: &NetE,
+        notifications: &mut Vec<Notification>,
         state: &mut TezedgeState,
         manager: &mut M,
     ) {
@@ -701,7 +743,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
                         None => return,
                     }
                 }
-                Self::execute_requests(state, manager);
+                Self::execute_requests(notifications, state, manager);
             }
         } else {
             match manager.get_peer_for_event_mut(&event) {
@@ -757,7 +799,11 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
         }
     }
 
-    fn execute_requests(state: &mut TezedgeState, manager: &mut M) {
+    fn execute_requests(
+        notifications: &mut Vec<Notification>,
+        state: &mut TezedgeState,
+        manager: &mut M,
+    ) {
         for req in state.get_requests() {
             match req {
                 TezedgeRequest::StartListeningForNewPeers { req_id } => {
@@ -814,6 +860,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
                         at: state.newest_time_seen(),
                         message: PendingRequestMsg::DisconnectPeerSuccess,
                     });
+                    notifications.push(Notification::PeerDisconnected { peer });
                 }
                 TezedgeRequest::BlacklistPeer { req_id, peer } => {
                     manager.disconnect_peer(&peer);
@@ -821,6 +868,30 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
                         req_id,
                         at: state.newest_time_seen(),
                         message: PendingRequestMsg::BlacklistPeerSuccess,
+                    });
+                    notifications.push(Notification::PeerBlacklisted { peer });
+                }
+                TezedgeRequest::PeerMessageReceived { req_id, peer, message } => {
+                    state.accept(PendingRequestProposal {
+                        req_id,
+                        at: state.newest_time_seen(),
+                        message: PendingRequestMsg::PeerMessageReceivedNotified,
+                    });
+                    notifications.push(Notification::MessageReceived { peer, message });
+                }
+                TezedgeRequest::NotifyHandshakeSuccessful {
+                    req_id, peer_address, peer_public_key_hash, metadata, network_version
+                } => {
+                    notifications.push(Notification::HandshakeSuccessful {
+                        peer_address,
+                        peer_public_key_hash,
+                        metadata,
+                        network_version,
+                    });
+                    state.accept(PendingRequestProposal {
+                        req_id,
+                        at: state.newest_time_seen(),
+                        message: PendingRequestMsg::HandshakeSuccessfulNotified,
                     });
                 }
             }
@@ -842,12 +913,13 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
         for event in self.events.into_iter().take(events_limit) {
             Self::handle_event_ref(
                 event,
+                &mut self.notifications,
                 &mut self.state,
                 &mut self.manager,
             );
         }
 
-        Self::execute_requests(&mut self.state, &mut self.manager);
+        Self::execute_requests(&mut self.notifications, &mut self.state, &mut self.manager);
     }
 
     pub fn make_progress_owned(&mut self)
@@ -865,6 +937,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
             count += 1;
             Self::handle_event(
                 event,
+                &mut self.notifications,
                 &mut self.state,
                 &mut self.manager,
             );
@@ -872,7 +945,33 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
         eprintln!("handled {} events in: {}ms", count, time.elapsed().as_millis());
 
         let time = Instant::now();
-        Self::execute_requests(&mut self.state, &mut self.manager);
+        Self::execute_requests(&mut self.notifications, &mut self.state, &mut self.manager);
         eprintln!("executed requests in: {}ms", time.elapsed().as_millis());
+    }
+
+    pub fn disconnect_peer(&mut self, at: Instant, peer: PeerAddress) {
+        self.state.accept(PeerDisconnectProposal { at, peer })
+    }
+
+    pub fn blacklist_peer(&mut self, at: Instant, peer: PeerAddress) {
+        self.state.accept(PeerBlacklistProposal { at, peer })
+    }
+
+    // TODO: Everything bellow this line is temporary until everything
+    // is handled in TezedgeState.
+    // ---------------------------------------------------------------
+
+    pub fn send_message_to_peer_or_queue(&mut self, addr: PeerAddress, message: &[u8]) {
+        if let Some(crypto) = self.state.get_peer_crypto(&addr) {
+            if let Ok(msg) = message.as_encrypted_send_message(crypto) {
+                if let Some(peer) = self.manager.get_peer(&addr) {
+                    peer.write(msg);
+                }
+            }
+        }
+    }
+
+    pub fn take_notifications(&mut self) -> Vec<Notification> {
+        std::mem::take(&mut self.notifications)
     }
 }

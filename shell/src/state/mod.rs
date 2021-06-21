@@ -298,9 +298,9 @@ pub mod tests {
                 .expect("Expected valid ip:port address");
 
             let node_identity = Arc::new(Identity::generate(0f64).unwrap());
-            let peer_public_key_hash: CryptoboxPublicKeyHash =
+            let public_key_hash: CryptoboxPublicKeyHash =
                 node_identity.public_key.public_key_hash().unwrap();
-            let peer_id_marker = peer_public_key_hash.to_base58_check();
+            let peer_id_marker = public_key_hash.to_base58_check();
 
             let metadata = MetadataMessage::new(false, false);
             let version = NetworkVersion::new("".to_owned(), 0, 0);
@@ -312,7 +312,7 @@ pub mod tests {
                 BootstrapOutput(
                     Arc::new(TokioMutex::new(None)),
                     Arc::new(TokioMutex::new(None)),
-                    peer_public_key_hash.clone(),
+                    public_key_hash.clone(),
                     peer_id_marker.clone(),
                     metadata.clone(),
                     version,
@@ -324,7 +324,7 @@ pub mod tests {
             PeerState::new(
                 Arc::new(PeerId::new(
                     peer_ref,
-                    peer_public_key_hash,
+                    public_key_hash,
                     peer_id_marker,
                     socket_address,
                 )),

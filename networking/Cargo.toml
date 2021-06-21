@@ -20,6 +20,7 @@ crypto = { path = "../crypto" }
 tezos_encoding = { path = "../tezos/encoding" }
 tezos_identity = { path = "../tezos/identity" }
 tezos_messages = { path = "../tezos/messages" }
+tezedge-state = { path = "../tezedge_state" }
 
 [dev-dependencies]
 tokio-test = { version = "0.4" }

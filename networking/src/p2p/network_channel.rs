@@ -6,15 +6,15 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use crypto::hash::CryptoboxPublicKeyHash;
 use riker::actors::*;
 
 use tezos_messages::p2p::encoding::advertise::AdvertiseMessage;
 use tezos_messages::p2p::encoding::metadata::MetadataMessage;
 use tezos_messages::p2p::encoding::peer::PeerMessageResponse;
 
-use crate::PeerId;
+use crate::{PeerId, PeerAddress};
 
-use super::peer::PeerRef;
 use tezos_messages::p2p::encoding::version::NetworkVersion;
 
 /// Peer has been bootstrapped.
@@ -28,7 +28,7 @@ pub struct PeerBootstrapFailed {
 /// We have received message from another peer
 #[derive(Clone, Debug)]
 pub struct PeerMessageReceived {
-    pub peer: PeerRef,
+    pub peer_address: PeerAddress,
     pub message: Arc<PeerMessageResponse>,
 }
 
@@ -36,22 +36,17 @@ pub struct PeerMessageReceived {
 #[derive(Clone, Debug)]
 pub enum NetworkChannelMsg {
     /// Events
-    PeerBootstrapped(Arc<PeerId>, Arc<MetadataMessage>, Arc<NetworkVersion>),
-    PeerBlacklisted(Arc<PeerId>),
+    PeerBootstrapped(Arc<PeerId>, MetadataMessage, Arc<NetworkVersion>),
+    PeerDisconnected(PeerAddress),
+    PeerBlacklisted(PeerAddress),
     PeerMessageReceived(PeerMessageReceived),
-    PeerStalled(Arc<ActorUri>),
+    PeerStalled(Arc<PeerId>),
     /// Commands (dedicated to peer_manager)
     /// TODO: refactor/extract them directly to peer_manager outside of the network_channel
     BlacklistPeer(Arc<PeerId>, String),
     ProcessAdvertisedPeers(Arc<PeerId>, AdvertiseMessage),
     SendBootstrapPeers(Arc<PeerId>),
-    ProcessFailedBootstrapAddress(PeerBootstrapFailed),
-}
-
-impl From<PeerMessageReceived> for NetworkChannelMsg {
-    fn from(msg: PeerMessageReceived) -> Self {
-        NetworkChannelMsg::PeerMessageReceived(msg)
-    }
+    SendMessage(Arc<PeerId>, Arc<PeerMessageResponse>),
 }
 
 /// Represents various topics

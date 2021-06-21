@@ -121,7 +121,7 @@ impl SynchronizationBootstrapState {
         }
 
         // peer key for hashmap
-        let peer_key = &new_update.peer.peer_public_key_hash;
+        let peer_key = &new_update.peer.public_key_hash;
 
         // lets update peer by public key hash
         if let Some(peer_to_level) = self.state.get_mut(peer_key) {

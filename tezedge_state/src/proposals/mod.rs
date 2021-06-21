@@ -21,5 +21,8 @@ pub use peer_message::{PeerMessage, PeerMessageError};
 mod peer_disconnect_proposal;
 pub use peer_disconnect_proposal::*;
 
+mod peer_blacklist_proposal;
+pub use peer_blacklist_proposal::*;
+
 mod pending_request_proposal;
 pub use pending_request_proposal::*;

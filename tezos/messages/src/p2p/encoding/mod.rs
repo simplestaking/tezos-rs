@@ -45,26 +45,3 @@ pub mod prelude {
 }
 
 use prelude::*;
-
-/// All possible p2p messages.
-#[derive(Debug, Clone)]
-pub enum Message {
-    Ack(AckMessage),
-    Advertise(AdvertiseMessage),
-    BlockHeader(BlockHeaderMessage),
-    GetBlockHeaders(GetBlockHeadersMessage),
-    Connection(ConnectionMessage),
-    CurrentBranch(CurrentBranchMessage),
-    GetCurrentBranch(GetCurrentBranchMessage),
-    CurrentHead(CurrentHeadMessage),
-    GetCurrentHead(GetCurrentHeadMessage),
-    Deactivate(DeactivateMessage),
-    Metadata(MetadataMessage),
-    GetOperations(GetOperationsMessage),
-    Operation(OperationMessage),
-    GetOperationsForBlock(GetOperationsForBlocksMessage),
-    OperationsForBlock(OperationsForBlocksMessage),
-    GetProtocols(GetProtocolsMessage),
-    Protocol(ProtocolMessage),
-    Swap(SwapMessage),
-}

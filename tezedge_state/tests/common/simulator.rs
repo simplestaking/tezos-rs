@@ -5,7 +5,7 @@ use crypto::nonce::Nonce;
 use crypto::nonce::generate_nonces;
 use tezedge_state::*;
 use tezos_identity::Identity;
-use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryMessage};
+use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryWrite, BinaryRead};
 use tezos_messages::p2p::encoding::prelude::{
     NetworkVersion,
     ConnectionMessage,
