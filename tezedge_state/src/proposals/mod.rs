@@ -15,8 +15,8 @@ pub use handshake_proposal::*;
 mod peer_proposal;
 pub use peer_proposal::*;
 
-pub mod peer_message;
-pub use peer_message::{PeerMessage, PeerMessageError};
+pub mod peer_abstract_message;
+pub use peer_abstract_message::{PeerAbstractMessage, PeerAbstractMessageError};
 
 mod peer_disconnect_proposal;
 pub use peer_disconnect_proposal::*;

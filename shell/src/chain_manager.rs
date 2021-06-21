@@ -822,19 +822,6 @@ impl ChainManager {
                                     }
                                 }
                             }
-                            PeerMessage::Advertise(msg) => {
-                                // re-send command to network layer
-                                network_channel.tell(
-                                    Publish {
-                                        msg: NetworkChannelMsg::ProcessAdvertisedPeers(
-                                            peer.peer_id.clone(),
-                                            msg.clone(),
-                                        ),
-                                        topic: NetworkChannelTopic::NetworkCommands.into(),
-                                    },
-                                    None,
-                                );
-                            }
                             PeerMessage::Bootstrap => {
                                 // re-send command to network layer
                                 network_channel.tell(

@@ -22,7 +22,7 @@ use crate::proposals::{
     PendingRequestProposal, PendingRequestMsg,
     HandshakeProposal, HandshakeMsg,
 };
-use crate::proposals::peer_message::PeerBinaryMessage;
+use crate::proposals::peer_abstract_message::PeerAbstractBinaryMessage;
 
 pub mod mio_manager;
 
@@ -777,7 +777,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
                         state.accept(PeerProposal {
                             at: event.time(),
                             peer: peer.address().clone(),
-                            message: PeerBinaryMessage::new(msg_bytes),
+                            message: PeerAbstractBinaryMessage::new(msg_bytes),
                         });
                     }
                     ReadMessageResult::Err(err) => {

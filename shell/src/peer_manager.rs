@@ -22,7 +22,7 @@ use tokio::runtime::Handle;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::timeout;
 
-use networking::p2p::network_channel::{NetworkChannelMsg, NetworkChannelRef, NetworkChannelTopic, PeerBootstrapFailed, PeerMessageReceived};
+use networking::p2p::network_channel::{NetworkChannelMsg, NetworkChannelRef, NetworkChannelTopic, PeerMessageReceived};
 use networking::{PeerId, LocalPeerInfo, ShellCompatibilityVersion};
 use tezos_identity::Identity;
 use tezos_messages::p2p::encoding::limits::ADVERTISE_ID_LIST_MAX_LENGTH_FOR_SEND;
@@ -416,18 +416,6 @@ fn run(
             match rx.try_recv() {
                 Ok(ProposerMsg::NetworkChannel(msg)) => {
                     match msg {
-                        NetworkChannelMsg::ProcessAdvertisedPeers(peer_id, message) => {
-                            // extract potential peers from the advertise message
-                            info!(log, "Received advertise message"; "peer_ip" => peer_id.address.to_string(), "peers" => format!("{:?}", message.id().join(", ")));
-                            proposer.state.accept(ExtendPotentialPeersProposal {
-                                at: Instant::now(),
-                                peers: message
-                                    .id()
-                                    .iter()
-                                    .filter_map(|str_ip_port| str_ip_port.parse().ok())
-                                    .map(|addr: SocketAddr| addr.into()),
-                            })
-                        }
                         NetworkChannelMsg::SendBootstrapPeers(peer_id) => {
                             trace!(log, "Received bootstrap message"; "peer_ip" => peer_id.address.to_string());
                             // TODO: send some potential peers

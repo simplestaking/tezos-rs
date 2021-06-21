@@ -17,14 +17,6 @@ use crate::{PeerId, PeerAddress};
 
 use tezos_messages::p2p::encoding::version::NetworkVersion;
 
-/// Peer has been bootstrapped.
-#[derive(Clone, Debug)]
-pub struct PeerBootstrapFailed {
-    pub address: SocketAddr,
-    /// List of potential peers to connect to. Is extracted from `Nack`.
-    pub potential_peers_to_connect: Option<Vec<String>>,
-}
-
 /// We have received message from another peer
 #[derive(Clone, Debug)]
 pub struct PeerMessageReceived {
@@ -44,7 +36,6 @@ pub enum NetworkChannelMsg {
     /// Commands (dedicated to peer_manager)
     /// TODO: refactor/extract them directly to peer_manager outside of the network_channel
     BlacklistPeer(Arc<PeerId>, String),
-    ProcessAdvertisedPeers(Arc<PeerId>, AdvertiseMessage),
     SendBootstrapPeers(Arc<PeerId>),
     SendMessage(Arc<PeerId>, Arc<PeerMessageResponse>),
 }

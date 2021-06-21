@@ -55,7 +55,7 @@ pub enum PeerMessage {
 #[encoding(dynamic = "MESSAGE_MAX_SIZE")]
 pub struct PeerMessageResponse {
     #[get = "pub"]
-    message: PeerMessage,
+    pub message: PeerMessage,
 }
 
 impl From<PeerMessage> for PeerMessageResponse {

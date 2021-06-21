@@ -23,7 +23,7 @@ fn network_version() -> NetworkVersion {
 #[derive(Debug, Clone)]
 enum Messages {
     Handshake(HandshakeMsg),
-    PeerMessage(PeerDecodedMessage),
+    PeerMessage(PeerAbstractDecodedMessage),
 }
 
 impl From<HandshakeMsg> for Messages {
@@ -32,8 +32,8 @@ impl From<HandshakeMsg> for Messages {
     }
 }
 
-impl From<PeerDecodedMessage> for Messages {
-    fn from(msg: PeerDecodedMessage) -> Self {
+impl From<PeerAbstractDecodedMessage> for Messages {
+    fn from(msg: PeerAbstractDecodedMessage) -> Self {
         Messages::PeerMessage(msg)
     }
 }
@@ -69,11 +69,11 @@ fn message_iter(g: &mut Gen, identity: &Identity) -> impl Iterator<Item = Messag
         HandshakeMsg::SendAckError.into(),
 
 
-        PeerDecodedMessage::new(to_binary_chunk(&conn_msg), conn_msg.into()).into(),
-        PeerDecodedMessage::new(to_binary_chunk(&meta_msg), meta_msg.into()).into(),
-        PeerDecodedMessage::new(to_binary_chunk(&ack_msg), ack_msg.into()).into(),
-        PeerDecodedMessage::new(to_binary_chunk(&nack_v0_msg), nack_v0_msg.into()).into(),
-        PeerDecodedMessage::new(to_binary_chunk(&nack_msg), nack_msg.into()).into(),
+        PeerAbstractDecodedMessage::new(to_binary_chunk(&conn_msg), conn_msg.into()).into(),
+        PeerAbstractDecodedMessage::new(to_binary_chunk(&meta_msg), meta_msg.into()).into(),
+        PeerAbstractDecodedMessage::new(to_binary_chunk(&ack_msg), ack_msg.into()).into(),
+        PeerAbstractDecodedMessage::new(to_binary_chunk(&nack_v0_msg), nack_v0_msg.into()).into(),
+        PeerAbstractDecodedMessage::new(to_binary_chunk(&nack_msg), nack_msg.into()).into(),
     ].into_iter()
 }
 
@@ -119,12 +119,12 @@ fn sequence_to_str(seq: &Vec<Messages>) -> String {
                 HandshakeMsg::SendAckError => "send_ack_error",
             },
             Messages::PeerMessage(msg) => match msg.message_type() {
-                PeerDecodedMessageType::Connection(_) => "receive_connect",
-                PeerDecodedMessageType::Metadata(_) => "receive_metadata",
-                PeerDecodedMessageType::Ack(AckMessage::Ack) => "receive_ack",
-                PeerDecodedMessageType::Ack(AckMessage::NackV0) => "receive_nack_v0",
-                PeerDecodedMessageType::Ack(AckMessage::Nack(_)) => "receive_nack",
-                PeerDecodedMessageType::Message(_) => "message",
+                PeerAbstractDecodedMessageType::Connection(_) => "receive_connect",
+                PeerAbstractDecodedMessageType::Metadata(_) => "receive_metadata",
+                PeerAbstractDecodedMessageType::Ack(AckMessage::Ack) => "receive_ack",
+                PeerAbstractDecodedMessageType::Ack(AckMessage::NackV0) => "receive_nack_v0",
+                PeerAbstractDecodedMessageType::Ack(AckMessage::Nack(_)) => "receive_nack",
+                PeerAbstractDecodedMessageType::Message(_) => "message",
             }
         })
         .collect::<Vec<_>>()

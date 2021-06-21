@@ -4,14 +4,14 @@ use tla_sm::{Proposal, Acceptor};
 use crypto::crypto_box::{CryptoKey, PrecomputedKey, PublicKey};
 use crypto::nonce::{Nonce, generate_nonces};
 use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryWrite};
-use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, AckMessage};
+use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, AckMessage, PeerMessage};
 use tezos_messages::p2p::encoding::ack::NackMotive;
 
 use crate::{Handshake, HandshakeStep, P2pState, PeerCrypto, PendingRequest, PendingRequestState, RequestState, TezedgeState};
-use crate::proposals::{PeerProposal, PeerMessage};
+use crate::proposals::{PeerAbstractMessage, ExtendPotentialPeersProposal, PeerProposal};
 
 impl<M> Acceptor<PeerProposal<M>> for TezedgeState
-    where M: Debug + PeerMessage,
+    where M: Debug + PeerAbstractMessage,
 {
     fn accept(&mut self, mut proposal: PeerProposal<M>) {
         if let Err(_err) = self.validate_proposal(&proposal) {
@@ -24,13 +24,27 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
             // handle connected peer messages.
             match proposal.message.as_peer_msg(&mut peer.crypto) {
                 Ok(message) => {
-                    self.requests.insert(PendingRequestState {
-                        request: PendingRequest::PeerMessageReceived {
-                            peer: proposal.peer,
-                            message,
-                        },
-                        status: RequestState::Idle { at: proposal.at },
-                    });
+                    match message{
+                        PeerMessage::Advertise(message) => {
+                            self.accept(ExtendPotentialPeersProposal {
+                                at: proposal.at,
+                                peers: message
+                                    .id()
+                                    .iter()
+                                    .filter_map(|str_ip_port| str_ip_port.parse().ok()),
+                            });
+                        }
+                        // messages not handled in state machine for now.
+                        message => {
+                            self.requests.insert(PendingRequestState {
+                                request: PendingRequest::PeerMessageReceived {
+                                    peer: proposal.peer,
+                                    message: message.into(),
+                                },
+                                status: RequestState::Idle { at: proposal.at },
+                            });
+                        }
+                    }
                 }
                 Err(err) => {
                     eprintln!("ERROR while decoding/decrypting peer message {:?}, {:?}", proposal.message, err);

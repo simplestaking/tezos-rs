@@ -1,19 +1,17 @@
-use crypto::CryptoError;
-use tezos_encoding::binary_reader::BinaryReaderError;
 use tezos_messages::p2p::binary_message::{BinaryRead, BinaryChunk};
-use tezos_messages::p2p::encoding::peer::PeerMessageResponse;
+use tezos_messages::p2p::encoding::peer::{PeerMessage, PeerMessageResponse};
 use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, MetadataMessage, AckMessage};
 
 use crate::PeerCrypto;
-use super::{PeerMessage, PeerMessageError};
+use super::{PeerAbstractMessage, PeerAbstractMessageError};
 
 #[derive(Debug, Clone)]
-pub struct PeerBinaryMessage {
+pub struct PeerAbstractBinaryMessage {
     bytes: BinaryChunk,
     decrypted: Option<Vec<u8>>,
 }
 
-impl PeerMessage for PeerBinaryMessage {
+impl PeerAbstractMessage for PeerAbstractBinaryMessage {
     fn take_binary_chunk(self) -> BinaryChunk {
         self.bytes
     }
@@ -22,11 +20,11 @@ impl PeerMessage for PeerBinaryMessage {
         &self.bytes
     }
 
-    fn as_connection_msg(&mut self) -> Result<ConnectionMessage, PeerMessageError> {
+    fn as_connection_msg(&mut self) -> Result<ConnectionMessage, PeerAbstractMessageError> {
         Ok(ConnectionMessage::from_bytes(self.bytes.content())?)
     }
 
-    fn as_metadata_msg(&mut self, crypto: &mut PeerCrypto) -> Result<MetadataMessage, PeerMessageError> {
+    fn as_metadata_msg(&mut self, crypto: &mut PeerCrypto) -> Result<MetadataMessage, PeerAbstractMessageError> {
         if let Some(decrypted) = self.decrypted.as_ref() {
             Ok(MetadataMessage::from_bytes(decrypted)?)
         } else {
@@ -35,7 +33,7 @@ impl PeerMessage for PeerBinaryMessage {
         }
     }
 
-    fn as_ack_msg(&mut self, crypto: &mut PeerCrypto) -> Result<AckMessage, PeerMessageError> {
+    fn as_ack_msg(&mut self, crypto: &mut PeerCrypto) -> Result<AckMessage, PeerAbstractMessageError> {
         if let Some(decrypted) = self.decrypted.as_ref() {
             Ok(AckMessage::from_bytes(decrypted)?)
         } else {
@@ -44,9 +42,9 @@ impl PeerMessage for PeerBinaryMessage {
         }
     }
 
-    fn as_peer_msg(&mut self, crypto: &mut PeerCrypto) -> Result<PeerMessageResponse, PeerMessageError> {
+    fn as_peer_msg(&mut self, crypto: &mut PeerCrypto) -> Result<PeerMessage, PeerAbstractMessageError> {
         if let Some(decrypted) = self.decrypted.as_ref() {
-            Ok(PeerMessageResponse::from_bytes(decrypted)?)
+            Ok(PeerMessageResponse::from_bytes(decrypted)?.message)
         } else {
             self.decrypted = Some(crypto.decrypt(&self.bytes.content())?);
             self.as_peer_msg(crypto)
@@ -54,7 +52,7 @@ impl PeerMessage for PeerBinaryMessage {
     }
 }
 
-impl PeerBinaryMessage {
+impl PeerAbstractBinaryMessage {
     pub fn new(bytes: BinaryChunk) -> Self {
         Self { bytes, decrypted: None }
     }
