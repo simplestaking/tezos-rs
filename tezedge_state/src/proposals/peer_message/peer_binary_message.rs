@@ -1,22 +1,11 @@
 use crypto::CryptoError;
 use tezos_encoding::binary_reader::BinaryReaderError;
 use tezos_messages::p2p::binary_message::{BinaryRead, BinaryChunk};
+use tezos_messages::p2p::encoding::peer::PeerMessageResponse;
 use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, MetadataMessage, AckMessage};
 
 use crate::PeerCrypto;
 use super::{PeerMessage, PeerMessageError};
-
-impl From<BinaryReaderError> for PeerMessageError {
-    fn from(_: BinaryReaderError) -> Self {
-        Self::InvalidMessage
-    }
-}
-
-impl From<CryptoError> for PeerMessageError {
-    fn from(_: CryptoError) -> Self {
-        Self::InvalidMessage
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct PeerBinaryMessage {
@@ -52,6 +41,15 @@ impl PeerMessage for PeerBinaryMessage {
         } else {
             self.decrypted = Some(crypto.decrypt(&self.bytes.content())?);
             self.as_ack_msg(crypto)
+        }
+    }
+
+    fn as_peer_msg(&mut self, crypto: &mut PeerCrypto) -> Result<PeerMessageResponse, PeerMessageError> {
+        if let Some(decrypted) = self.decrypted.as_ref() {
+            Ok(PeerMessageResponse::from_bytes(decrypted)?)
+        } else {
+            self.decrypted = Some(crypto.decrypt(&self.bytes.content())?);
+            self.as_peer_msg(crypto)
         }
     }
 }

@@ -1,4 +1,5 @@
 use tezos_messages::p2p::binary_message::BinaryChunk;
+use tezos_messages::p2p::encoding::peer::PeerMessageResponse;
 use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, MetadataMessage, AckMessage};
 
 use crate::PeerCrypto;
@@ -9,6 +10,7 @@ pub enum PeerDecodedMessageType {
     Connection(ConnectionMessage),
     Metadata(MetadataMessage),
     Ack(AckMessage),
+    Message(PeerMessageResponse),
 }
 
 impl From<ConnectionMessage> for PeerDecodedMessageType {
@@ -49,6 +51,7 @@ impl PeerMessage for PeerDecodedMessage {
             PeerDecodedMessageType::Connection(msg) => Ok(msg.clone()),
             PeerDecodedMessageType::Metadata(_) => Err(PeerMessageError::InvalidMessage),
             PeerDecodedMessageType::Ack(_) => Err(PeerMessageError::InvalidMessage),
+            PeerDecodedMessageType::Message(_) => Err(PeerMessageError::InvalidMessage),
         }
     }
 
@@ -57,6 +60,7 @@ impl PeerMessage for PeerDecodedMessage {
             PeerDecodedMessageType::Metadata(msg) => Ok(msg.clone()),
             PeerDecodedMessageType::Connection(_) => Err(PeerMessageError::InvalidMessage),
             PeerDecodedMessageType::Ack(_) => Err(PeerMessageError::InvalidMessage),
+            PeerDecodedMessageType::Message(_) => Err(PeerMessageError::InvalidMessage),
         }
     }
 
@@ -65,6 +69,16 @@ impl PeerMessage for PeerDecodedMessage {
             PeerDecodedMessageType::Ack(msg) => Ok(msg.clone()),
             PeerDecodedMessageType::Connection(_) => Err(PeerMessageError::InvalidMessage),
             PeerDecodedMessageType::Metadata(_) => Err(PeerMessageError::InvalidMessage),
+            PeerDecodedMessageType::Message(_) => Err(PeerMessageError::InvalidMessage),
+        }
+    }
+
+    fn as_peer_msg(&mut self, crypto: &mut PeerCrypto) -> Result<PeerMessageResponse, PeerMessageError> {
+        match &self.decoded {
+            PeerDecodedMessageType::Message(msg) => Ok(msg.clone()),
+            PeerDecodedMessageType::Connection(_) => Err(PeerMessageError::InvalidMessage),
+            PeerDecodedMessageType::Metadata(_) => Err(PeerMessageError::InvalidMessage),
+            PeerDecodedMessageType::Ack(_) => Err(PeerMessageError::InvalidMessage),
         }
     }
 }

@@ -20,9 +20,16 @@ impl<M> Acceptor<PeerProposal<M>> for TezedgeState
             return;
         }
 
-        if let Some(peer) = self.connected_peers.get(&proposal.peer) {
+        if let Some(peer) = self.connected_peers.get_mut(&proposal.peer) {
             // handle connected peer messages.
-            dbg!("message from connected peer");
+            match proposal.message.as_peer_msg(&mut peer.crypto) {
+                Ok(message) => {
+                }
+                Err(err) => {
+                    eprintln!("ERROR while decoding/decrypting peer message {:?}, {:?}", proposal.message, err);
+                    self.blacklist_peer(proposal.at, proposal.peer);
+                }
+            }
         } else {
             // handle handshake messages.
             use Handshake::*;
