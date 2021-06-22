@@ -35,7 +35,7 @@ pub fn test_context_set_get_commit() -> Result<(), failure::Error> {
     // add to context
     context = context.add(
         &context_key!("data/rolls/owner/current/index/123"),
-        vec![1, 2, 3, 4, 5, 6],
+        &[1, 2, 3, 4, 5, 6],
     )?;
 
     // commit
@@ -44,6 +44,11 @@ pub fn test_context_set_get_commit() -> Result<(), failure::Error> {
 
     let hash = context.commit("Tezos".to_string(), "Genesis".to_string(), 0)?;
     assert_eq!(hash, new_context_hash);
+
+    let res = context.index.get_key_from_history(
+        &new_context_hash,
+        &context_key!("data/rolls/owner/current/index/123"),
+    );
 
     // get key from new commit
     assert_data_eq!(
@@ -78,27 +83,27 @@ pub fn test_context_delete_and_remove() -> Result<(), failure::Error> {
     // add to context
     context = context.add(
         &context_key!("data/rolls/owner/current/cpu/0"),
-        vec![1, 2, 3, 4],
+        &[1, 2, 3, 4],
     )?;
     context = context.add(
         &context_key!("data/rolls/owner/current/cpu/1/a"),
-        vec![1, 2, 3, 4, 5],
+        &[1, 2, 3, 4, 5],
     )?;
     context = context.add(
         &context_key!("data/rolls/owner/current/cpu/1/b"),
-        vec![1, 2, 3, 4, 5],
+        &[1, 2, 3, 4, 5],
     )?;
     context = context.add(
         &context_key!("data/rolls/owner/current/cpu/2/a"),
-        vec![1, 2, 3, 4, 5, 61],
+        &[1, 2, 3, 4, 5, 61],
     )?;
     context = context.add(
         &context_key!("data/rolls/owner/current/cpu/2/b"),
-        vec![1, 2, 3, 4, 5, 62],
+        &[1, 2, 3, 4, 5, 62],
     )?;
     context = context.add(
         &context_key!("data/rolls/owner/current/index/123"),
-        vec![1, 2, 3, 4, 5, 6, 7],
+        &[1, 2, 3, 4, 5, 6, 7],
     )?;
 
     // commit
@@ -228,23 +233,23 @@ pub fn test_context_copy() -> Result<(), failure::Error> {
     // add to context
     context = context.add(
         &context_key!("data/rolls/owner/current/cpu/0"),
-        vec![1, 2, 3, 4],
+        &[1, 2, 3, 4],
     )?;
     context = context.add(
         &context_key!("data/rolls/owner/current/cpu/1"),
-        vec![1, 2, 3, 4, 5],
+        &[1, 2, 3, 4, 5],
     )?;
     context = context.add(
         &context_key!("data/rolls/owner/current/cpu/2/a"),
-        vec![1, 2, 3, 4, 5, 61],
+        &[1, 2, 3, 4, 5, 61],
     )?;
     context = context.add(
         &context_key!("data/rolls/owner/current/cpu/2/b"),
-        vec![1, 2, 3, 4, 5, 62],
+        &[1, 2, 3, 4, 5, 62],
     )?;
     context = context.add(
         &context_key!("data/rolls/owner/current/index/123"),
-        vec![1, 2, 3, 4, 5, 6, 7],
+        &[1, 2, 3, 4, 5, 6, 7],
     )?;
 
     // commit

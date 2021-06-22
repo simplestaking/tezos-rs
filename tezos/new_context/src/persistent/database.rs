@@ -11,8 +11,11 @@ use failure::Fail;
 
 use crypto::hash::FromBytesError;
 
-use crate::kv_store::{readonly_ipc::ContextServiceError, HashId, HashIdError};
 use crate::persistent::codec::SchemaError;
+use crate::{
+    kv_store::{readonly_ipc::ContextServiceError, HashId, HashIdError},
+    working_tree::serializer::DeserializationError,
+};
 
 /// Possible errors for schema
 #[derive(Debug, Fail)]
@@ -32,8 +35,6 @@ pub enum DBError {
     FoundUnexpectedStructure { sought: String, found: String },
     #[fail(display = "Guard Poison {} ", error)]
     GuardPoison { error: String },
-    #[fail(display = "Serialization error: {:?}", error)]
-    SerializationError { error: bincode::Error },
     #[fail(display = "Hash encode error : {}", error)]
     HashEncodeError { error: FromBytesError },
     #[fail(display = "Mutex/lock lock error! Reason: {}", reason)]
@@ -48,6 +49,8 @@ pub enum DBError {
     MissingEntry { hash_id: HashId },
     #[fail(display = "Conversion from/to HashId failed")]
     HashIdFailed,
+    #[fail(display = "Deserialization error: {:?}", error)]
+    DeserializationError { error: DeserializationError },
 }
 
 impl From<HashIdError> for DBError {
@@ -68,9 +71,9 @@ impl From<FromBytesError> for DBError {
     }
 }
 
-impl From<bincode::Error> for DBError {
-    fn from(error: bincode::Error) -> Self {
-        Self::SerializationError { error }
+impl From<DeserializationError> for DBError {
+    fn from(error: DeserializationError) -> Self {
+        Self::DeserializationError { error }
     }
 }
 

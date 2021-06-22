@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use std::{
-    borrow::Borrow,
     cell::RefCell,
-    collections::HashSet,
     convert::TryInto,
     sync::{Arc, RwLock},
 };
@@ -15,11 +13,14 @@ use ocaml_interop::BoxRoot;
 
 use crate::{
     hash::EntryHash,
-    kv_store::HashId,
+    kv_store::{in_memory::RepositoryMemoryUsage, HashId},
     persistent::DBError,
     working_tree::{
-        working_tree::MerkleError, working_tree_stats::MerkleStoragePerfReport, Commit, Entry,
-        KeyFragment, Node, Tree,
+        serializer::deserialize,
+        storage::{BlobStorageId, NodeId, Storage, StorageMemoryUsage},
+        working_tree::MerkleError,
+        working_tree_stats::MerkleStoragePerfReport,
+        Commit, Entry, Tree,
     },
     ContextKeyValueStore, StringTreeMap,
 };
@@ -42,7 +43,7 @@ pub struct PatchContextFunction {}
 pub struct TezedgeIndex {
     pub repository: Arc<RwLock<ContextKeyValueStore>>,
     pub patch_context: Rc<Option<BoxRoot<PatchContextFunction>>>,
-    pub strings: Rc<RefCell<StringInterner>>,
+    pub storage: Rc<RefCell<Storage>>,
 }
 
 // TODO: some of the utility methods here (and in `WorkingTree`) should probably be
@@ -57,14 +58,9 @@ impl TezedgeIndex {
         let patch_context = Rc::new(patch_context);
         Self {
             patch_context,
-            strings: Default::default(),
             repository,
+            storage: Default::default(),
         }
-    }
-
-    pub fn get_str(&self, s: &str) -> Rc<str> {
-        let mut strings = self.strings.borrow_mut();
-        strings.get_str(s)
     }
 
     pub fn find_entry_bytes(&self, hash: HashId) -> Result<Option<Vec<u8>>, DBError> {
@@ -72,10 +68,14 @@ impl TezedgeIndex {
         Ok(repo.get_value(hash)?.map(|v| v.to_vec()))
     }
 
-    pub fn find_entry(&self, hash: HashId) -> Result<Option<Entry>, DBError> {
+    pub fn find_entry(
+        &self,
+        hash: HashId,
+        storage: &mut Storage,
+    ) -> Result<Option<Entry>, DBError> {
         match self.find_entry_bytes(hash)? {
             None => Ok(None),
-            Some(entry_bytes) => Ok(Some(bincode::deserialize(&entry_bytes)?)),
+            Some(entry_bytes) => Ok(Some(deserialize(entry_bytes.as_ref(), storage)?)),
         }
     }
 
@@ -87,16 +87,20 @@ impl TezedgeIndex {
             .map(|h| h.into_owned()))
     }
 
-    pub fn get_entry(&self, hash: HashId) -> Result<Entry, MerkleError> {
-        match self.find_entry(hash)? {
+    pub fn get_entry(&self, hash: HashId, storage: &mut Storage) -> Result<Entry, MerkleError> {
+        match self.find_entry(hash, storage)? {
             None => Err(MerkleError::EntryNotFound { hash_id: hash }),
             Some(entry) => Ok(entry),
         }
     }
 
-    pub fn find_commit(&self, hash: HashId) -> Result<Option<Commit>, DBError> {
-        match self.find_entry(hash)? {
-            Some(Entry::Commit(commit)) => Ok(Some(commit)),
+    pub fn find_commit(
+        &self,
+        hash: HashId,
+        storage: &mut Storage,
+    ) -> Result<Option<Commit>, DBError> {
+        match self.find_entry(hash, storage)? {
+            Some(Entry::Commit(commit)) => Ok(Some(*commit)),
             Some(Entry::Tree(_)) => Err(DBError::FoundUnexpectedStructure {
                 sought: "commit".to_string(),
                 found: "tree".to_string(),
@@ -109,15 +113,15 @@ impl TezedgeIndex {
         }
     }
 
-    pub fn get_commit(&self, hash: HashId) -> Result<Commit, MerkleError> {
-        match self.find_commit(hash)? {
+    pub fn get_commit(&self, hash: HashId, storage: &mut Storage) -> Result<Commit, MerkleError> {
+        match self.find_commit(hash, storage)? {
             None => Err(MerkleError::EntryNotFound { hash_id: hash }),
             Some(entry) => Ok(entry),
         }
     }
 
-    pub fn find_tree(&self, hash: HashId) -> Result<Option<Tree>, DBError> {
-        match self.find_entry(hash)? {
+    pub fn find_tree(&self, hash: HashId, storage: &mut Storage) -> Result<Option<Tree>, DBError> {
+        match self.find_entry(hash, storage)? {
             Some(Entry::Tree(tree)) => Ok(Some(tree)),
             Some(Entry::Blob(_)) => Err(DBError::FoundUnexpectedStructure {
                 sought: "tree".to_string(),
@@ -131,8 +135,8 @@ impl TezedgeIndex {
         }
     }
 
-    pub fn get_tree(&self, hash: HashId) -> Result<Tree, MerkleError> {
-        match self.find_tree(hash)? {
+    pub fn get_tree(&self, hash: HashId, storage: &mut Storage) -> Result<Tree, MerkleError> {
+        match self.find_tree(hash, storage)? {
             None => Err(MerkleError::EntryNotFound { hash_id: hash }),
             Some(entry) => Ok(entry),
         }
@@ -161,19 +165,17 @@ impl TezedgeIndex {
         string.split('/').map(str::to_string).collect()
     }
 
-    pub fn node_entry(&self, node: &Node) -> Result<Entry, MerkleError> {
-        if let Some(e) = node
-            .entry
-            .try_borrow()
-            .map_err(|_| MerkleError::InvalidState("The Entry is borrowed more than once"))?
-            .as_ref()
-            .cloned()
-        {
+    pub fn node_entry(&self, node_id: NodeId, storage: &mut Storage) -> Result<Entry, MerkleError> {
+        let node = storage.get_node(node_id).unwrap();
+
+        if let Some(e) = node.get_entry() {
             return Ok(e);
         };
-
         let hash = node.get_hash_id()?;
-        let entry = self.get_entry(hash)?;
+        std::mem::drop(node);
+
+        let entry = self.get_entry(hash, storage)?;
+        let node = storage.get_node(node_id).unwrap();
         node.set_entry(&entry)?;
 
         Ok(entry)
@@ -186,28 +188,36 @@ impl TezedgeIndex {
         context_hash: HashId,
         prefix: &ContextKey,
         depth: Option<usize>,
+        storage: &mut Storage,
     ) -> Result<StringTreeEntry, MerkleError> {
         if let Some(0) = depth {
             return Ok(StringTreeEntry::Null);
         }
 
         let mut out = StringTreeMap::new();
-        let commit = self.get_commit(context_hash)?;
+        let commit = self.get_commit(context_hash, storage)?;
 
-        let root_tree = self.get_tree(commit.root_hash)?;
-        let prefixed_tree = self.find_raw_tree(&root_tree, prefix)?;
+        let root_tree = self.get_tree(commit.root_hash, storage)?;
+        let prefixed_tree = self.find_raw_tree(root_tree, prefix, storage)?;
         let delimiter = if prefix.is_empty() { "" } else { "/" };
 
+        let prefixed_tree = storage.get_tree(prefixed_tree).unwrap().to_vec();
+
         for (key, child_node) in prefixed_tree.iter() {
-            let entry = self.node_entry(&child_node)?;
+            let entry = self.node_entry(*child_node, storage)?;
+
+            let key = storage.get_str(*key);
 
             // construct full path as Tree key is only one chunk of it
             let fullpath = self.key_to_string(prefix) + delimiter + key;
             let rdepth = depth.map(|d| d - 1);
-            let key_str: &str = key.borrow();
+            let key_str = key.to_string();
+
+            std::mem::drop(key);
+
             out.insert(
-                key_str.to_string(),
-                self.get_context_recursive(&fullpath, &entry, rdepth)?,
+                key_str,
+                self.get_context_recursive(&fullpath, &entry, rdepth, storage)?,
             );
         }
 
@@ -222,26 +232,36 @@ impl TezedgeIndex {
         path: &str,
         entry: &Entry,
         depth: Option<usize>,
+        storage: &mut Storage,
     ) -> Result<StringTreeEntry, MerkleError> {
         if let Some(0) = depth {
             return Ok(StringTreeEntry::Null);
         }
 
         match entry {
-            Entry::Blob(blob) => Ok(StringTreeEntry::Blob(hex::encode(blob))),
+            Entry::Blob(blob_id) => {
+                let blob = storage.get_blob(*blob_id).unwrap();
+                Ok(StringTreeEntry::Blob(hex::encode(blob)))
+            }
             Entry::Tree(tree) => {
                 // Go through all descendants and gather errors. Remap error if there is a failure
                 // anywhere in the recursion paths. TODO: is revert possible?
                 let mut new_tree = StringTreeMap::new();
-                for (key, child_node) in tree.iter() {
-                    let fullpath = path.to_owned() + "/" + key;
 
-                    let entry = self.node_entry(&child_node)?;
+                let tree = storage.get_tree(*tree).unwrap().to_vec();
+
+                for (key, child_node) in tree.iter() {
+                    let key = storage.get_str(*key);
+                    let fullpath = path.to_owned() + "/" + key;
+                    let key_str = key.to_string();
+                    std::mem::drop(key);
+
+                    let entry = self.node_entry(*child_node, storage)?;
                     let rdepth = depth.map(|d| d - 1);
-                    let key_str: &str = key.borrow();
+
                     new_tree.insert(
-                        key_str.to_string(),
-                        self.get_context_recursive(&fullpath, &entry, rdepth)?,
+                        key_str,
+                        self.get_context_recursive(&fullpath, &entry, rdepth, storage)?,
                     );
                 }
                 Ok(StringTreeEntry::Tree(new_tree))
@@ -260,7 +280,12 @@ impl TezedgeIndex {
     ///
     /// * `root` - reference to a tree in which we search
     /// * `key` - sought path
-    pub fn find_raw_tree(&self, root: &Tree, key: &[&str]) -> Result<Tree, MerkleError> {
+    pub fn find_raw_tree(
+        &self,
+        root: Tree,
+        key: &[&str],
+        storage: &mut Storage,
+    ) -> Result<Tree, MerkleError> {
         let first = match key.first() {
             Some(first) => *first,
             None => {
@@ -270,39 +295,41 @@ impl TezedgeIndex {
         };
 
         // first get node at key
-        let child_node = match root.get(first) {
+        let child_node_id = match storage.get_tree_node_id(root, first) {
             Some(hash) => hash,
             None => {
-                return Ok(Tree::new());
+                return Ok(Tree::empty());
             }
         };
 
         // get entry (from working tree)
-        if let Ok(entry) = child_node.entry.try_borrow() {
-            match &*entry {
-                Some(Entry::Tree(tree)) => {
-                    return self.find_raw_tree(tree, &key[1..]);
+        let child_node = storage.get_node(child_node_id).unwrap();
+        if let Some(entry) = child_node.get_entry() {
+            match entry {
+                Entry::Tree(tree) => {
+                    return self.find_raw_tree(tree, &key[1..], storage);
                 }
-                Some(Entry::Blob(_)) => return Ok(Tree::new()),
-                Some(Entry::Commit { .. }) => {
+                Entry::Blob(_) => return Ok(Tree::empty()),
+                Entry::Commit { .. } => {
                     return Err(MerkleError::FoundUnexpectedStructure {
                         sought: "Tree/Blob".to_string(),
                         found: "commit".to_string(),
                     })
                 }
-                None => {}
             }
-            drop(entry);
         }
 
         // get entry by hash (from DB)
         let hash = child_node.get_hash_id()?;
-        let entry = self.get_entry(hash)?;
+        std::mem::drop(child_node);
+
+        let entry = self.get_entry(hash, storage)?;
+        let child_node = storage.get_node(child_node_id).unwrap();
         child_node.set_entry(&entry)?;
 
         match entry {
-            Entry::Tree(tree) => self.find_raw_tree(&tree, &key[1..]),
-            Entry::Blob(_) => Ok(Tree::new()),
+            Entry::Tree(tree) => self.find_raw_tree(tree, &key[1..], storage),
+            Entry::Blob(_) => Ok(Tree::empty()),
             Entry::Commit { .. } => Err(MerkleError::FoundUnexpectedStructure {
                 sought: "Tree/Blob".to_string(),
                 found: "commit".to_string(),
@@ -316,27 +343,37 @@ impl TezedgeIndex {
         commit_hash: HashId,
         key: &ContextKey,
     ) -> Result<ContextValue, MerkleError> {
-        // let stat_updater = StatUpdater::new(MerkleStorageAction::GetHistory, Some(key));
+        let mut storage = (&*self.storage).borrow_mut();
 
-        let commit = self.get_commit(commit_hash)?;
-        let tree = self.get_tree(commit.root_hash)?;
-        let rv = self.get_from_tree(&tree, key);
+        let commit = self.get_commit(commit_hash, &mut storage)?;
+        let tree = self.get_tree(commit.root_hash, &mut storage)?;
 
-        // stat_updater.update_execution_stats(&mut self.stats);
-        rv
+        let blob_id = self.get_from_tree(tree, key, &mut storage)?;
+        let blob = storage.get_blob(blob_id).unwrap();
+
+        Ok(blob.to_vec())
     }
 
-    fn get_from_tree(&self, root: &Tree, key: &ContextKey) -> Result<ContextValue, MerkleError> {
+    fn get_from_tree(
+        &self,
+        root: Tree,
+        key: &ContextKey,
+        storage: &mut Storage,
+    ) -> Result<BlobStorageId, MerkleError> {
         let (file, path) = key.split_last().ok_or(MerkleError::KeyEmpty)?;
-        let node = self.find_raw_tree(&root, &path)?;
+
+        let node = self.find_raw_tree(root, &path, storage)?;
 
         // get file node from tree
-        let node = node.get(*file).ok_or_else(|| MerkleError::ValueNotFound {
-            key: self.key_to_string(key),
-        })?;
+        let node_id =
+            storage
+                .get_tree_node_id(node, *file)
+                .ok_or_else(|| MerkleError::ValueNotFound {
+                    key: self.key_to_string(key),
+                })?;
 
         // get blob
-        match self.node_entry(&node)? {
+        match self.node_entry(node_id, storage)? {
             Entry::Blob(blob) => Ok(blob),
             _ => Err(MerkleError::ValueIsNotABlob {
                 key: self.key_to_string(key),
@@ -350,28 +387,36 @@ impl TezedgeIndex {
         context_hash: HashId,
         prefix: &ContextKey,
     ) -> Result<Option<Vec<(ContextKeyOwned, ContextValue)>>, MerkleError> {
-        let commit = self.get_commit(context_hash)?;
-        let root_tree = self.get_tree(commit.root_hash)?;
-        let rv = self._get_context_key_values_by_prefix(&root_tree, prefix);
+        let mut storage = (&*self.storage).borrow_mut();
+
+        let commit = self.get_commit(context_hash, &mut storage)?;
+        let root_tree = self.get_tree(commit.root_hash, &mut storage)?;
+        let rv = self._get_context_key_values_by_prefix(root_tree, prefix, &mut storage);
 
         rv
     }
 
     fn _get_context_key_values_by_prefix(
         &self,
-        root_tree: &Tree,
+        root_tree: Tree,
         prefix: &ContextKey,
+        storage: &mut Storage,
     ) -> Result<Option<Vec<(ContextKeyOwned, ContextValue)>>, MerkleError> {
-        let prefixed_tree = self.find_raw_tree(root_tree, prefix)?;
+        let prefixed_tree = self.find_raw_tree(root_tree, prefix, storage)?;
         let mut keyvalues: Vec<(ContextKeyOwned, ContextValue)> = Vec::new();
         let delimiter = if prefix.is_empty() { "" } else { "/" };
 
-        for (key, child_node) in prefixed_tree.iter() {
-            let entry = self.node_entry(&child_node)?;
+        let prefixed_tree = storage.get_tree(prefixed_tree).unwrap().to_vec();
 
+        for (key, child_node) in prefixed_tree.iter() {
+            let entry = self.node_entry(*child_node, storage)?;
+
+            let key = storage.get_str(*key);
             // construct full path as Tree key is only one chunk of it
             let fullpath = self.key_to_string(prefix) + delimiter + key;
-            self.get_key_values_from_tree_recursively(&fullpath, &entry, &mut keyvalues)?;
+            std::mem::drop(key);
+
+            self.get_key_values_from_tree_recursively(&fullpath, &entry, &mut keyvalues, storage)?;
         }
 
         if keyvalues.is_empty() {
@@ -387,24 +432,32 @@ impl TezedgeIndex {
         path: &str,
         entry: &Entry,
         entries: &mut Vec<(ContextKeyOwned, ContextValue)>,
+        storage: &mut Storage,
     ) -> Result<(), MerkleError> {
         match entry {
-            Entry::Blob(blob) => {
+            Entry::Blob(blob_id) => {
                 // push key-value pair
-                entries.push((self.string_to_key(path), blob.clone()));
+                let blob = storage.get_blob(*blob_id).unwrap();
+                entries.push((self.string_to_key(path), blob.to_vec()));
                 Ok(())
             }
             Entry::Tree(tree) => {
                 // Go through all descendants and gather errors. Remap error if there is a failure
                 // anywhere in the recursion paths. TODO: is revert possible?
+                // let storage = (&*self.trees).borrow();
+                let tree = storage.get_tree(*tree).unwrap().to_vec();
+
                 tree.iter()
                     .map(|(key, child_node)| {
+                        let key = storage.get_str(*key);
                         let fullpath = path.to_owned() + "/" + key;
+                        std::mem::drop(key);
 
-                        match self.node_entry(&child_node) {
+                        match self.node_entry(*child_node, storage) {
                             Err(_) => Ok(()),
-                            Ok(entry) => self
-                                .get_key_values_from_tree_recursively(&fullpath, &entry, entries),
+                            Ok(entry) => self.get_key_values_from_tree_recursively(
+                                &fullpath, &entry, entries, storage,
+                            ),
                         }
                     })
                     .find_map(|res| match res {
@@ -413,9 +466,11 @@ impl TezedgeIndex {
                     })
                     .unwrap_or(Ok(()))
             }
-            Entry::Commit(commit) => match self.get_entry(commit.root_hash) {
+            Entry::Commit(commit) => match self.get_entry(commit.root_hash, storage) {
                 Err(err) => Err(err),
-                Ok(entry) => self.get_key_values_from_tree_recursively(path, &entry, entries),
+                Ok(entry) => {
+                    self.get_key_values_from_tree_recursively(path, &entry, entries, storage)
+                }
             },
         }
     }
@@ -432,7 +487,9 @@ impl IndexApi<TezedgeContext> for TezedgeIndex {
             }
         };
 
-        if let Some(Entry::Commit(_)) = self.find_entry(hash_id)? {
+        let mut storage = self.storage.borrow_mut();
+
+        if let Some(Entry::Commit(_)) = self.find_entry(hash_id, &mut storage)? {
             Ok(true)
         } else {
             Ok(false)
@@ -449,8 +506,11 @@ impl IndexApi<TezedgeContext> for TezedgeIndex {
             }
         };
 
-        if let Some(commit) = self.find_commit(hash_id)? {
-            if let Some(tree) = self.find_tree(commit.root_hash)? {
+        let mut storage = self.storage.borrow_mut();
+        storage.clear();
+
+        if let Some(commit) = self.find_commit(hash_id, &mut storage)? {
+            if let Some(tree) = self.find_tree(commit.root_hash, &mut storage)? {
                 let tree = WorkingTree::new_with_tree(self.clone(), tree);
 
                 Ok(Some(TezedgeContext::new(
@@ -550,23 +610,10 @@ impl IndexApi<TezedgeContext> for TezedgeIndex {
             }
         };
 
-        self._get_context_tree_by_prefix(hash_id, prefix, depth)
+        let mut storage = self.storage.borrow_mut();
+
+        self._get_context_tree_by_prefix(hash_id, prefix, depth, &mut storage)
             .map_err(ContextError::from)
-    }
-}
-
-#[derive(Default)]
-pub struct StringInterner {
-    strings: HashSet<Rc<str>>,
-}
-
-impl StringInterner {
-    fn get_str(&mut self, s: &str) -> Rc<str> {
-        if s.len() >= 30 {
-            return Rc::from(s);
-        }
-
-        self.strings.get_or_insert_with(s, |s| Rc::from(s)).clone()
     }
 }
 
@@ -581,7 +628,7 @@ pub struct TezedgeContext {
 }
 
 impl ProtocolContextApi for TezedgeContext {
-    fn add(&self, key: &ContextKey, value: ContextValue) -> Result<Self, ContextError> {
+    fn add(&self, key: &ContextKey, value: &[u8]) -> Result<Self, ContextError> {
         let tree = self.tree.add(key, value)?;
 
         Ok(self.with_tree(tree))
@@ -634,7 +681,7 @@ impl ProtocolContextApi for TezedgeContext {
         offset: Option<usize>,
         length: Option<usize>,
         key: &ContextKey,
-    ) -> Result<Vec<(KeyFragment, WorkingTree)>, ContextError> {
+    ) -> Result<Vec<(String, WorkingTree)>, ContextError> {
         self.tree.list(offset, length, key).map_err(Into::into)
     }
 
@@ -676,6 +723,14 @@ impl ShellContextApi for TezedgeContext {
 
         let commit_hash = self.get_commit_hash(commit_hash_id, &*repository)?;
         repository.clear_entries()?;
+
+        std::mem::drop(repository);
+        // let time = self.index.time_clear.load(std::sync::atomic::Ordering::Relaxed);
+        // println!("TIME_CLEAR={:?}", std::time::Duration::from_nanos(time.try_into().unwrap()));
+        self.get_memory_usage();
+
+        // println!("COMMIT={:?}", commit_hash.to_base58_check());
+
         Ok(commit_hash)
     }
 
@@ -717,10 +772,36 @@ impl ShellContextApi for TezedgeContext {
         Ok(MerkleStoragePerfReport::default())
     }
 
-    fn get_memory_usage(&self) -> Result<usize, ContextError> {
-        // TODO: Implement this
-        Ok(0)
+    fn get_memory_usage(&self) -> Result<ContextMemoryUsage, ContextError> {
+        let repository = self.index.repository.read()?;
+        let storage = (&*self.index.storage).borrow();
+
+        let usage = ContextMemoryUsage {
+            repo: repository.memory_usage(),
+            storage: storage.memory_usage(),
+        };
+
+        println!("usage={:?}", usage);
+
+        Ok(usage)
+
+        // println!("REPO={:?}", repository);
+        //println!("STORAGE={:?}", );
+
+        // todo!()
+
+        // Ok(ContextMemoryUsage {
+        //     storage: repository.memory_usage(),
+        //     strings: strings.memory_usage(),
+        // })
     }
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct ContextMemoryUsage {
+    repo: RepositoryMemoryUsage,
+    storage: StorageMemoryUsage,
 }
 
 /// Generator of Tree IDs which are used to simulate pointers when they are not available.
@@ -797,5 +878,55 @@ impl TezedgeContext {
         };
         let commit_hash = ContextHash::try_from(&commit_hash[..])?;
         Ok(commit_hash)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tezos_api::ffi::{ContextKvStoreConfiguration, TezosContextTezEdgeStorageConfiguration};
+
+    use super::*;
+    use crate::initializer::initialize_tezedge_context;
+
+    #[test]
+    fn init_context() {
+        let context = initialize_tezedge_context(&TezosContextTezEdgeStorageConfiguration {
+            backend: ContextKvStoreConfiguration::InMem,
+            ipc_socket_path: None,
+        })
+        .unwrap();
+
+        // Context is immutable so on any modification, the methods return the new tree
+        let context = context.add(&["a", "b", "c"], &[1, 2, 3]).unwrap();
+        let context = context.add(&["m", "n", "o"], &[4, 5, 6]).unwrap();
+        assert_eq!(context.find(&["a", "b", "c"]).unwrap().unwrap(), &[1, 2, 3]);
+
+        let context2 = context.delete(&["m", "n", "o"]).unwrap();
+        assert!(context.mem(&["m", "n", "o"]).unwrap());
+        assert!(context2.mem(&["m", "n", "o"]).unwrap() == false);
+
+        assert!(context.mem_tree(&["a"]));
+
+        let tree_a = context.find_tree(&["a"]).unwrap().unwrap();
+        let context = context.add_tree(&["z"], &tree_a).unwrap();
+
+        assert_eq!(
+            context.find(&["a", "b", "c"]).unwrap().unwrap(),
+            context.find(&["z", "b", "c"]).unwrap().unwrap(),
+        );
+
+        let context = context.add(&["a", "b1", "c"], &[10, 20, 30]).unwrap();
+        let list = context.list(None, None, &["a"]).unwrap();
+
+        assert_eq!(&*list[0].0, "b");
+        assert_eq!(&*list[1].0, "b1");
+
+        assert_eq!(
+            context.get_merkle_root().unwrap(),
+            [
+                1, 217, 94, 141, 166, 51, 65, 3, 104, 220, 208, 35, 122, 106, 131, 147, 183, 133,
+                81, 239, 195, 111, 25, 29, 88, 1, 46, 251, 25, 205, 202, 229
+            ]
+        );
     }
 }

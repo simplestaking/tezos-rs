@@ -21,10 +21,10 @@ use crate::{
     timings,
     working_tree::{
         working_tree::{FoldDepth, TreeWalker, WorkingTree},
-        NodeKind,
+        NodeKind, Tree,
     },
-    ContextKeyValueStore, ContextValue, IndexApi, PatchContextFunction, ProtocolContextApi,
-    ShellContextApi, TezedgeContext, TezedgeIndex,
+    ContextKeyValueStore, IndexApi, PatchContextFunction, ProtocolContextApi, ShellContextApi,
+    TezedgeContext, TezedgeIndex,
 };
 use tezos_api::ffi::TezosContextTezEdgeStorageConfiguration;
 use tezos_api::ocaml_conv::{OCamlBlockHash, OCamlContextHash, OCamlOperationHash};
@@ -365,7 +365,9 @@ ocaml_export! {
         let context: &TezedgeContextFFI = ocaml_context.borrow();
         let context = context.0.borrow().clone();
         let key = make_key(rt, key);
-        let value: ContextValue = value.to_rust(rt);
+
+        let value_ref = rt.get(value);
+        let value = value_ref.as_bytes();
 
         let result = context.add(&key, value)
             .map_err(|err| format!("{:?}", err))
@@ -517,7 +519,7 @@ ocaml_export! {
         let ocaml_context = rt.get(context);
         let context: &TezedgeContextFFI = ocaml_context.borrow();
         let context = context.0.borrow().clone();
-        let empty_tree = WorkingTree::new_with_tree(context.index, Default::default());
+        let empty_tree = WorkingTree::new_with_tree(context.index, Tree::empty());
 
         empty_tree.to_ocaml(rt)
     }
@@ -544,8 +546,18 @@ ocaml_export! {
         let ocaml_context = rt.get(context);
         let context: &TezedgeContextFFI = ocaml_context.borrow();
         let context = context.0.borrow().clone();
-        let value = value.to_rust(rt);
-        let tree = WorkingTree::new_with_value(context.index, value);
+        let value = rt.get(value);
+        // let value: ContextValue = value.to_rust(rt);
+
+        let value_id = {
+            let mut storage = context.index.storage.borrow_mut();
+            storage.add_blob_by_ref(value.as_bytes())
+        };
+
+        // let mut storage = context.index.storage.borrow_mut();
+        // let value_id = storage.add_value(value);
+
+        let tree = WorkingTree::new_with_value(context.index, value_id);
 
         tree.to_ocaml(rt)
     }
@@ -652,7 +664,9 @@ ocaml_export! {
         let ocaml_tree = rt.get(tree);
         let tree: &WorkingTreeFFI = ocaml_tree.borrow();
         let key = make_key(rt, key);
-        let value: ContextValue = value.to_rust(rt);
+
+        let value_ref = rt.get(value);
+        let value = value_ref.as_bytes();
 
         let result =  tree.add(&key, value)
             .map_err(|err| format!("{:?}", err));

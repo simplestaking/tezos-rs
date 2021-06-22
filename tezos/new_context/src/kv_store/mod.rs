@@ -3,11 +3,8 @@
 
 //! This sub module provides different KV alternatives for context persistence
 
-use std::str::FromStr;
-use std::{
-    convert::{TryFrom, TryInto},
-    num::NonZeroUsize,
-};
+use std::convert::{TryFrom, TryInto};
+use std::{num::NonZeroU32, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
@@ -23,7 +20,7 @@ pub mod stats;
 pub const INMEM: &str = "inmem";
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct HashId(NonZeroUsize); // NonZeroUsize so that `Option<HashId>` is 8 bytes
+pub struct HashId(NonZeroU32); // NonZeroU32 so that `Option<HashId>` is 8 bytes
 
 pub struct HashIdError;
 
@@ -31,7 +28,8 @@ impl TryInto<usize> for HashId {
     type Error = HashIdError;
 
     fn try_into(self) -> Result<usize, Self::Error> {
-        self.0.get().checked_sub(1).ok_or(HashIdError)
+        let a = self.0.get().checked_sub(1).ok_or(HashIdError)?;
+        Ok(a as usize)
     }
 }
 
@@ -39,22 +37,32 @@ impl TryFrom<usize> for HashId {
     type Error = HashIdError;
 
     fn try_from(value: usize) -> Result<Self, Self::Error> {
+        let value: u32 = value.try_into().map_err(|_| HashIdError)?;
+
         value
             .checked_add(1)
-            .and_then(NonZeroUsize::new)
+            .and_then(NonZeroU32::new)
             .map(HashId)
             .ok_or(HashIdError)
     }
 }
 
-const SHIFT: usize = (std::mem::size_of::<usize>() * 8) - 1;
-const READONLY: usize = 1 << SHIFT;
+const SHIFT: usize = (std::mem::size_of::<u32>() * 8) - 1;
+const READONLY: u32 = 1 << SHIFT;
 
 impl HashId {
+    pub fn new(value: u32) -> Option<Self> {
+        Some(HashId(NonZeroU32::new(value)?))
+    }
+
+    pub fn as_u32(&self) -> u32 {
+        self.0.get()
+    }
+
     fn set_readonly_runner(&mut self) -> Result<(), HashIdError> {
         let hash_id = self.0.get();
 
-        self.0 = NonZeroUsize::new(hash_id | READONLY).ok_or(HashIdError)?;
+        self.0 = NonZeroU32::new(hash_id | READONLY).ok_or(HashIdError)?;
 
         Ok(())
     }
@@ -63,7 +71,7 @@ impl HashId {
         let hash_id = self.0.get();
         if hash_id & READONLY != 0 {
             Ok(Some(HashId(
-                NonZeroUsize::new(hash_id & !READONLY).ok_or(HashIdError)?,
+                NonZeroU32::new(hash_id & !READONLY).ok_or(HashIdError)?,
             )))
         } else {
             Ok(None)
@@ -132,90 +140,5 @@ impl FromStr for SupportedContextKeyValueStore {
             "Invalid variant name: {}",
             s
         )))
-    }
-}
-
-pub mod test_support {
-    use std::collections::HashMap;
-    use std::convert::TryFrom;
-    use std::path::PathBuf;
-
-    use strum::IntoEnumIterator;
-
-    use crate::persistent::Persistable;
-    use crate::working_tree::Entry;
-    use crate::ContextKeyValueStore;
-    use crate::EntryHash;
-
-    use super::SupportedContextKeyValueStore;
-
-    pub type TestKeyValueStoreError = failure::Error;
-    pub type TestContextKvStoreFactoryInstance = Box<dyn TestContextKvStoreFactory>;
-
-    pub fn blob(value: Vec<u8>) -> Entry {
-        Entry::Blob(value)
-    }
-
-    pub fn entry_hash(key: &[u8]) -> EntryHash {
-        assert!(key.len() < 32);
-        let bytes: Vec<u8> = key
-            .iter()
-            .chain(std::iter::repeat(&0u8))
-            .take(32)
-            .cloned()
-            .collect();
-
-        EntryHash::try_from(bytes).unwrap()
-    }
-
-    pub fn blob_serialized(value: Vec<u8>) -> Vec<u8> {
-        bincode::serialize(&blob(value)).unwrap()
-    }
-
-    pub fn all_kv_stores(
-        _base_dir: PathBuf, // TODO - TE-261: not used anymore now
-    ) -> HashMap<SupportedContextKeyValueStore, TestContextKvStoreFactoryInstance> {
-        let mut store_factories: HashMap<
-            SupportedContextKeyValueStore,
-            TestContextKvStoreFactoryInstance,
-        > = HashMap::new();
-
-        for sckvs in SupportedContextKeyValueStore::iter() {
-            let _ = match sckvs {
-                SupportedContextKeyValueStore::InMem => store_factories.insert(
-                    SupportedContextKeyValueStore::InMem,
-                    Box::new(InMemoryBackendTestContextKvStoreFactory),
-                ),
-            };
-        }
-
-        assert_eq!(
-            SupportedContextKeyValueStore::iter().count(),
-            store_factories.len(),
-            "There must be registered test factory for every supported kv-store!"
-        );
-
-        store_factories
-    }
-
-    pub trait TestContextKvStoreFactory: 'static + Send + Sync + Persistable {
-        /// Creates new storage and also clean all existing data
-        fn create(&self, name: &str) -> Result<Box<ContextKeyValueStore>, TestKeyValueStoreError>;
-    }
-
-    /// In-memory kv-store
-    pub struct InMemoryBackendTestContextKvStoreFactory;
-
-    impl TestContextKvStoreFactory for InMemoryBackendTestContextKvStoreFactory {
-        fn create(&self, _: &str) -> Result<Box<ContextKeyValueStore>, TestKeyValueStoreError> {
-            use crate::kv_store::in_memory::InMemory;
-            Ok(Box::new(InMemory::new()))
-        }
-    }
-
-    impl Persistable for InMemoryBackendTestContextKvStoreFactory {
-        fn is_persistent(&self) -> bool {
-            false
-        }
     }
 }

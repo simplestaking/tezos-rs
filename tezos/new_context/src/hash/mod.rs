@@ -15,19 +15,20 @@ use ocaml::ocaml_hash_string;
 
 use crate::{
     kv_store::HashId,
-    persistent::{BincodeEncoded, DBError},
-    working_tree::{Commit, Entry, Node, NodeKind, Tree},
+    persistent::DBError,
+    working_tree::{
+        storage::{Blob, BlobStorageId, NodeId, Storage},
+        string_interner::StringId,
+        Commit, Entry, NodeKind, Tree,
+    },
     ContextKeyValueStore,
 };
-use crate::{working_tree::KeyFragment, ContextValue};
 
 mod ocaml;
 
 pub const ENTRY_HASH_LEN: usize = 32;
 
 pub type EntryHash = [u8; ENTRY_HASH_LEN];
-
-impl BincodeEncoded for EntryHash {}
 
 #[derive(Debug, Fail)]
 pub enum HashingError {
@@ -78,9 +79,9 @@ impl From<io::Error> for HashingError {
 }
 
 /// Inode representation used for hashing directories with >256 entries.
-enum Inode<'a> {
+enum Inode {
     Empty,
-    Value(Vec<(KeyFragment, &'a Node)>),
+    Value(Vec<(StringId, NodeId)>),
     Tree {
         depth: u32,
         children: usize,
@@ -104,31 +105,33 @@ fn index(depth: u32, name: &str) -> u32 {
 // something to keep in mind if the representation of `Tree` changes.
 fn partition_entries<'a>(
     depth: u32,
-    entries: &[(&KeyFragment, &'a Node)],
+    entries: &[(StringId, NodeId)],
     store: &mut ContextKeyValueStore,
-) -> Result<Inode<'a>, HashingError> {
+    storage: &Storage,
+) -> Result<Inode, HashingError> {
     if entries.is_empty() {
         Ok(Inode::Empty)
     } else if entries.len() <= 32 {
-        Ok(Inode::Value(
-            entries.iter().map(|(s, n)| ((*s).clone(), *n)).collect(),
-        ))
+        Ok(Inode::Value(entries.to_vec()))
     } else {
         let children = entries.len();
         let mut pointers = Vec::with_capacity(32);
 
         // pointers = {p(i) | i <- [0..31], t(i) != Empty}
         for i in 0..=31 {
-            let entries_at_depth_and_index_i: Vec<(&KeyFragment, &Node)> = entries
+            let entries_at_depth_and_index_i: Vec<(StringId, NodeId)> = entries
                 .iter()
-                .filter(|(name, _)| index(depth, name) == i)
+                .filter(|(name, _)| {
+                    let name = storage.get_str(*name);
+                    index(depth, name) == i
+                })
                 .cloned()
                 .collect();
-            let ti = partition_entries(depth + 1, &entries_at_depth_and_index_i, store)?;
+            let ti = partition_entries(depth + 1, &entries_at_depth_and_index_i, store, storage)?;
 
             match ti {
                 Inode::Empty => (),
-                non_empty => pointers.push((i as u8, hash_long_inode(&non_empty, store)?)),
+                non_empty => pointers.push((i as u8, hash_long_inode(&non_empty, store, storage)?)),
             }
         }
 
@@ -143,6 +146,7 @@ fn partition_entries<'a>(
 fn hash_long_inode(
     inode: &Inode,
     store: &mut ContextKeyValueStore,
+    storage: &Storage,
 ) -> Result<HashId, HashingError> {
     let mut hasher = VarBlake2b::new(ENTRY_HASH_LEN)?;
 
@@ -166,15 +170,19 @@ fn hash_long_inode(
             // +-------------+--------------+--------+--------+
             // | \len(name)  |     name     |  kind  |  hash  |
 
-            for (name, node) in entries {
+            for (name, node_id) in entries {
+                let name = storage.get_str(*name);
+
                 leb128::write::unsigned(&mut hasher, name.len() as u64)?;
                 hasher.update(name.as_bytes());
+
                 // \000 for nodes, and \001 for contents.
-                match node.node_kind {
+                let node = storage.get_node(*node_id).unwrap();
+                match node.node_kind() {
                     NodeKind::Leaf => hasher.update(&[1u8]),
                     NodeKind::NonLeaf => hasher.update(&[0u8]),
                 };
-                hasher.update(node.entry_hash(store)?.as_ref());
+                hasher.update(node.entry_hash(store, storage)?.as_ref());
             }
         }
         Inode::Tree {
@@ -221,7 +229,11 @@ fn hash_long_inode(
 // where:
 // - CHILD NODE - <NODE TYPE><length of string (1 byte)><string/path bytes><length of hash (8bytes)><hash bytes>
 // - NODE TYPE - leaf node(0xff0000000000000000) or internal node (0x0000000000000000)
-fn hash_short_inode(tree: &Tree, store: &mut ContextKeyValueStore) -> Result<HashId, HashingError> {
+fn hash_short_inode(
+    tree: Tree,
+    store: &mut ContextKeyValueStore,
+    storage: &Storage,
+) -> Result<HashId, HashingError> {
     let mut hasher = VarBlake2b::new(ENTRY_HASH_LEN)?;
 
     // Node list:
@@ -230,6 +242,7 @@ fn hash_short_inode(tree: &Tree, store: &mut ContextKeyValueStore) -> Result<Has
     // +--------+--------------+-----+--------------+
     // |   \k   | prehash(e_1) | ... | prehash(e_k) |
 
+    let tree = storage.get_tree(tree).unwrap();
     hasher.update(&(tree.len() as u64).to_be_bytes());
 
     // Node entry:
@@ -239,12 +252,25 @@ fn hash_short_inode(tree: &Tree, store: &mut ContextKeyValueStore) -> Result<Has
     // | kind  |  \len(name)  |    name     |  \32  |  hash  |
 
     for (k, v) in tree {
-        hasher.update(encode_irmin_node_kind(&v.node_kind));
+        let v = storage.get_node(*v).unwrap();
+        hasher.update(encode_irmin_node_kind(&v.node_kind()));
         // Key length is written in LEB128 encoding
+
+        let k = storage.get_str(*k);
         leb128::write::unsigned(&mut hasher, k.len() as u64)?;
         hasher.update(k.as_bytes());
         hasher.update(&(ENTRY_HASH_LEN as u64).to_be_bytes());
-        hasher.update(v.entry_hash(store)?.as_ref());
+
+        let blob_inlined = v.get_entry().and_then(|entry| match entry {
+            Entry::Blob(blob_id) if blob_id.is_inline() => storage.get_blob(blob_id),
+            _ => None,
+        });
+
+        if let Some(blob) = blob_inlined {
+            hasher.update(&hash_inlined_blob(blob)?);
+        } else {
+            hasher.update(v.entry_hash(store, storage)?.as_ref());
+        }
     }
 
     let hash_id = store
@@ -257,17 +283,18 @@ fn hash_short_inode(tree: &Tree, store: &mut ContextKeyValueStore) -> Result<Has
 // Calculates hash of tree
 // uses BLAKE2 binary 256 length hash function
 pub(crate) fn hash_tree(
-    tree: &Tree,
+    tree_id: Tree,
     store: &mut ContextKeyValueStore,
+    storage: &Storage,
 ) -> Result<HashId, HashingError> {
     // If there are >256 entries, we need to partition the tree and hash the resulting inode
+    let tree = storage.get_tree(tree_id).unwrap();
+
     if tree.len() > 256 {
-        let entries: Vec<(&KeyFragment, &Node)> =
-            tree.iter().map(|(s, n)| (s, n.as_ref())).collect();
-        let inode = partition_entries(0, &entries, store)?;
-        hash_long_inode(&inode, store)
+        let inode = partition_entries(0, &tree, store, storage)?;
+        hash_long_inode(&inode, store, storage)
     } else {
-        hash_short_inode(tree, store)
+        hash_short_inode(tree_id, store, storage)
     }
 }
 
@@ -275,10 +302,17 @@ pub(crate) fn hash_tree(
 // uses BLAKE2 binary 256 length hash function
 // hash is calculated as <length of data (8 bytes)><data>
 pub(crate) fn hash_blob(
-    blob: &ContextValue,
+    blob_id: BlobStorageId,
     store: &mut ContextKeyValueStore,
-) -> Result<HashId, HashingError> {
+    storage: &Storage,
+) -> Result<Option<HashId>, HashingError> {
+    if blob_id.is_inline() {
+        return Ok(None);
+    }
+
     let mut hasher = VarBlake2b::new(ENTRY_HASH_LEN)?;
+
+    let blob = storage.get_blob(blob_id).unwrap();
     hasher.update(&(blob.len() as u64).to_be_bytes());
     hasher.update(blob);
 
@@ -286,7 +320,23 @@ pub(crate) fn hash_blob(
         .get_vacant_entry_hash()?
         .write_with(|entry| hasher.finalize_variable(|r| entry.copy_from_slice(r)));
 
-    Ok(hash_id)
+    Ok(Some(hash_id))
+}
+
+// Calculates hash of BLOB
+// uses BLAKE2 binary 256 length hash function
+// hash is calculated as <length of data (8 bytes)><data>
+pub(crate) fn hash_inlined_blob(blob: Blob) -> Result<EntryHash, HashingError> {
+    let mut hasher = VarBlake2b::new(ENTRY_HASH_LEN)?;
+
+    hasher.update(&(blob.len() as u64).to_be_bytes());
+    hasher.update(blob);
+
+    let mut entry_hash: EntryHash = Default::default();
+
+    hasher.finalize_variable(|r| entry_hash.copy_from_slice(r));
+
+    Ok(entry_hash)
 }
 
 // Calculates hash of commit
@@ -336,26 +386,19 @@ pub(crate) fn hash_commit(
 pub(crate) fn hash_entry(
     entry: &Entry,
     store: &mut ContextKeyValueStore,
-) -> Result<HashId, HashingError> {
+    storage: &Storage,
+) -> Result<Option<HashId>, HashingError> {
     match entry {
-        Entry::Commit(commit) => hash_commit(commit, store),
-        Entry::Tree(tree) => hash_tree(tree, store),
-        Entry::Blob(blob) => hash_blob(blob, store),
+        Entry::Commit(commit) => hash_commit(commit, store).map(Some),
+        Entry::Tree(tree) => hash_tree(*tree, store, storage).map(Some),
+        Entry::Blob(blob_id) => hash_blob(*blob_id, store, storage),
     }
 }
 
 #[cfg(test)]
 #[allow(unused_must_use)]
 mod tests {
-    use std::{
-        cell::{Cell, RefCell},
-        convert::TryInto,
-        env,
-        fs::File,
-        io::Read,
-        path::Path,
-        rc::Rc,
-    };
+    use std::{convert::TryInto, env, fs::File, io::Read, path::Path};
 
     use flate2::read::GzDecoder;
 
@@ -478,15 +521,15 @@ mod tests {
         // - NODE TYPE - leaf node(0xff00000000000000) or internal node (0x0000000000000000)
         let mut repo = InMemory::new();
         let expected_tree_hash = "d49a53323107f2ae40b01eaa4e9bec4d02801daf60bab82dc2529e40d40fa917";
-        let mut dummy_tree = Tree::new();
+        let dummy_tree = Tree::empty();
 
-        let node = Node {
-            node_kind: NodeKind::Leaf,
-            entry_hash: Cell::new(Some(hash_blob(&vec![1], &mut repo).unwrap())), // 407f958990678e2e9fb06758bc6520dae46d838d39948a4c51a5b19bd079293d
-            entry: RefCell::new(None),
-            commited: Cell::new(false),
-        };
-        dummy_tree.insert("a".into(), Rc::new(node));
+        let mut storage = Storage::new();
+
+        let blob_id = storage.add_blob_by_ref(&[1]);
+
+        let node = Node::new(NodeKind::Leaf, Entry::Blob(blob_id));
+
+        let dummy_tree = storage.insert(dummy_tree, "a", node);
 
         // hexademical representation of above tree:
         //
@@ -534,7 +577,7 @@ mod tests {
             hex::encode(calculated_tree_hash.as_ref())
         );
 
-        let hash_id = hash_tree(&dummy_tree, &mut repo).unwrap();
+        let hash_id = hash_tree(dummy_tree, &mut repo, &mut storage).unwrap();
 
         assert_eq!(
             calculated_tree_hash.as_ref(),
@@ -576,6 +619,7 @@ mod tests {
         let mut bytes = Vec::new();
 
         let mut repo = InMemory::new();
+        let mut storage = Storage::new();
 
         // NOTE: reading from a stream is very slow with serde, thats why
         // the whole file is being read here before parsing.
@@ -586,7 +630,7 @@ mod tests {
 
         for test_case in test_cases {
             let bindings_count = test_case.bindings.len();
-            let mut tree = Tree::new();
+            let mut tree = Tree::empty();
 
             for binding in test_case.bindings {
                 let node_kind = match binding.kind.as_str() {
@@ -599,17 +643,13 @@ mod tests {
                 let hash_id =
                     repo.put_entry_hash(entry_hash.as_ref().as_slice().try_into().unwrap());
 
-                let node = Node {
-                    node_kind,
-                    entry_hash: Cell::new(Some(hash_id)),
-                    entry: RefCell::new(None),
-                    commited: Cell::new(false),
-                };
-                tree = tree.update(binding.name.as_str().into(), Rc::new(node));
+                let node = Node::new_commited(node_kind, Some(hash_id), None);
+
+                tree = storage.insert(tree, binding.name.as_str(), node);
             }
 
             let expected_hash = ContextHash::from_base58_check(&test_case.hash).unwrap();
-            let computed_hash = hash_tree(&tree, &mut repo).unwrap();
+            let computed_hash = hash_tree(tree, &mut repo, &mut storage).unwrap();
             let computed_hash = repo.get_hash(computed_hash).unwrap().unwrap();
             let computed_hash = ContextHash::try_from_bytes(computed_hash).unwrap();
 

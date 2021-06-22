@@ -48,8 +48,6 @@ pub enum GarbageCollectionError {
     BackendError,
     #[fail(display = "Guard Poison {} ", error)]
     GuardPoison { error: String },
-    #[fail(display = "Serialization error: {:?}", error)]
-    SerializationError { error: bincode::Error },
     #[fail(display = "DBError error: {:?}", error)]
     DBError { error: DBError },
     #[fail(display = "Failed to convert hash to array: {}", error)]
@@ -73,12 +71,6 @@ pub enum GarbageCollectionError {
 impl From<DBError> for GarbageCollectionError {
     fn from(error: DBError) -> Self {
         GarbageCollectionError::DBError { error }
-    }
-}
-
-impl From<bincode::Error> for GarbageCollectionError {
-    fn from(error: bincode::Error) -> Self {
-        GarbageCollectionError::SerializationError { error }
     }
 }
 
