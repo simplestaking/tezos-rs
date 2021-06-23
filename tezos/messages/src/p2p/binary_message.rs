@@ -149,6 +149,12 @@ impl BinaryChunk {
     pub fn content(&self) -> &[u8] {
         &self.0[CONTENT_LENGTH_FIELD_BYTES..]
     }
+
+    /// Get the size of the chunk
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.0.len() - CONTENT_LENGTH_FIELD_BYTES
+    }
 }
 
 /// `BinaryChunk` error

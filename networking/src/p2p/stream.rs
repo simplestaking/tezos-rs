@@ -17,7 +17,7 @@ use tokio::io::{
 };
 use tokio::net::TcpStream;
 
-use crypto::crypto_box::PrecomputedKey;
+use crypto::crypto_box::{PrecomputedKey, BOX_ZERO_BYTES};
 use crypto::nonce::Nonce;
 use crypto::CryptoError;
 use tezos_encoding::{binary_reader::BinaryReaderError, binary_writer::BinaryWriterError};
@@ -27,7 +27,10 @@ use tezos_messages::p2p::binary_message::{
 
 /// Max allowed content length in bytes when taking into account extra data added by encryption
 pub const CONTENT_LENGTH_MAX: usize =
-    tezos_messages::p2p::binary_message::CONTENT_LENGTH_MAX - crypto::crypto_box::BOX_ZERO_BYTES;
+    tezos_messages::p2p::binary_message::CONTENT_LENGTH_MAX - BOX_ZERO_BYTES;
+
+/// Min allowed chunk size (except for the last chunk of a message)
+pub const CONTENT_LENGTH_MIN: usize = 1024;
 
 /// This is common error that might happen when communicating with peer over the network.
 #[derive(Debug, Fail)]
@@ -42,6 +45,10 @@ pub enum StreamError {
     DeserializationError { error: BinaryReaderError },
     #[fail(display = "Network error: {}, cause: {}", message, error)]
     NetworkError { message: &'static str, error: Error },
+    #[fail(display = "Chunk size {} is too small, minimal is {}", act, min)]
+    ChunkSizeError { min: usize, act: usize },
+    #[fail(display = "Empty chunks are not allowed")]
+    EmptyChunkError,
 }
 
 impl From<BinaryWriterError> for StreamError {
@@ -168,12 +175,16 @@ impl<R: AsyncRead + Unpin + Send> MessageReaderBase<R> {
     pub async fn read_message(&mut self) -> Result<BinaryChunk, StreamError> {
         // read encoding length (2 bytes)
         let msg_len_bytes = self.read_message_length_bytes().await?;
+        let msg_len = (&msg_len_bytes[..]).get_u16() as usize;
+        if msg_len == 0 {
+            return Err(StreamError::EmptyChunkError);
+        }
+
         // copy bytes containing encoding length to raw encoding buffer
         let mut all_recv_bytes = vec![];
         all_recv_bytes.extend(&msg_len_bytes);
 
         // read the message contents
-        let msg_len = (&msg_len_bytes[..]).get_u16() as usize;
         let mut msg_content_bytes = vec![0u8; msg_len];
         self.stream.read_exact(&mut msg_content_bytes).await?;
         all_recv_bytes.extend(&msg_content_bytes);
@@ -187,6 +198,10 @@ impl<R: AsyncRead + Unpin + Send> MessageReaderBase<R> {
         let mut msg_len_bytes: [u8; CONTENT_LENGTH_FIELD_BYTES] = [0; CONTENT_LENGTH_FIELD_BYTES];
         self.stream.read_exact(&mut msg_len_bytes).await?;
         Ok(msg_len_bytes)
+    }
+
+    pub fn into_inner(self) -> R {
+        self.stream
     }
 }
 
@@ -293,6 +308,10 @@ impl<A: AsyncRead + Unpin + Send> EncryptedMessageReaderBase<A> {
         }
     }
 
+    pub fn into_inner(self) -> MessageReaderBase<A> {
+        self.rx
+    }
+
     /// Consume content of inner message reader into specific message
     pub async fn read_message<M>(&mut self) -> Result<M, StreamError>
     where
@@ -304,6 +323,20 @@ impl<A: AsyncRead + Unpin + Send> EncryptedMessageReaderBase<A> {
         loop {
             // read
             let message_encrypted = self.rx.read_message().await?;
+            let message_len = message_encrypted.len();
+
+            // check that if the chunk is not a first chunk of the message (input_data.len > 0)
+            // and not a last chunk of the message (input_data.len + message_len < input_size),
+            // then it should not be shorter than `CONTENT_LENGTH_MIN`
+            if input_data.len() > 0
+                && input_data.len() + message_len < input_size
+                && message_len < CONTENT_LENGTH_MIN
+            {
+                return Err(StreamError::ChunkSizeError {
+                    min: CONTENT_LENGTH_MIN,
+                    act: message_len,
+                });
+            }
 
             // decrypt
             match self.crypto.decrypt(&message_encrypted.content()) {
