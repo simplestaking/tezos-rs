@@ -41,8 +41,9 @@ impl<P> Acceptor<P> for TezedgeStateWrapper
 impl GetRequests for TezedgeStateWrapper {
     type Request = TezedgeRequest;
 
-    fn get_requests(&self) -> Vec<Self::Request> {
-        self.0.get_requests()
+    #[inline]
+    fn get_requests(&self, buf: &mut Vec<Self::Request>) -> usize {
+        self.0.get_requests(buf)
     }
 }
 

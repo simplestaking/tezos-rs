@@ -505,6 +505,7 @@ fn handle_send_message_result(
 
 pub struct TezedgeProposer<Es, M> {
     config: TezedgeProposerConfig,
+    requests: Vec<TezedgeRequest>,
     notifications: Vec<Notification>,
     pub state: TezedgeStateWrapper,
     pub events: Es,
@@ -524,6 +525,7 @@ impl<Es, M> TezedgeProposer<Es, M>
         events.set_limit(config.events_limit);
         Self {
             config,
+            requests: vec![],
             notifications: vec![],
             state: state.into(),
             events,
@@ -539,6 +541,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
 {
     fn handle_event(
         event: Event<NetE>,
+        requests: &mut Vec<TezedgeRequest>,
         notifications: &mut Vec<Notification>,
         state: &mut TezedgeStateWrapper,
         manager: &mut M,
@@ -548,13 +551,14 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
                 state.accept(TickProposal { at });
             }
             Event::Network(event) => {
-                Self::handle_network_event(&event, notifications, state, manager);
+                Self::handle_network_event(&event, requests, notifications, state, manager);
             }
         }
     }
 
     fn handle_event_ref<'a>(
         event: EventRef<'a, NetE>,
+        requests: &mut Vec<TezedgeRequest>,
         notifications: &mut Vec<Notification>,
         state: &mut TezedgeStateWrapper,
         manager: &mut M,
@@ -564,13 +568,14 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
                 state.accept(TickProposal { at });
             }
             Event::Network(event) => {
-                Self::handle_network_event(event, notifications, state, manager);
+                Self::handle_network_event(event, requests, notifications, state, manager);
             }
         }
     }
 
     fn handle_network_event(
         event: &NetE,
+        requests: &mut Vec<TezedgeRequest>,
         notifications: &mut Vec<Notification>,
         state: &mut TezedgeStateWrapper,
         manager: &mut M,
@@ -595,7 +600,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
                         None => return,
                     }
                 }
-                Self::execute_requests(notifications, state, manager);
+                Self::execute_requests(requests, notifications, state, manager);
             }
         } else {
             match manager.get_peer_for_event_mut(&event) {
@@ -641,11 +646,14 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
     }
 
     fn execute_requests(
+        requests: &mut Vec<TezedgeRequest>,
         notifications: &mut Vec<Notification>,
         state: &mut TezedgeStateWrapper,
         manager: &mut M,
     ) {
-        for req in state.get_requests() {
+        state.get_requests(requests);
+
+        for req in requests.drain(..) {
             match req {
                 TezedgeRequest::StartListeningForNewPeers { req_id } => {
                     manager.start_listening_to_server_events();
@@ -754,13 +762,19 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
         for event in self.events.into_iter().take(events_limit) {
             Self::handle_event_ref(
                 event,
+                &mut self.requests,
                 &mut self.notifications,
                 &mut self.state,
                 &mut self.manager,
             );
         }
 
-        Self::execute_requests(&mut self.notifications, &mut self.state, &mut self.manager);
+        Self::execute_requests(
+            &mut self.requests,
+            &mut self.notifications,
+            &mut self.state,
+            &mut self.manager
+        );
     }
 
     pub fn make_progress_owned(&mut self)
@@ -778,6 +792,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
             count += 1;
             Self::handle_event(
                 event,
+                &mut self.requests,
                 &mut self.notifications,
                 &mut self.state,
                 &mut self.manager,
@@ -786,7 +801,12 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
         eprintln!("handled {} events in: {}ms", count, time.elapsed().as_millis());
 
         let time = Instant::now();
-        Self::execute_requests(&mut self.notifications, &mut self.state, &mut self.manager);
+        Self::execute_requests(
+            &mut self.requests,
+            &mut self.notifications,
+            &mut self.state,
+            &mut self.manager
+        );
         eprintln!("executed requests in: {}ms", time.elapsed().as_millis());
     }
 

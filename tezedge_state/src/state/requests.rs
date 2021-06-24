@@ -113,12 +113,12 @@ pub struct PendingRequestState {
 impl GetRequests for TezedgeState {
     type Request = TezedgeRequest;
 
-    fn get_requests(&self) -> Vec<TezedgeRequest> {
+    fn get_requests(&self, buf: &mut Vec<TezedgeRequest>) -> usize {
         use Handshake::*;
         use HandshakeStep::*;
         use RequestState::*;
 
-        let mut requests = vec![];
+        let buf_initial_len = buf.len();
 
         match &self.p2p_state {
             P2pState::ReadyMaxed => {}
@@ -132,7 +132,7 @@ impl GetRequests for TezedgeState {
 
                         Incoming(Connect { sent: Some(Idle { .. }), sent_conn_msg, .. })
                         | Outgoing(Connect { sent: Some(Idle { .. }), sent_conn_msg, .. }) => {
-                            requests.push(
+                            buf.push(
                                 TezedgeRequest::SendPeerConnect {
                                     peer: pending_peer.address.clone(),
                                     message: sent_conn_msg.clone(),
@@ -143,7 +143,7 @@ impl GetRequests for TezedgeState {
 
                         Incoming(Metadata { sent: Some(Idle { .. }), .. })
                         | Outgoing(Metadata { sent: Some(Idle { .. }), .. }) => {
-                            requests.push(
+                            buf.push(
                                 TezedgeRequest::SendPeerMeta {
                                     peer: pending_peer.address.clone(),
                                     message: self.meta_msg(),
@@ -154,7 +154,7 @@ impl GetRequests for TezedgeState {
 
                         Incoming(Ack { sent: Some(Idle { .. }), .. })
                         | Outgoing(Ack { sent: Some(Idle { .. }), .. }) => {
-                            requests.push(
+                            buf.push(
                                 TezedgeRequest::SendPeerAck {
                                     peer: pending_peer.address.clone(),
                                     message: AckMessage::Ack,
@@ -169,7 +169,7 @@ impl GetRequests for TezedgeState {
 
         for (req_id, req) in self.requests.iter() {
             if let RequestState::Idle { .. } = req.status {
-                requests.push(match &req.request {
+                buf.push(match &req.request {
                     PendingRequest::StartListeningForNewPeers => {
                         TezedgeRequest::StartListeningForNewPeers { req_id }
                     }
@@ -213,6 +213,6 @@ impl GetRequests for TezedgeState {
             }
         }
 
-        requests
+        buf.len() - buf_initial_len
     }
 }
