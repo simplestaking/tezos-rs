@@ -359,8 +359,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -390,8 +390,8 @@ image_pull_secrets:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 ---
 ##############################################################################################################
@@ -680,8 +680,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 #############################################################################################################
 # This pipeline runs the python test framwork tests from the tezos repository aginst tezedge nodes - tests_008
@@ -932,8 +932,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -1186,8 +1186,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -1440,8 +1440,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -1681,8 +1681,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -1868,8 +1868,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -2055,8 +2055,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -2330,8 +2330,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -2605,8 +2605,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -2880,8 +2880,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -3118,8 +3118,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -3337,8 +3337,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -3556,8 +3556,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -3778,8 +3778,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -4000,8 +4000,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -4033,8 +4033,8 @@ volumes:
 
 trigger:
   branch:
-    - develop
-    - master
+    - xdevelop
+    - xmaster
 
 steps:
 
@@ -4110,8 +4110,8 @@ depends_on:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 steps:
 
@@ -4189,8 +4189,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -4299,8 +4299,8 @@ depends_on:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 steps:
 
@@ -4406,8 +4406,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -4502,8 +4502,8 @@ depends_on:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 steps:
 
@@ -4796,8 +4796,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 ---
 ##############################################################################################################
@@ -4841,8 +4841,8 @@ image_pull_secrets:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 ##############################################################################################################
 # This pipeline runs tezedge node and ocaml node,
@@ -5076,8 +5076,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - verification/verify-real-time-environment
@@ -5253,32 +5253,39 @@ steps:
     ref:
     - refs/pull/*/head
 
+
 #  compare several rpc's performances between defined nodes (with tree nodes (target_branch, current branch and ocaml))
-# TODO merge changes to simplestakingcom/tezos-node-bootstrap:latest
 - name: wrk-performance-test-tezedge-new-vs-ocaml-vs-tezedge-old
-  image: akoptelov/tezos-node-bootstrap:latest
+  image: akoptelov/wrk-plugin
   pull: always
-  user: root
   volumes:
     - name: perf
       path: /perf
-  commands:
-    - tezos-node-bootstrap performance-test --tezedge-old-node=$${TEZEDGE_NODE_TARGET_BRANCH_RPC_CONTEXT_ROOT} --tezedge-new-node=$${TEZEDGE_NODE_RPC_CONTEXT_ROOT} --ocaml-node=$${OCAML_NODE_RPC_CONTEXT_ROOT_1} --wrk-test-duration=$${WRK_TEST_DURATION} --max-latency-threshold=$${MAX_LATENCY_THRESHOLD} --throughput-threshold=$${THROUGHPUTL_THRESHOLD} --latency-no-fail --throughput-no-fail --url-file=/perf/wrk-rpc-list.txt
+  settings:
+    base_urls:
+      - http://ocaml-node:8732
+      - http://tezedge-old-node:18732
+      - http://tezedge-new-node:18732
+    suffix_file: /perf/wrk-rpc-list.txt
+    wrk_args: -c1 -t1 -d10s
   when:
     ref:
     - refs/pull/*/head
 
 #  compare several rpc's performances between defined nodes (with tree nodes (target_branch, current branch and ocaml))
-# TODO merge changes to simplestakingcom/tezos-node-bootstrap:latest
 - name: wrk2-latency-test-tezedge-new-vs-ocaml-vs-tezedge-old
-  image: akoptelov/tezos-node-bootstrap:latest
-  pull: if-not-exists
-  user: root
+  image: akoptelov/wrk2-plugin
+  pull: always
   volumes:
     - name: perf
       path: /perf
-  commands:
-    - tezos-node-bootstrap latency-test --tezedge-old-node=$${TEZEDGE_NODE_TARGET_BRANCH_RPC_CONTEXT_ROOT} --tezedge-new-node=$${TEZEDGE_NODE_RPC_CONTEXT_ROOT} --ocaml-node=$${OCAML_NODE_RPC_CONTEXT_ROOT_1} --wrk-test-duration=$${WRK2_TEST_DURATION} --wrk-request-rate=$${WRK2_REQ_RATE} --url-file=/perf/wrk2-rpc-list.txt
+  settings:
+    base_urls:
+      - http://ocaml-node:8732
+      - http://tezedge-old-node:18732
+      - http://tezedge-new-node:18732
+    suffix_file: /perf/wrk2-rpc-list.txt
+    wrk_args: -R100 -d20s -c5 --latency
   when:
     ref:
     - refs/pull/*/head
