@@ -94,8 +94,6 @@ impl Events for MioEvents {
     }
 }
 
-
-
 pub struct MioManager {
     server_port: u16,
     poll: mio::Poll,
@@ -108,7 +106,7 @@ pub struct MioManager {
 
 impl MioManager {
     pub fn new(server_port: u16) -> Self {
-        let mut poll = mio::Poll::new().unwrap();
+        let poll = mio::Poll::new().unwrap();
         let waker = Arc::new(mio::Waker::new(poll.registry(), MIO_WAKE_TOKEN).unwrap());
         Self {
             server_port,
@@ -242,7 +240,7 @@ impl Manager for MioManager {
         if let Some(token) = self.address_to_token.remove(peer) {
             if self.peers.contains(token) {
                 let mut peer = self.peers.remove(token);
-                self.poll.registry().deregister(&mut peer.stream);
+                let _ = self.poll.registry().deregister(&mut peer.stream);
             }
         }
     }

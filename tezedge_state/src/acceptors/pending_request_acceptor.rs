@@ -57,8 +57,8 @@ impl Acceptor<PendingRequestProposal> for TezedgeState {
                             req.status = RequestState::Pending { at: proposal.at };
                         }
                         PendingRequestMsg::DisconnectPeerSuccess => {
-                            if let Some((peer_address, _)) = self.connected_peers.remove_entry(peer) {
-                                self.extend_potential_peers(std::iter::once(peer_address));
+                            if let Some(peer) = self.connected_peers.remove(peer) {
+                                self.extend_potential_peers(std::iter::once(peer.listener_address()));
                             }
                             self.requests.remove(proposal.req_id);
                         }

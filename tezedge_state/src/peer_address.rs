@@ -4,7 +4,8 @@ use std::net::{SocketAddr, IpAddr, Ipv4Addr, AddrParseError};
 
 pub type Port = u16;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
+// #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 pub struct PeerAddress(SocketAddr);
 
@@ -55,21 +56,21 @@ impl PeerAddress {
     }
 }
 
-impl Hash for PeerAddress {
-    /// Hash only by ip address, so we don't have more than 1 peer per IP.
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.ip().hash(state)
-    }
-}
+// impl Hash for PeerAddress {
+//     /// Hash only by ip address, so we don't have more than 1 peer per IP.
+//     fn hash<H: Hasher>(&self, state: &mut H) {
+//         self.0.ip().hash(state)
+//     }
+// }
 
-impl PartialEq for PeerAddress {
-    /// Compare only by ip address, so we don't have more than 1 peer per IP.
-    fn eq(&self, other: &Self) -> bool {
-        self.0.ip().eq(&other.ip())
-    }
-}
+// impl PartialEq for PeerAddress {
+//     /// Compare only by ip address, so we don't have more than 1 peer per IP.
+//     fn eq(&self, other: &Self) -> bool {
+//         self.0.ip().eq(&other.ip())
+//     }
+// }
 
-impl Eq for PeerAddress {}
+// impl Eq for PeerAddress {}
 
 impl FromStr for PeerAddress {
     type Err = AddrParseError;
@@ -105,6 +106,52 @@ impl From<PeerAddress> for SocketAddr {
 impl From<&PeerAddress> for SocketAddr {
     fn from(addr: &PeerAddress) -> Self {
         addr.0
+    }
+}
+
+#[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
+#[repr(transparent)]
+pub struct PeerListenerAddress(SocketAddr);
+
+impl PeerListenerAddress {
+    pub fn new(ip: IpAddr, peer_listener_port: Port) -> Self {
+        Self(SocketAddr::new(ip, peer_listener_port))
+    }
+}
+
+impl From<SocketAddr> for PeerListenerAddress {
+    fn from(addr: SocketAddr) -> Self {
+        Self(addr)
+    }
+}
+
+impl From<&SocketAddr> for PeerListenerAddress {
+    fn from(addr: &SocketAddr) -> Self {
+        Self(*addr)
+    }
+}
+
+impl From<PeerListenerAddress> for SocketAddr {
+    fn from(addr: PeerListenerAddress) -> Self {
+        addr.0
+    }
+}
+
+impl From<&PeerListenerAddress> for SocketAddr {
+    fn from(addr: &PeerListenerAddress) -> Self {
+        addr.0
+    }
+}
+
+impl From<PeerListenerAddress> for PeerAddress {
+    fn from(addr: PeerListenerAddress) -> Self {
+        addr.0.into()
+    }
+}
+
+impl From<&PeerListenerAddress> for PeerAddress {
+    fn from(addr: &PeerListenerAddress) -> Self {
+        addr.0.into()
     }
 }
 

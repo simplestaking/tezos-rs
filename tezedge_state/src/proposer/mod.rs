@@ -12,17 +12,16 @@ use tezos_messages::p2p::binary_message::{BinaryMessage, BinaryChunk, BinaryChun
 use tezos_messages::p2p::encoding::prelude::{
     ConnectionMessage, MetadataMessage, AckMessage, NetworkVersion,
 };
-use crate::{TezedgeState, TezedgeRequest, PeerCrypto, PeerAddress};
+use crate::{TezedgeStateWrapper, TezedgeState, TezedgeRequest, PeerCrypto, PeerAddress};
 use crate::proposals::{
     TickProposal,
     NewPeerConnectProposal,
-    PeerProposal,
+    PeerReadableProposal,
     PeerDisconnectProposal,
     PeerBlacklistProposal,
     PendingRequestProposal, PendingRequestMsg,
     HandshakeProposal, HandshakeMsg,
 };
-use crate::proposals::peer_abstract_message::PeerAbstractBinaryMessage;
 
 pub mod mio_manager;
 
@@ -111,38 +110,6 @@ impl SendMessageResult {
 
     pub fn err(message_type: SendMessageType, error: SendMessageError) -> Self {
         Self::Err { message_type, error }
-    }
-}
-
-#[derive(Debug)]
-pub enum ReadMessageError {
-    IO(io::Error),
-    BinaryChunk(BinaryChunkError),
-    DecodeFailed,
-}
-
-impl From<io::Error> for ReadMessageError {
-    fn from(err: io::Error) -> Self {
-        Self::IO(err)
-    }
-}
-
-impl From<BinaryChunkError> for ReadMessageError {
-    fn from(err: BinaryChunkError) -> Self {
-        Self::BinaryChunk(err)
-    }
-}
-
-#[derive(Debug)]
-pub enum ReadMessageResult {
-    Pending,
-    Ok(BinaryChunk),
-    Err(ReadMessageError),
-}
-
-impl From<ReadMessageError> for ReadMessageResult {
-    fn from(err: ReadMessageError) -> Self {
-        ReadMessageResult::Err(err)
     }
 }
 
@@ -245,81 +212,6 @@ impl<M> AsEncryptedSendMessage for M
 }
 
 #[derive(Debug)]
-enum ReadBuffer {
-    ReadLen {
-        buf: [u8; CONTENT_LENGTH_FIELD_BYTES],
-        index: usize,
-    },
-    ReadContent {
-        buf: Vec<u8>,
-        index: usize,
-        expected_len: usize,
-    },
-}
-
-impl ReadBuffer {
-    pub fn new() -> Self {
-        Self::ReadLen {
-            buf: [0; CONTENT_LENGTH_FIELD_BYTES],
-            index: 0,
-        }
-    }
-
-    pub fn is_finished(&self) -> bool {
-        match self {
-            Self::ReadContent { index, expected_len, .. } => {
-                *index == expected_len - 1
-            }
-            _ => false,
-        }
-    }
-
-    fn next_slice(&mut self) -> &mut [u8] {
-        match *self {
-            Self::ReadLen { ref mut buf, index } => {
-                &mut buf[index..]
-            }
-            Self::ReadContent { ref mut buf, index, .. } => {
-                &mut buf[index..]
-            }
-        }
-    }
-
-    fn advance(&mut self, by: usize) {
-        match self {
-            Self::ReadLen { buf: expected_len_bytes, index, .. } => {
-                *index = (*index + by).min(CONTENT_LENGTH_FIELD_BYTES - 1);
-                if *index == CONTENT_LENGTH_FIELD_BYTES - 1 {
-                    let expected_len = CONTENT_LENGTH_FIELD_BYTES
-                        + (&expected_len_bytes[..]).get_u16() as usize;
-                    let mut buf = vec![0; expected_len];
-
-                    for i in 0..CONTENT_LENGTH_FIELD_BYTES {
-                        buf[i] = expected_len_bytes[i];
-                    }
-
-                    *self = ReadBuffer::ReadContent {
-                        expected_len,
-                        buf,
-                        index: CONTENT_LENGTH_FIELD_BYTES.min(expected_len - 1),
-                    };
-                }
-            }
-            Self::ReadContent { index, expected_len, .. } => {
-                *index = (*index + by).min(*expected_len - 1);
-            }
-        }
-    }
-
-    fn take(self) -> Result<BinaryChunk, BinaryChunkError> {
-        match self {
-            Self::ReadLen { buf, .. } => BinaryChunk::from_raw(buf.to_vec()),
-            Self::ReadContent { buf, .. } => BinaryChunk::from_raw(buf),
-        }
-    }
-}
-
-#[derive(Debug)]
 struct WriteBuffer {
     message: SendMessage,
     index: usize,
@@ -406,7 +298,6 @@ pub trait Events {
 pub struct Peer<S> {
     address: PeerAddress,
     pub stream: S,
-    read_buf: Option<ReadBuffer>,
     write_buf: Option<WriteBuffer>,
     write_queue: VecDeque<SendMessage>,
 }
@@ -416,7 +307,6 @@ impl<S> Peer<S> {
         Self {
             address,
             stream,
-            read_buf: None,
             write_buf: None,
             write_queue: VecDeque::new(),
         }
@@ -424,44 +314,6 @@ impl<S> Peer<S> {
 
     pub fn address(&self) -> &PeerAddress {
         &self.address
-    }
-}
-
-impl<S: Read> Peer<S> {
-    pub fn read(&mut self) -> ReadMessageResult {
-        let buf = match self.read_buf.as_mut() {
-            Some(buf) => buf,
-                // maybe don't dealocate and reallocate for efficiency?
-            None => {
-                self.read_buf.replace(ReadBuffer::new());
-                self.read_buf.as_mut().unwrap()
-            }
-        };
-
-        loop {
-            match self.stream.read(buf.next_slice()) {
-                Ok(size) if size == 0 => break,
-                Ok(size) => buf.advance(size),
-                Err(err) => {
-                    match err.kind() {
-                        io::ErrorKind::WouldBlock => break,
-                        _ => {
-                            self.read_buf.take();
-                            return ReadMessageResult::Err(ReadMessageError::IO(err));
-                        }
-                    }
-                }
-            }
-            if buf.is_finished() {
-                let buf = self.read_buf.take().unwrap();
-                return match buf.take() {
-                    Ok(bytes) => ReadMessageResult::Ok(bytes),
-                    Err(err) => ReadMessageResult::Err(err.into()),
-                }
-            }
-        }
-
-        ReadMessageResult::Pending
     }
 }
 
@@ -609,7 +461,7 @@ pub struct TezedgeProposerConfig {
 /// Returns true if it is maybe possible to do further write.
 fn handle_send_message_result(
     at: Instant,
-    tezedge_state: &mut TezedgeState,
+    tezedge_state: &mut TezedgeStateWrapper,
     address: PeerAddress,
     result: SendMessageResult,
 ) -> bool {
@@ -654,7 +506,7 @@ fn handle_send_message_result(
 pub struct TezedgeProposer<Es, M> {
     config: TezedgeProposerConfig,
     notifications: Vec<Notification>,
-    pub state: TezedgeState,
+    pub state: TezedgeStateWrapper,
     pub events: Es,
     pub manager: M,
 }
@@ -673,7 +525,7 @@ impl<Es, M> TezedgeProposer<Es, M>
         Self {
             config,
             notifications: vec![],
-            state,
+            state: state.into(),
             events,
             manager,
         }
@@ -688,7 +540,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
     fn handle_event(
         event: Event<NetE>,
         notifications: &mut Vec<Notification>,
-        state: &mut TezedgeState,
+        state: &mut TezedgeStateWrapper,
         manager: &mut M,
     ) {
         match event {
@@ -704,7 +556,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
     fn handle_event_ref<'a>(
         event: EventRef<'a, NetE>,
         notifications: &mut Vec<Notification>,
-        state: &mut TezedgeState,
+        state: &mut TezedgeStateWrapper,
         manager: &mut M,
     ) {
         match event {
@@ -720,7 +572,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
     fn handle_network_event(
         event: &NetE,
         notifications: &mut Vec<Notification>,
-        state: &mut TezedgeState,
+        state: &mut TezedgeStateWrapper,
         manager: &mut M,
     ) {
         if event.is_server_event() {
@@ -758,7 +610,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
 
     fn handle_readiness_event(
         event: &NetE,
-        state: &mut TezedgeState,
+        state: &mut TezedgeStateWrapper,
         peer: &mut Peer<S>,
     ) {
         if event.is_read_closed() || event.is_write_closed() {
@@ -770,22 +622,11 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
         }
 
         if event.is_readable() {
-            loop {
-                match peer.read() {
-                    ReadMessageResult::Pending => break,
-                    ReadMessageResult::Ok(msg_bytes) => {
-                        state.accept(PeerProposal {
-                            at: event.time(),
-                            peer: peer.address().clone(),
-                            message: PeerAbstractBinaryMessage::new(msg_bytes),
-                        });
-                    }
-                    ReadMessageResult::Err(err) => {
-                        dbg!(err);
-                        // TODO: handle somehow.
-                    }
-                }
-            }
+            state.accept(PeerReadableProposal {
+                at: event.time(),
+                peer: peer.address().clone(),
+                stream: &mut peer.stream,
+            });
         }
 
         if event.is_writable() {
@@ -801,7 +642,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
 
     fn execute_requests(
         notifications: &mut Vec<Notification>,
-        state: &mut TezedgeState,
+        state: &mut TezedgeStateWrapper,
         manager: &mut M,
     ) {
         for req in state.get_requests() {

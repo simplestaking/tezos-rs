@@ -1,7 +1,7 @@
 use std::time::Instant;
 use tla_sm::Acceptor;
 
-use crate::{Handshake, HandshakeStep, P2pState, RequestState, TezedgeState, PeerAddress};
+use crate::{Handshake, HandshakeStep, P2pState, PeerAddress, PendingPeer, RequestState, TezedgeState};
 use crate::proposals::{HandshakeProposal, HandshakeMsg};
 
 fn handle_send_connect_pending(
@@ -20,7 +20,8 @@ fn handle_send_connect_pending(
         | P2pState::PendingFull { pending_peers }
         | P2pState::Ready { pending_peers }
         | P2pState::ReadyFull { pending_peers } => {
-            match pending_peers.get_mut(&peer_address) {
+
+            match pending_peers.get_mut(&peer_address).map(|x| &mut x.handshake) {
                 Some(Outgoing(Connect { sent: Some(status @ Idle { .. }), .. }))
                 | Some(Incoming(Connect { sent: Some(status @ Idle { .. }), .. })) => {
                     *status = Pending { at };
@@ -48,7 +49,7 @@ fn handle_send_meta_pending(
         | P2pState::PendingFull { pending_peers }
         | P2pState::Ready { pending_peers }
         | P2pState::ReadyFull { pending_peers } => {
-            match pending_peers.get_mut(&peer_address) {
+            match pending_peers.get_mut(&peer_address).map(|x| &mut x.handshake) {
                 Some(Outgoing(Metadata { sent: Some(status @ Idle { .. }), .. }))
                 | Some(Incoming(Metadata { sent: Some(status @ Idle { .. }), .. })) => {
                     *status = Pending { at };
@@ -76,7 +77,7 @@ fn handle_send_ack_pending(
         | P2pState::PendingFull { pending_peers }
         | P2pState::Ready { pending_peers }
         | P2pState::ReadyFull { pending_peers } => {
-            match pending_peers.get_mut(&peer_address) {
+            match pending_peers.get_mut(&peer_address).map(|x| &mut x.handshake) {
                 Some(Outgoing(Ack { sent: Some(status @ Idle { .. }), .. }))
                 | Some(Incoming(Ack { sent: Some(status @ Idle { .. }), .. })) => {
                     *status = Pending { at };
@@ -104,7 +105,7 @@ fn handle_send_connect_success(
         | P2pState::PendingFull { pending_peers }
         | P2pState::Ready { pending_peers }
         | P2pState::ReadyFull { pending_peers } => {
-            match pending_peers.get_mut(&peer_address) {
+            match pending_peers.get_mut(&peer_address).map(|x| &mut x.handshake) {
                 Some(Outgoing(Connect { sent: Some(status @ Pending { .. }), .. }))
                 | Some(Incoming(Connect { sent: Some(status @ Pending { .. }), .. })) => {
                     *status = Success { at };
@@ -132,7 +133,7 @@ fn handle_send_meta_success(
         | P2pState::PendingFull { pending_peers }
         | P2pState::Ready { pending_peers }
         | P2pState::ReadyFull { pending_peers } => {
-            match pending_peers.get_mut(&peer_address) {
+            match pending_peers.get_mut(&peer_address).map(|x| &mut x.handshake) {
                 Some(Outgoing(Metadata { sent: Some(status @ Pending { .. }), .. }))
                 | Some(Incoming(Metadata { sent: Some(status @ Pending { .. }), .. })) => {
                     *status = Success { at };
@@ -160,20 +161,19 @@ fn handle_send_ack_success(
         | P2pState::PendingFull { pending_peers }
         | P2pState::Ready { pending_peers }
         | P2pState::ReadyFull { pending_peers } => {
-            match pending_peers.remove(&peer_address) {
+            match pending_peers.remove(&peer_address).map(|p| p.handshake) {
                 Some(Outgoing(mut step @ Ack { sent: Some(Pending { .. }), .. })) => {
                     match &mut step {
                         Ack { sent, .. } => *sent = Some(Success { at }),
                         _ => unreachable!(),
                     };
-                    pending_peers.insert(peer_address, Outgoing(step));
+                    pending_peers.insert(PendingPeer::new(peer_address, Outgoing(step)));
                 }
                 Some(handshake @ Incoming(Ack { sent: Some(Pending { .. }), .. })) => {
                     let result = handshake.to_result().unwrap();
                     state.set_peer_connected(at, peer_address, result);
                 }
-                Some(Outgoing(_)) | Some(Incoming(_)) | None => {
-                }
+                Some(Outgoing(_)) | Some(Incoming(_)) | None => {}
             }
         }
     }

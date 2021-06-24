@@ -1,15 +1,17 @@
 use std::time::Instant;
+
 use tla_sm::Proposal;
+use tezos_messages::p2p::encoding::peer::PeerMessage;
 use crate::PeerAddress;
 
 #[derive(Debug, Clone)]
-pub struct PeerProposal<M> {
+pub struct PeerMessageProposal {
     pub at: Instant,
     pub peer: PeerAddress,
-    pub message: M,
+    pub message: PeerMessage,
 }
 
-impl<M> Proposal for PeerProposal<M> {
+impl Proposal for PeerMessageProposal {
     fn time(&self) -> Instant {
         self.at
     }

@@ -1,7 +1,7 @@
 use std::iter::FromIterator;
 use std::time::{Duration, Instant};
 use std::collections::HashSet;
-use tezos_messages::p2p::encoding::prelude::NetworkVersion;
+use tezedge_state::ShellCompatibilityVersion;
 use tla_sm::Acceptor;
 
 use crypto::{crypto_box::{CryptoKey, PublicKey, SecretKey}, hash::{CryptoboxPublicKeyHash, HashTrait}, proof_of_work::ProofOfWork};
@@ -13,8 +13,12 @@ use tezedge_state::proposals::ExtendPotentialPeersProposal;
 use tezedge_state::proposer::{TezedgeProposer, TezedgeProposerConfig};
 use tezedge_state::proposer::mio_manager::{MioManager, MioEvents};
 
-fn network_version() -> NetworkVersion {
-    NetworkVersion::new("TEZOS_MAINNET".to_string(), 0, 1)
+fn shell_compatibility_version() -> ShellCompatibilityVersion {
+    ShellCompatibilityVersion::new(
+        "TEZOS_MAINNET".to_owned(),
+        vec![0],
+        vec![0, 1],
+    )
 }
 
 fn identity(pkh: &[u8], pk: &[u8], sk: &[u8], pow: &[u8]) -> Identity {
@@ -58,9 +62,10 @@ fn build_tezedge_state() -> TezedgeState {
             periodic_react_interval: Duration::from_millis(250),
             peer_blacklist_duration: Duration::from_secs(30 * 60),
             peer_timeout: Duration::from_secs(8),
+            pow_target: ProofOfWork::DEFAULT_TARGET,
         },
         node_identity.clone(),
-        network_version(),
+        shell_compatibility_version(),
         Instant::now(),
     );
 

@@ -12,11 +12,17 @@ pub use new_peer_connect_proposal::*;
 mod handshake_proposal;
 pub use handshake_proposal::*;
 
-mod peer_proposal;
-pub use peer_proposal::*;
+mod peer_readable_proposal;
+pub use peer_readable_proposal::*;
 
-pub mod peer_abstract_message;
-pub use peer_abstract_message::{PeerAbstractMessage, PeerAbstractMessageError};
+mod peer_handshake_message_proposal;
+pub use peer_handshake_message_proposal::*;
+
+mod peer_message_proposal;
+pub use peer_message_proposal::*;
+
+pub mod peer_handshake_message;
+pub use peer_handshake_message::{PeerHandshakeMessage, PeerHandshakeMessageError};
 
 mod peer_disconnect_proposal;
 pub use peer_disconnect_proposal::*;

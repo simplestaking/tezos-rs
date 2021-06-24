@@ -51,6 +51,32 @@ pub enum PeerMessage {
     OperationsForBlocks(OperationsForBlocksMessage),
 }
 
+impl PeerMessage {
+    pub fn get_type(&self) -> &'static str {
+        match self {
+            Self::Disconnect => "disconnect",
+            Self::Advertise(_) => "advertise",
+            Self::SwapRequest(_) => "swap request",
+            Self::SwapAck(_) => "swap ack",
+            Self::Bootstrap => "bootstrap",
+            Self::GetCurrentBranch(_) => "get current branch",
+            Self::CurrentBranch(_) => "current branch",
+            Self::Deactivate(_) => "deactivate",
+            Self::GetCurrentHead(_) => "get current head",
+            Self::CurrentHead(_) => "current head",
+            Self::GetBlockHeaders(_) => "get block headers",
+            Self::BlockHeader(_) => "block header",
+            Self::GetOperations(_) => "get operations",
+            Self::Operation(_) => "operation",
+            Self::GetProtocols(_) => "get protocols",
+            Self::Protocol(_) => "protocol",
+            Self::GetOperationsForBlocks(_) => "get operations for blocks",
+            Self::OperationsForBlocks(_) => "operations for blocks",
+        }
+
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, Getters, HasEncoding, NomReader)]
 #[encoding(dynamic = "MESSAGE_MAX_SIZE")]
 pub struct PeerMessageResponse {
