@@ -1,14 +1,10 @@
 use std::time::Instant;
-use tezos_messages::p2p::encoding::prelude::NetworkVersion;
 
 use crypto::{crypto_box::{CryptoKey, PublicKey, SecretKey}, hash::{CryptoboxPublicKeyHash, HashTrait}, proof_of_work::ProofOfWork};
 use hex::FromHex;
 use tezos_identity::Identity;
 use crate::*;
-
-fn network_version() -> NetworkVersion {
-    NetworkVersion::new("TEZOS_MAINNET".to_string(), 0, 1)
-}
+use crate::shell_compatibility_version::ShellCompatibilityVersion;
 
 fn identity(pkh: &[u8], pk: &[u8], sk: &[u8], pow: &[u8]) -> Identity {
     Identity {
@@ -34,7 +30,11 @@ pub fn build(initial_time: Instant, config: TezedgeConfig) -> TezedgeState {
     let tezedge_state = TezedgeState::new(
         config,
         node_identity.clone(),
-        network_version(),
+        ShellCompatibilityVersion::new(
+            "TEZOS_MAINNET".to_owned(),
+            vec![0],
+            vec![0, 1],
+        ),
         initial_time,
     );
 
