@@ -15,7 +15,7 @@ use crate::chunking::ReadMessageError;
 impl<'a, R> Acceptor<PeerReadableProposal<'a, R>> for TezedgeState
     where R: Read,
 {
-    fn accept(&mut self, mut proposal: PeerReadableProposal<R>) {
+    fn accept(&mut self, proposal: PeerReadableProposal<R>) {
         if let Err(_err) = self.validate_proposal(&proposal) {
             #[cfg(test)]
             assert_ne!(_err, crate::InvalidProposalError::ProposalOutdated);
@@ -24,7 +24,7 @@ impl<'a, R> Acceptor<PeerReadableProposal<'a, R>> for TezedgeState
         let time = proposal.at;
 
         if let Some(peer) = self.connected_peers.get_mut(&proposal.peer) {
-            match peer.read_message_from(&mut proposal.stream) {
+            match peer.read_message_from(proposal.stream) {
                 Ok(message) => {
                     self.accept(PeerMessageProposal {
                         at: proposal.at,
@@ -42,7 +42,7 @@ impl<'a, R> Acceptor<PeerReadableProposal<'a, R>> for TezedgeState
         } else {
             let peer = self.pending_peers_mut().and_then(|peers| peers.get_mut(&proposal.peer));
             if let Some(peer) = peer {
-                if let Err(err) = peer.read_message_from(&mut proposal.stream) {
+                if let Err(err) = peer.read_message_from(proposal.stream) {
                     match err.kind() {
                         io::ErrorKind::WouldBlock => {}
                         _ => {

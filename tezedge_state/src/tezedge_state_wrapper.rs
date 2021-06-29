@@ -5,7 +5,7 @@ use tla_sm::GetRequests;
 use tla_sm::{Acceptor, Proposal};
 
 use crate::TezedgeRequest;
-use crate::{PeerAddress, PeerCrypto, TezedgeState};
+use crate::{PeerAddress, TezedgeState, TezedgeStats};
 
 #[derive(Debug, Clone)]
 pub struct TezedgeStateWrapper(TezedgeState);
@@ -17,13 +17,12 @@ impl TezedgeStateWrapper {
     }
 
     #[inline]
-    pub fn get_peer_crypto(&mut self, peer_address: &PeerAddress) -> Option<&mut PeerCrypto> {
-        self.0.get_peer_crypto(peer_address)
-    }
-
-    #[inline]
     pub fn is_peer_connected(&mut self, peer: &PeerAddress) -> bool {
         self.0.is_peer_connected(peer)
+    }
+
+    pub fn stats(&self) -> TezedgeStats {
+        self.0.stats()
     }
 }
 

@@ -12,22 +12,22 @@ use crate::PeerAddress;
 // and are consumed on read, hence hard to debug. So these types of proposals
 // should simply invoke another proposal like in this case that the chunk
 // is ready so that proposal can be recorded and replayed.
-pub struct PeerReadableProposal<'a, R> {
+pub struct PeerWritableProposal<'a, W> {
     pub at: Instant,
     pub peer: PeerAddress,
-    pub stream: &'a mut R,
+    pub stream: &'a mut W,
 }
 
-impl<'a, R> Debug for PeerReadableProposal<'a, R> {
+impl<'a, W> Debug for PeerWritableProposal<'a, W> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PeerReadableProposal")
+        f.debug_struct("PeerWritableProposal")
             .field("at", &self.at)
             .field("peer", &self.peer)
             .finish()
     }
 }
 
-impl<'a, R> Proposal for PeerReadableProposal<'a, R> {
+impl<'a, W> Proposal for PeerWritableProposal<'a, W> {
     fn time(&self) -> Instant {
         self.at
     }

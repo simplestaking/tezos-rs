@@ -1,12 +1,14 @@
-use std::io::Read;
+use std::io::{Read, Write};
 use std::time::Instant;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use getset::{Getters, CopyGetters};
 
-use tezos_messages::p2p::encoding::peer::PeerMessage;
+use tezos_messages::p2p::encoding::peer::{PeerMessage, PeerMessageResponse};
 use tezos_messages::p2p::encoding::prelude::NetworkVersion;
-use crate::chunking::MessageReadBuffer;
-use crate::chunking::ReadMessageError;
+use crate::chunking::{
+    MessageReadBuffer, EncryptedMessageWriter,
+    ReadMessageError, WriteMessageError,
+};
 use crate::peer_address::PeerListenerAddress;
 use crate::state::pending_peers::HandshakeResult;
 use crate::{PeerCrypto, PeerAddress, Port};
@@ -40,6 +42,9 @@ pub struct ConnectedPeer {
     pub connected_since: Instant,
 
     read_buf: MessageReadBuffer,
+
+    cur_send_message: Option<EncryptedMessageWriter>,
+    send_message_queue: VecDeque<PeerMessage>,
 }
 
 impl ConnectedPeer {
@@ -57,6 +62,33 @@ impl ConnectedPeer {
     ) -> Result<PeerMessage, ReadMessageError>
     {
         self.read_buf.read_from(reader, &mut self.crypto)
+    }
+
+    /// Enqueue message to be sent to the peer.
+    pub fn enqueue_send_message(&mut self, message: PeerMessage) {
+        self.send_message_queue.push_back(message);
+    }
+
+    /// Write any enqueued messages to the given writer.
+    pub fn write_to<W: Write>(
+        &mut self,
+        writer: &mut W,
+    ) -> Result<(), WriteMessageError>
+    {
+        if let Some(message_writer) = self.cur_send_message.as_mut() {
+            message_writer.write_to(writer, &mut self.crypto)?;
+            self.cur_send_message = None;
+            Ok(())
+        } else if let Some(message) = self.send_message_queue.pop_front() {
+            self.cur_send_message = Some(
+                EncryptedMessageWriter::try_new(
+                    &PeerMessageResponse::from(message),
+                )?
+            );
+            self.write_to(writer)
+        } else {
+            Err(WriteMessageError::Empty)
+        }
     }
 }
 
@@ -142,10 +174,10 @@ impl ConnectedPeers {
         at: Instant,
         peer_address: PeerAddress,
         result: HandshakeResult,
-    ) -> &ConnectedPeer
+    ) -> &mut ConnectedPeer
     {
         // self.peers.vacant_entry().insert(ConnectedPeer {
-        self.peers.insert(peer_address, ConnectedPeer {
+        self.peers.entry(peer_address).or_insert_with(|| ConnectedPeer {
             connected_since: at,
             address: peer_address,
             port: result.conn_msg.port,
@@ -156,7 +188,8 @@ impl ConnectedPeers {
             disable_mempool: result.meta_msg.disable_mempool(),
             private_node: result.meta_msg.private_node(),
             read_buf: MessageReadBuffer::new(),
-        });
-        self.peers.get(&peer_address).unwrap()
+            cur_send_message: None,
+            send_message_queue: VecDeque::new(),
+        })
     }
 }

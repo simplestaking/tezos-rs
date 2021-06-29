@@ -1,22 +1,22 @@
 use std::fmt::Debug;
 use std::time::{Instant, Duration};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use crypto::crypto_box::{CryptoKey, PublicKey};
 
-use tezos_messages::p2p::encoding::peer::PeerMessageResponse;
 pub use tla_sm::{Proposal, GetRequests};
 use crypto::nonce::Nonce;
 use tezos_identity::Identity;
 use tezos_messages::p2p::encoding::ack::{NackInfo, NackMotive};
 use tezos_messages::p2p::encoding::prelude::{
-    NetworkVersion,
     ConnectionMessage,
     MetadataMessage,
-    AckMessage,
 };
 
 use crate::{InvalidProposalError, PeerCrypto, PeerAddress, Port, ShellCompatibilityVersion};
 use crate::peer_address::PeerListenerAddress;
+
+// mod peer_token;
+// pub use peer_token::*;
 
 mod requests;
 pub(crate) use requests::*;
@@ -227,37 +227,6 @@ impl TezedgeState {
         );
     }
 
-    pub fn get_peer_crypto(&mut self, peer_address: &PeerAddress) -> Option<&mut PeerCrypto> {
-        if let Some(peer) = self.connected_peers.get_mut(peer_address) {
-            return Some(&mut peer.crypto);
-        }
-        use P2pState::*;
-        use Handshake::*;
-        use HandshakeStep::*;
-
-        match &mut self.p2p_state {
-            ReadyMaxed => None,
-            Pending { pending_peers }
-            | PendingFull { pending_peers }
-            | Ready { pending_peers }
-            | ReadyFull { pending_peers } => {
-                if let Some(peer) = pending_peers.get_mut(peer_address) {
-                    match &mut peer.handshake {
-                        Incoming(Metadata { crypto, .. })
-                            | Outgoing(Metadata { crypto, .. })
-                            | Incoming(Ack { crypto, .. })
-                            | Outgoing(Ack { crypto, .. }) => {
-                                Some(crypto)
-                            }
-                        _ => None,
-                    }
-                } else {
-                    None
-                }
-            }
-        }
-    }
-
     pub fn is_peer_connected(&self, peer: &PeerAddress) -> bool {
         self.connected_peers.contains_address(peer)
     }
@@ -268,7 +237,6 @@ impl TezedgeState {
         peer_address: PeerAddress,
         result: HandshakeResult,
     ) {
-        eprintln!("@peer connected: {:?}", peer_address);
         // TODO: put public key in state instead of having unwrap here.
         let public_key_hash = PublicKey::from_bytes(&result.conn_msg.public_key).unwrap().public_key_hash().unwrap();
 
@@ -396,7 +364,27 @@ impl TezedgeState {
 
     pub(crate) fn check_timeouts(&mut self, at: Instant) {
         use P2pState::*;
+        let now = at;
         let peer_timeout = self.config.peer_timeout;
+
+        self.requests.retain(|req_id, req| {
+            match &req.request {
+                PendingRequest::ConnectPeer { .. } => {
+                    match &req.status {
+                        RequestState::Idle { at }
+                        | RequestState::Pending { at } => {
+                            if now.duration_since(*at) >= peer_timeout {
+                                false
+                            } else {
+                                true
+                            }
+                        }
+                        _ => false,
+                    }
+                }
+                _ => true
+            }
+        });
 
         match &mut self.p2p_state {
             ReadyMaxed => {}
@@ -408,13 +396,12 @@ impl TezedgeState {
                 use HandshakeStep::*;
                 use RequestState::*;
 
-                let now = at;
-
                 let end_handshakes = pending_peers.iter_mut()
                     .filter_map(|(_, peer)| {
 
                         match &mut peer.handshake {
-                            Incoming(Connect { sent: Some(Pending { at, .. }), .. })
+                            Outgoing(Initiated { at })
+                            | Incoming(Connect { sent: Some(Pending { at, .. }), .. })
                             | Incoming(Metadata { sent: Some(Pending { at, .. }), .. })
                             | Incoming(Ack { sent: Some(Pending { at, .. }), .. })
                             | Outgoing(Connect { sent: Some(Pending { at, .. }), .. })
@@ -473,6 +460,7 @@ impl TezedgeState {
 
     pub(crate) fn initiate_handshakes(&mut self, at: Instant) {
         use P2pState::*;
+        let requests = &mut self.requests;
         let potential_peers = &mut self.potential_peers;
         let max_pending = self.config.max_pending_peers as usize;
 
@@ -492,21 +480,13 @@ impl TezedgeState {
                 for peer in peers {
                     potential_peers.remove(&peer);
                     pending_peers.insert(PendingPeer::new(peer.into(), Handshake::Outgoing(
-                        HandshakeStep::Connect {
-                            sent_conn_msg: ConnectionMessage::try_new(
-                                self.config.port,
-                                &self.identity.public_key,
-                                &self.identity.proof_of_work_stamp,
-                                // TODO: this introduces non-determinism
-                                Nonce::random(),
-                                self.shell_compatibility_version.to_network_version(),
-                            ).unwrap(),
-                            sent: Some(RequestState::Idle { at }),
-                            received: None,
-                        }
+                        HandshakeStep::Initiated { at },
                     )));
+                    requests.insert(PendingRequestState {
+                        status: RequestState::Idle { at },
+                        request: PendingRequest::ConnectPeer { peer: peer.into() },
+                    });
                 }
-
 
                 if len > 0 {
                     self.adjust_p2p_state(at);
@@ -581,14 +561,8 @@ impl TezedgeState {
     ) {
         if let Some(pending_peers) = self.pending_peers_mut() {
             let entry = self.requests.vacant_entry();
-            entry.insert(PendingRequestState {
-                request: PendingRequest::NackAndDisconnectPeer {
-                    peer,
-                    // TODO: include potential peers.
-                    nack_info: NackInfo::new(motive, &[]),
-                },
-                status: RequestState::Idle { at },
-            });
+            // TODO: send nack
+            self.disconnect_peer(at, peer);
         }
     }
 

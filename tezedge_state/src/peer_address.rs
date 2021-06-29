@@ -1,4 +1,5 @@
 use std::str::FromStr;
+use std::fmt::{self, Display};
 use std::hash::{Hash, Hasher};
 use std::net::{SocketAddr, IpAddr, Ipv4Addr, AddrParseError};
 
@@ -56,6 +57,12 @@ impl PeerAddress {
     }
 }
 
+impl Display for PeerAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 // impl Hash for PeerAddress {
 //     /// Hash only by ip address, so we don't have more than 1 peer per IP.
 //     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -76,12 +83,6 @@ impl FromStr for PeerAddress {
     type Err = AddrParseError;
     fn from_str(s: &str) -> Result<Self, AddrParseError> {
         Ok(Self(s.parse()?))
-    }
-}
-
-impl ToString for PeerAddress {
-    fn to_string(&self) -> String {
-        self.0.to_string()
     }
 }
 

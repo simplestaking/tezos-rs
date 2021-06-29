@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use tla_sm::Acceptor;
 use tezos_messages::p2p::encoding::prelude::PeerMessage;
 
@@ -21,7 +23,7 @@ impl Acceptor<PeerMessageProposal> for TezedgeState {
                         peers: message
                             .id()
                             .iter()
-                            .filter_map(|str_ip_port| str_ip_port.parse().ok()),
+                            .filter_map(|str_ip_port| str_ip_port.parse::<SocketAddr>().ok()),
                     });
                 }
                 // messages not handled in state machine for now.

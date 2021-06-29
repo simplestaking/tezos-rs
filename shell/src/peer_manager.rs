@@ -355,7 +355,7 @@ fn run(
     network_channel: NetworkChannelRef,
     log: &Logger,
 ) {
-    let bootstrap_message = PeerMessageResponse::from(PeerMessage::Bootstrap).as_bytes().unwrap();
+    let mut send_bootstrap_messages = vec![];
     loop {
         proposer.make_progress();
 
@@ -379,7 +379,7 @@ fn run(
                         topic: NetworkChannelTopic::NetworkEvents.into(),
                     }, None);
 
-                    proposer.send_message_to_peer_or_queue(peer_address, &bootstrap_message);
+                    send_bootstrap_messages.push(peer_address);
                 }
                 Notification::MessageReceived { peer, message } => {
                     network_channel.tell(Publish {
@@ -412,6 +412,9 @@ fn run(
             }
         }
 
+        for peer in send_bootstrap_messages.drain(..) {
+            proposer.send_message_to_peer_or_queue(Instant::now(), peer, PeerMessage::Bootstrap);
+        }
         loop {
             match rx.try_recv() {
                 Ok(ProposerMsg::NetworkChannel(msg)) => {
@@ -432,11 +435,7 @@ fn run(
                             proposer.blacklist_peer(Instant::now(), peer_id.address);
                         }
                         NetworkChannelMsg::SendMessage(peer_id, message) => {
-                            if let Ok(msg) = message.as_bytes() {
-                                proposer.send_message_to_peer_or_queue(peer_id.address, &msg);
-                            } else {
-                                error!(log, "failed to encode PeerMessageResponse"; "message" => format!("{:?}", message));
-                            }
+                            proposer.send_message_to_peer_or_queue(Instant::now(), peer_id.address, message.message.clone());
                         }
                         _ => (),
                     }

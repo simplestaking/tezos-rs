@@ -1,20 +1,15 @@
-use std::fmt::{self, Debug};
-use std::time::{Instant, Duration};
+use std::time::Instant;
 use crypto::hash::CryptoboxPublicKeyHash;
 
 use tezos_messages::p2p::encoding::peer::PeerMessageResponse;
 pub use tla_sm::{Proposal, GetRequests};
-use tezos_messages::p2p::encoding::ack::{NackInfo, NackMotive};
 use tezos_messages::p2p::encoding::prelude::{
     NetworkVersion,
-    ConnectionMessage,
     MetadataMessage,
-    AckMessage,
 };
 
-use crate::state::{TezedgeState, P2pState};
-use crate::state::pending_peers::*;
-use crate::{InvalidProposalError, PeerCrypto, PeerAddress, Port};
+use crate::state::TezedgeState;
+use crate::PeerAddress;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum RequestState {
@@ -41,18 +36,9 @@ pub enum TezedgeRequest {
     StopListeningForNewPeers {
         req_id: usize,
     },
-    SendPeerConnect {
+    ConnectPeer {
+        req_id: usize,
         peer: PeerAddress,
-        message: ConnectionMessage,
-    },
-    SendPeerMeta {
-        peer: PeerAddress,
-
-        message: MetadataMessage,
-    },
-    SendPeerAck {
-        peer: PeerAddress,
-        message: AckMessage,
     },
     DisconnectPeer {
         req_id: usize,
@@ -80,9 +66,8 @@ pub enum TezedgeRequest {
 pub enum PendingRequest {
     StartListeningForNewPeers,
     StopListeningForNewPeers,
-    NackAndDisconnectPeer {
+    ConnectPeer {
         peer: PeerAddress,
-        nack_info: NackInfo,
     },
     DisconnectPeer {
         peer: PeerAddress,
@@ -114,58 +99,7 @@ impl GetRequests for TezedgeState {
     type Request = TezedgeRequest;
 
     fn get_requests(&self, buf: &mut Vec<TezedgeRequest>) -> usize {
-        use Handshake::*;
-        use HandshakeStep::*;
-        use RequestState::*;
-
         let buf_initial_len = buf.len();
-
-        match &self.p2p_state {
-            P2pState::ReadyMaxed => {}
-            P2pState::Ready { pending_peers }
-            | P2pState::ReadyFull { pending_peers }
-            | P2pState::Pending { pending_peers }
-            | P2pState::PendingFull { pending_peers } => {
-                for (id, pending_peer) in pending_peers.iter() {
-                    match &pending_peer.handshake {
-                        Incoming(Initiated { .. }) | Outgoing(Initiated { .. }) => {}
-
-                        Incoming(Connect { sent: Some(Idle { .. }), sent_conn_msg, .. })
-                        | Outgoing(Connect { sent: Some(Idle { .. }), sent_conn_msg, .. }) => {
-                            buf.push(
-                                TezedgeRequest::SendPeerConnect {
-                                    peer: pending_peer.address.clone(),
-                                    message: sent_conn_msg.clone(),
-                                }
-                            );
-                        }
-                        Incoming(Connect { .. }) | Outgoing(Connect { .. }) => {}
-
-                        Incoming(Metadata { sent: Some(Idle { .. }), .. })
-                        | Outgoing(Metadata { sent: Some(Idle { .. }), .. }) => {
-                            buf.push(
-                                TezedgeRequest::SendPeerMeta {
-                                    peer: pending_peer.address.clone(),
-                                    message: self.meta_msg(),
-                                }
-                            )
-                        }
-                        Incoming(Metadata { .. }) | Outgoing(Metadata { .. }) => {}
-
-                        Incoming(Ack { sent: Some(Idle { .. }), .. })
-                        | Outgoing(Ack { sent: Some(Idle { .. }), .. }) => {
-                            buf.push(
-                                TezedgeRequest::SendPeerAck {
-                                    peer: pending_peer.address.clone(),
-                                    message: AckMessage::Ack,
-                                }
-                            )
-                        }
-                        Incoming(Ack { .. }) | Outgoing(Ack { .. }) => {}
-                    }
-                }
-            }
-        }
 
         for (req_id, req) in self.requests.iter() {
             if let RequestState::Idle { .. } = req.status {
@@ -176,11 +110,9 @@ impl GetRequests for TezedgeState {
                     PendingRequest::StopListeningForNewPeers => {
                         TezedgeRequest::StopListeningForNewPeers { req_id }
                     }
-                    PendingRequest::NackAndDisconnectPeer { peer, nack_info } => {
-                        TezedgeRequest::SendPeerAck {
-                            peer: peer.clone(),
-                            message: AckMessage::Nack(nack_info.clone()),
-                        }
+                    PendingRequest::ConnectPeer { peer } => {
+                        let peer = peer.clone();
+                        TezedgeRequest::ConnectPeer { req_id, peer }
                     }
                     PendingRequest::DisconnectPeer { peer } => {
                         let peer = peer.clone();

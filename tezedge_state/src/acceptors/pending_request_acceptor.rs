@@ -1,6 +1,8 @@
+use crypto::nonce::Nonce;
+use tezos_messages::p2p::encoding::connection::ConnectionMessage;
 use tla_sm::{Proposal, Acceptor};
 
-use crate::{RequestState, TezedgeState, PendingRequest, PendingRequestState};
+use crate::{Handshake, HandshakeStep, PendingRequest, PendingRequestState, RequestState, TezedgeState};
 use crate::proposals::{PendingRequestProposal, PendingRequestMsg};
 
 impl Acceptor<PendingRequestProposal> for TezedgeState {
@@ -35,18 +37,39 @@ impl Acceptor<PendingRequestProposal> for TezedgeState {
                         _ => eprintln!("unexpected request type"),
                     }
                 }
-                PendingRequest::NackAndDisconnectPeer { peer, .. } => {
+                PendingRequest::ConnectPeer { peer, .. } => {
                     match proposal.message {
-                        PendingRequestMsg::SendPeerAckPending => {
+                        PendingRequestMsg::ConnectPeerPending => {
                             req.status = RequestState::Pending { at: proposal.at };
                         }
-                        PendingRequestMsg::SendPeerAckSuccess => {
-                            *req = PendingRequestState {
-                                request: PendingRequest::DisconnectPeer {
-                                    peer: peer.clone(),
-                                },
-                                status: RequestState::Idle { at: proposal.at },
-                            };
+                        PendingRequestMsg::ConnectPeerSuccess => {
+                            let peer_address = *peer;
+                            let sent_conn_msg = ConnectionMessage::try_new(
+                                self.config.port,
+                                &self.identity.public_key,
+                                &self.identity.proof_of_work_stamp,
+                                // TODO: this introduces non-determinism
+                                Nonce::random(),
+                                self.shell_compatibility_version.to_network_version(),
+                            ).unwrap();
+                            let peer = self.pending_peers_mut()
+                                .and_then(|peers| peers.get_mut(&peer_address));
+
+                            if let Some(peer) = peer {
+                                peer.handshake = Handshake::Outgoing(
+                                    HandshakeStep::Connect {
+                                        sent_conn_msg,
+                                        sent: Some(RequestState::Idle { at: proposal.at }),
+                                        received: None,
+                                    },
+                                );
+                            }
+                            self.requests.remove(proposal.req_id);
+                        }
+                        PendingRequestMsg::ConnectPeerError => {
+                            let peer = *peer;
+                            self.blacklist_peer(proposal.at, peer);
+                            self.requests.remove(proposal.req_id);
                         }
                         _ => eprintln!("unexpected request type"),
                     }

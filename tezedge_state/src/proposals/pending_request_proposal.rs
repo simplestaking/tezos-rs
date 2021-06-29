@@ -12,6 +12,10 @@ pub enum PendingRequestMsg {
     SendPeerAckPending,
     SendPeerAckSuccess,
 
+    ConnectPeerPending,
+    ConnectPeerSuccess,
+    ConnectPeerError,
+
     DisconnectPeerPending,
     DisconnectPeerSuccess,
 

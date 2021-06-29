@@ -7,7 +7,7 @@ use bytes::Buf;
 use crypto::hash::CryptoboxPublicKeyHash;
 use tla_sm::{Acceptor, GetRequests};
 
-use tezos_messages::p2p::encoding::peer::PeerMessageResponse;
+use tezos_messages::p2p::encoding::peer::{PeerMessage, PeerMessageResponse};
 use tezos_messages::p2p::binary_message::{BinaryMessage, BinaryChunk, BinaryChunkError, CONTENT_LENGTH_FIELD_BYTES};
 use tezos_messages::p2p::encoding::prelude::{
     ConnectionMessage, MetadataMessage, AckMessage, NetworkVersion,
@@ -17,10 +17,11 @@ use crate::proposals::{
     TickProposal,
     NewPeerConnectProposal,
     PeerReadableProposal,
+    PeerWritableProposal,
+    SendPeerMessageProposal,
     PeerDisconnectProposal,
     PeerBlacklistProposal,
     PendingRequestProposal, PendingRequestMsg,
-    HandshakeProposal, HandshakeMsg,
 };
 
 pub mod mio_manager;
@@ -36,228 +37,6 @@ pub enum Notification {
         metadata: MetadataMessage,
         network_version: NetworkVersion,
     },
-}
-
-pub trait GetMessageType {
-    fn get_message_type(&self) -> SendMessageType;
-}
-
-pub trait AsSendMessage {
-    type Error;
-
-    fn as_send_message(&self) -> Result<SendMessage, Self::Error>;
-}
-
-pub trait AsEncryptedSendMessage {
-    type Error;
-
-    fn as_encrypted_send_message(
-        &self,
-        crypto: &mut PeerCrypto,
-    ) -> Result<SendMessage, Self::Error>;
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum SendMessageType {
-    Connect,
-    Meta,
-    Ack,
-    Other,
-}
-
-#[derive(Debug)]
-pub enum SendMessageError {
-    IO(io::Error),
-    EncodeFailed,
-}
-
-impl From<io::Error> for SendMessageError {
-    fn from(err: io::Error) -> Self {
-        Self::IO(err)
-    }
-}
-
-#[derive(Debug)]
-pub enum SendMessageResult {
-    Empty,
-
-    Pending {
-        message_type: SendMessageType,
-    },
-
-    Ok {
-        message_type: SendMessageType,
-    },
-
-    Err {
-        message_type: SendMessageType,
-        error: SendMessageError,
-    },
-}
-
-impl SendMessageResult {
-    pub fn empty() -> Self {
-        Self::Empty
-    }
-
-    pub fn pending(message_type: SendMessageType) -> Self {
-        Self::Pending { message_type }
-    }
-
-    pub fn ok(message_type: SendMessageType) -> Self {
-        Self::Ok { message_type }
-    }
-
-    pub fn err(message_type: SendMessageType, error: SendMessageError) -> Self {
-        Self::Err { message_type, error }
-    }
-}
-
-#[derive(Debug)]
-pub struct SendMessage {
-    bytes: BinaryChunk,
-    message_type: SendMessageType,
-}
-
-impl SendMessage {
-    fn new(message_type: SendMessageType, bytes: BinaryChunk) -> Self {
-        Self { message_type, bytes }
-    }
-
-    #[inline]
-    fn bytes(&self) -> &[u8] {
-        self.bytes.raw()
-    }
-
-    #[inline]
-    fn message_type(&self) -> SendMessageType {
-        self.message_type
-    }
-}
-
-impl GetMessageType for SendMessage {
-    fn get_message_type(&self) -> SendMessageType {
-        self.message_type()
-    }
-}
-
-
-impl GetMessageType for ConnectionMessage {
-    fn get_message_type(&self) -> SendMessageType {
-        SendMessageType::Connect
-    }
-}
-
-
-impl GetMessageType for MetadataMessage {
-    fn get_message_type(&self) -> SendMessageType {
-        SendMessageType::Meta
-    }
-}
-
-
-impl GetMessageType for AckMessage {
-    fn get_message_type(&self) -> SendMessageType {
-        SendMessageType::Ack
-    }
-}
-
-impl<M> AsSendMessage for M
-    where M: BinaryMessage + GetMessageType
-{
-    type Error = failure::Error;
-
-    fn as_send_message(&self) -> Result<SendMessage, Self::Error> {
-        Ok(SendMessage {
-            bytes: BinaryChunk::from_content(&self.as_bytes()?)?,
-            message_type: self.get_message_type(),
-        })
-    }
-}
-
-impl AsEncryptedSendMessage for [u8] {
-    type Error = failure::Error;
-
-    fn as_encrypted_send_message(
-        &self,
-        crypto: &mut PeerCrypto,
-    ) -> Result<SendMessage, Self::Error>
-    {
-        let encrypted = crypto.encrypt(&self)?;
-        Ok(SendMessage {
-            bytes: BinaryChunk::from_content(&encrypted)?,
-            message_type: SendMessageType::Other,
-        })
-    }
-}
-
-impl<M> AsEncryptedSendMessage for M
-    where M: BinaryMessage + GetMessageType
-{
-    type Error = failure::Error;
-
-    fn as_encrypted_send_message(
-        &self,
-        crypto: &mut PeerCrypto,
-    ) -> Result<SendMessage, Self::Error>
-    {
-        let encrypted = crypto.encrypt(
-            &self.as_bytes()?,
-        )?;
-        Ok(SendMessage {
-            bytes: BinaryChunk::from_content(&encrypted)?,
-            message_type: self.get_message_type(),
-        })
-    }
-}
-
-#[derive(Debug)]
-struct WriteBuffer {
-    message: SendMessage,
-    index: usize,
-}
-
-impl WriteBuffer {
-    fn new(message: SendMessage) -> Self {
-        Self {
-            message,
-            index: 0,
-        }
-    }
-
-    #[inline]
-    fn bytes(&self) -> &[u8] {
-        self.message.bytes()
-    }
-
-    #[inline]
-    fn message_type(&self) -> SendMessageType {
-        self.message.message_type()
-    }
-
-    fn is_finished(&self) -> bool {
-        self.index == self.bytes().len() - 1
-    }
-
-    fn next_slice(&self) -> &[u8] {
-        &self.bytes()[self.index..]
-    }
-
-    fn advance(&mut self, by: usize) {
-        self.index = (self.index + by).min(self.bytes().len() - 1);
-    }
-
-    fn result_pending(&self) -> SendMessageResult {
-        SendMessageResult::pending(self.message_type())
-    }
-
-    fn result_ok(&self) -> SendMessageResult {
-        SendMessageResult::ok(self.message_type())
-    }
-
-    fn result_err(&self, error: SendMessageError) -> SendMessageResult {
-        SendMessageResult::err(self.message_type(), error)
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -298,8 +77,6 @@ pub trait Events {
 pub struct Peer<S> {
     address: PeerAddress,
     pub stream: S,
-    write_buf: Option<WriteBuffer>,
-    write_queue: VecDeque<SendMessage>,
 }
 
 impl<S> Peer<S> {
@@ -307,70 +84,11 @@ impl<S> Peer<S> {
         Self {
             address,
             stream,
-            write_buf: None,
-            write_queue: VecDeque::new(),
         }
     }
 
     pub fn address(&self) -> &PeerAddress {
         &self.address
-    }
-}
-
-impl<S: Write> Peer<S> {
-    pub fn write(&mut self, msg: SendMessage) -> SendMessageResult {
-        match self.write_buf.as_mut() {
-            Some(_) => {
-                self.write_queue.push_back(msg);
-                self.try_flush()
-            }
-            None => {
-                self.write_buf.replace(WriteBuffer::new(msg));
-                self.try_flush()
-            }
-        }
-    }
-
-    pub fn try_flush(&mut self) -> SendMessageResult {
-        let buf = &mut self.write_buf;
-        let queue = &mut self.write_queue;
-        let stream = &mut self.stream;
-
-        match buf.as_mut() {
-            Some(buf) => {
-                match self.stream.write(buf.next_slice()) {
-                    Ok(size) => {
-                        buf.advance(size);
-                        if buf.is_finished() {
-                            let result = buf.result_ok();
-                            self.write_buf.take();
-                            let _ = self.stream.flush();
-                            result
-                        } else {
-                            buf.result_pending()
-                        }
-                    }
-                    Err(err) => {
-                        match err.kind() {
-                            io::ErrorKind::WouldBlock => buf.result_pending(),
-                            _ => {
-                                let result = buf.result_err(err.into());
-                                self.write_buf.take();
-                                result
-                            }
-                        }
-                    }
-                }
-            }
-            None => {
-                if let Some(msg) = queue.pop_front() {
-                    *buf = Some(WriteBuffer::new(msg));
-                    self.try_flush()
-                } else {
-                    SendMessageResult::empty()
-                }
-            },
-        }
     }
 }
 
@@ -391,116 +109,11 @@ pub trait Manager {
     fn get_peer_for_event_mut(&mut self, event: &Self::NetworkEvent) -> Option<&mut Peer<Self::Stream>>;
 
     fn disconnect_peer(&mut self, peer: &PeerAddress);
-
-    fn try_send_msg<M, E>(
-        &mut self,
-        addr: &PeerAddress,
-        msg: M,
-    ) -> SendMessageResult
-        where M: GetMessageType + AsSendMessage<Error = E>,
-              E: Debug,
-    {
-        let msg = match msg.as_send_message() {
-            Ok(msg) => msg,
-            Err(err) => {
-                eprintln!("failed to encode message: {:?}", err);
-                return SendMessageResult::err(
-                    msg.get_message_type(),
-                    SendMessageError::EncodeFailed,
-                );
-            }
-        };
-        match self.get_peer_or_connect_mut(addr) {
-            Ok(conn) => conn.write(msg),
-            Err(err) => {
-                SendMessageResult::err(
-                    msg.get_message_type(),
-                    SendMessageError::EncodeFailed,
-                )
-            }
-        }
-    }
-
-    fn try_send_msg_encrypted<M, E>(
-        &mut self,
-        addr: &PeerAddress,
-        crypto: &mut PeerCrypto,
-        msg: M,
-    ) -> SendMessageResult
-        where M: GetMessageType + AsEncryptedSendMessage<Error = E>,
-              E: Debug,
-    {
-        let msg = match msg.as_encrypted_send_message(crypto) {
-            Ok(msg) => msg,
-            Err(err) => {
-                eprintln!("failed to encode message: {:?}", err);
-                return SendMessageResult::err(
-                    msg.get_message_type(),
-                    SendMessageError::EncodeFailed,
-                );
-            }
-        };
-        match self.get_peer_or_connect_mut(addr) {
-            Ok(conn) => conn.write(msg),
-            Err(err) => {
-                SendMessageResult::err(
-                    msg.get_message_type(),
-                    SendMessageError::EncodeFailed,
-                )
-            }
-        }
-    }
-
 }
 
 pub struct TezedgeProposerConfig {
     pub wait_for_events_timeout: Option<Duration>,
     pub events_limit: usize,
-}
-
-/// Returns true if it is maybe possible to do further write.
-fn handle_send_message_result(
-    at: Instant,
-    tezedge_state: &mut TezedgeStateWrapper,
-    address: PeerAddress,
-    result: SendMessageResult,
-) -> bool {
-    use SendMessageResult::*;
-    match result {
-        Empty => false,
-        Pending { .. } => false,
-        Ok { message_type } => {
-            let msg = match message_type {
-                SendMessageType::Connect => HandshakeMsg::SendConnectSuccess,
-                SendMessageType::Meta => HandshakeMsg::SendMetaSuccess,
-                SendMessageType::Ack => HandshakeMsg::SendAckSuccess,
-                SendMessageType::Other => { return true; }
-            };
-
-            tezedge_state.accept(HandshakeProposal {
-                at,
-                peer: address,
-                message: msg,
-            });
-            true
-        }
-        Err { message_type, error } => {
-            let msg = match message_type {
-                SendMessageType::Connect => HandshakeMsg::SendConnectError,
-                SendMessageType::Meta => HandshakeMsg::SendMetaError,
-                SendMessageType::Ack => HandshakeMsg::SendAckError,
-                // TODO temporary panic
-                SendMessageType::Other => panic!(),
-            };
-
-            tezedge_state.accept(HandshakeProposal {
-                at,
-                peer: address,
-                message: msg,
-            });
-            true
-        }
-    }
 }
 
 pub struct TezedgeProposer<Es, M> {
@@ -635,13 +248,11 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
         }
 
         if event.is_writable() {
-            // flush while it is possble that further progress can be made.
-            while handle_send_message_result(
-                event.time(),
-                state,
-                peer.address().clone(),
-                peer.try_flush(),
-            ) {}
+            state.accept(PeerWritableProposal {
+                at: event.time(),
+                peer: peer.address().clone(),
+                stream: &mut peer.stream,
+            });
         }
     }
 
@@ -671,35 +282,18 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
                         message: PendingRequestMsg::StopListeningForNewPeersSuccess,
                     });
                 }
-                TezedgeRequest::SendPeerConnect { peer, message } => {
-                    let result = manager.try_send_msg(&peer, message);
-                    state.accept(HandshakeProposal {
-                        at: state.newest_time_seen(),
-                        peer: peer.clone(),
-                        message: HandshakeMsg::SendConnectPending,
-                    });
-                    handle_send_message_result(state.newest_time_seen(), state, peer, result);
-                }
-                TezedgeRequest::SendPeerMeta { peer, message } => {
-                    if let Some(crypto) = state.get_peer_crypto(&peer) {
-                        let result = manager.try_send_msg_encrypted(&peer, crypto, message);
-                        state.accept(HandshakeProposal {
+                TezedgeRequest::ConnectPeer { req_id, peer } => {
+                    match manager.get_peer_or_connect_mut(&peer) {
+                        Ok(_) => state.accept(PendingRequestProposal {
+                            req_id,
                             at: state.newest_time_seen(),
-                            peer: peer.clone(),
-                            message: HandshakeMsg::SendMetaPending,
-                        });
-                        handle_send_message_result(state.newest_time_seen(), state, peer, result);
-                    }
-                }
-                TezedgeRequest::SendPeerAck { peer, message } => {
-                    if let Some(crypto) = state.get_peer_crypto(&peer) {
-                        let result = manager.try_send_msg_encrypted(&peer,crypto, message);
-                        state.accept(HandshakeProposal {
+                            message: PendingRequestMsg::ConnectPeerSuccess,
+                        }),
+                        Err(_) => state.accept(PendingRequestProposal {
+                            req_id,
                             at: state.newest_time_seen(),
-                            peer: peer.clone(),
-                            message: HandshakeMsg::SendAckPending,
-                        });
-                        handle_send_message_result(state.newest_time_seen(), state, peer, result);
+                            message: PendingRequestMsg::ConnectPeerError,
+                        }),
                     }
                 }
                 TezedgeRequest::DisconnectPeer { req_id, peer } => {
@@ -757,9 +351,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
     {
         self.wait_for_events();
 
-        let events_limit = self.config.events_limit;
-
-        for event in self.events.into_iter().take(events_limit) {
+        for event in self.events.into_iter() {
             Self::handle_event_ref(
                 event,
                 &mut self.requests,
@@ -784,11 +376,9 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
         self.wait_for_events();
         eprintln!("waited for events for: {}ms", time.elapsed().as_millis());
 
-        let events_limit = self.config.events_limit;
-
         let time = Instant::now();
         let mut count = 0;
-        for event in self.events.into_iter().take(events_limit) {
+        for event in self.events.into_iter() {
             count += 1;
             Self::handle_event(
                 event,
@@ -822,17 +412,32 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
     // is handled in TezedgeState.
     // ---------------------------------------------------------------
 
-    pub fn send_message_to_peer_or_queue(&mut self, addr: PeerAddress, message: &[u8]) {
-        if let Some(crypto) = self.state.get_peer_crypto(&addr) {
-            if let Ok(msg) = message.as_encrypted_send_message(crypto) {
-                if let Some(peer) = self.manager.get_peer(&addr) {
-                    peer.write(msg);
-                }
-            }
+    pub fn send_message_to_peer_or_queue(
+        &mut self,
+        at: Instant,
+        addr: PeerAddress,
+        message: PeerMessage,
+    ) {
+        if let Some(peer) = self.manager.get_peer(&addr) {
+            self.state.accept(SendPeerMessageProposal {
+                at,
+                peer: addr,
+                message,
+            });
+            // issue writable proposal in case stream is writable,
+            // otherwise we would have to wait till we receive
+            // writable event from mio.
+            self.state.accept(PeerWritableProposal {
+                at,
+                peer: addr,
+                stream: &mut peer.stream,
+            });
+        } else {
+            eprintln!("queueing send message failed since peer not found!");
         }
     }
 
-    pub fn take_notifications(&mut self) -> Vec<Notification> {
-        std::mem::take(&mut self.notifications)
+    pub fn take_notifications<'a>(&'a mut self) -> std::vec::Drain<'a, Notification> {
+        self.notifications.drain(..)
     }
 }
