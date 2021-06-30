@@ -401,11 +401,17 @@ impl TezedgeState {
 
                         match &mut peer.handshake {
                             Outgoing(Initiated { at })
+                            | Incoming(Connect { sent: Some(Idle { at, .. }), .. })
                             | Incoming(Connect { sent: Some(Pending { at, .. }), .. })
+                            | Incoming(Metadata { sent: Some(Idle { at, .. }), .. })
                             | Incoming(Metadata { sent: Some(Pending { at, .. }), .. })
+                            | Incoming(Ack { sent: Some(Idle { at, .. }), .. })
                             | Incoming(Ack { sent: Some(Pending { at, .. }), .. })
+                            | Outgoing(Connect { sent: Some(Idle { at, .. }), .. })
                             | Outgoing(Connect { sent: Some(Pending { at, .. }), .. })
+                            | Outgoing(Metadata { sent: Some(Idle { at, .. }), .. })
                             | Outgoing(Metadata { sent: Some(Pending { at, .. }), .. })
+                            | Outgoing(Ack { sent: Some(Idle { at, .. }), .. })
                             | Outgoing(Ack { sent: Some(Pending { at, .. }), .. })
                             => {
                                 if now.duration_since(*at) >= peer_timeout {
