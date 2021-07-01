@@ -164,8 +164,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 ##############################################################################################################
 # This pipeline runs cyclictest routed to the real time node to verify that the environment is indeed
@@ -229,8 +229,8 @@ node:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 volumes:
   - name: build
@@ -371,8 +371,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -404,8 +404,8 @@ image_pull_secrets:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 ---
 ##############################################################################################################
@@ -746,8 +746,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 #############################################################################################################
  # This pipeline runs the python test framework tests from the tezos repository against tezedge nodes 
@@ -1002,8 +1002,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -1260,8 +1260,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -1518,8 +1518,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -1764,8 +1764,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -1954,8 +1954,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -2144,8 +2144,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -2423,8 +2423,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -2702,8 +2702,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -2981,8 +2981,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -3226,8 +3226,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -3452,8 +3452,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -3679,8 +3679,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -3908,8 +3908,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -4137,8 +4137,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -4170,8 +4170,8 @@ volumes:
 
 trigger:
   branch:
-    - develop
-    - master
+    - xdevelop
+    - xmaster
 
 steps:
 
@@ -4247,8 +4247,8 @@ depends_on:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 steps:
 
@@ -4326,8 +4326,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -4436,8 +4436,8 @@ depends_on:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 steps:
 
@@ -4543,8 +4543,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - build-tezedge-binaries
@@ -4639,8 +4639,8 @@ depends_on:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 steps:
 
@@ -4935,8 +4935,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 ---
 ##############################################################################################################
@@ -4980,8 +4980,8 @@ image_pull_secrets:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 ##############################################################################################################
 # This pipeline runs tezedge node and octez node,
@@ -5224,8 +5224,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - corr/real-time-environment-cyclictest-latencies
@@ -5454,8 +5454,8 @@ volumes:
 
 trigger:
   branch:
-    - master
-    - develop
+    - xmaster
+    - xdevelop
 
 depends_on:
   - corr/real-time-environment-cyclictest-latencies
@@ -5632,3 +5632,80 @@ depends_on:
   - corr/indexer-tzkt-octez-009-florence
   - corr/indexer-tzkt-tezedge-009-florence
   - perf/wrk-tests-009-florence
+
+---
+kind: pipeline
+name: perf/memory-allocation-bootstrap-009-florence
+
+node:
+  tag: akoptelov
+
+volumes:
+  - name: identities
+    host:
+      path: /home/alexander/drone/identities
+  - name: snapshots
+    host:
+      path: /home/alexander/drone/snapshots
+  - name: perf
+    host:
+      path: /home/alexander/drone/perf
+
+steps:
+
+  - name: octez-node
+    image: tezos/tezos:v9-release
+    detach: true
+    environment:
+      TEZOS_NODE_DIR: /home/tezos/data
+    volumes:
+      - name: identities
+        path: /identities
+      - name: snapshots
+        path: /snapshots
+    commands:
+      - tezos-node config init --network florencenet
+      - cp /identities/identity_1.json $${TEZOS_NODE_DIR}/identity.json
+      - tezos-node snapshot import /snapshots/tezos-009-florence-1000.snapshot --block BKqNZHy5CFYLD6v6BjDLrEavrkK4qH39hhrsD7QtbWcdnnwoYub
+      - tezos-node run --no-bootstrap-peers
+
+  - name: tezedge-node-new
+    image: tezedge/tezedge-ci-builder
+    user: root
+    volumes:
+      - name: identities
+        path: /identities
+      - name: perf
+        path: /perf
+    commands:
+      - OCTEZ_IP=$(perl -e 'use Socket; my $a = gethostbyname("octez-node"); print inet_ntoa($a)')
+      - echo $${OCTEZ_IP}
+      # use alloc instead of jemalloc
+      - awk '/allocator/ { print "//" $0; next } /.*/ { print }' light_node/src/main.rs > /tmp/main.rs && mv /tmp/main.rs light_node/src/main.rs
+      - cargo build --package light-node --package protocol-runner
+      - export LD_LIBRARY_PATH=tezos/sys/lib_tezos/artifacts/
+      # install valgrind
+      - apt-get install valgrind
+      - >
+        valgrind --tool=massif --massif-out-file=new-node.massif.out
+        target/debug/light-node --protocol-runner target/debug/protocol-runner
+        --network florencenet --peers $${OCTEZ_IP}:9732
+        --config-file light_node/etc/tezedge/tezedge_drone.config
+        --identity-file /identities/identity_2.json
+        --peer-thresh-low 1 --peer-thresh-high 1
+        --init-sapling-spend-params-file ./tezos/sys/lib_tezos/artifacts/sapling-spend.params
+        --init-sapling-output-params-file ./tezos/sys/lib_tezos/artifacts/sapling-output.params &
+        echo $! > /var/run/tezedge.pid
+      - |
+        sh -c '
+        block=0
+        while [ $block -lt 1000 ]; do
+          sleep 1
+          b=$(curl -s localhost:18732/chains/main/blocks/head | jq .header.level)
+          block=${b:-$block}
+          echo "===> Block level $block"
+        done
+        '
+      - echo "Bootstrapped. Killind the node and waiting for 10 seconds."
+      - kill -INT $(cat /var/run/tezedge.pid) && sleep 10
+      - ms_print new-node.massif.out | awk -f /perf/massif.awk
