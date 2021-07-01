@@ -5702,7 +5702,7 @@ steps:
         while [ $block -lt 1000 ]; do
           sleep 1
           b=$(curl -s localhost:18732/chains/main/blocks/head | jq .header.level)
-          block=${b:-$block}
+          block=$${b:-$block}
           echo "===> Block level $block"
         done
         '
