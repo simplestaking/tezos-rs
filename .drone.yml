@@ -5685,7 +5685,7 @@ steps:
       - cargo build --package light-node --package protocol-runner
       - export LD_LIBRARY_PATH=tezos/sys/lib_tezos/artifacts/
       # install valgrind
-      - apt-get install valgrind
+      - apt-get install -y valgrind
       - >
         valgrind --tool=massif --massif-out-file=new-node.massif.out
         target/debug/light-node --protocol-runner target/debug/protocol-runner
