@@ -5725,7 +5725,7 @@ steps:
         path: /tools
     commands:
       - OCTEZ_IP=$(perl -e 'use Socket; my $a = gethostbyname("octez-node"); print inet_ntoa($a)')
-      - git reset --hard origin/${DRONE_TARGET_BRANCH}
+      - git reset --hard origin/${DRONE_TARGET_BRANCH} && git clean -df
       # use alloc instead of jemalloc
       - awk '/allocator/ { print "//" $0; next } /.*/ { print }' light_node/src/main.rs > /tmp/main.rs && mv /tmp/main.rs light_node/src/main.rs
       - cargo clean && cargo build --package light-node --package protocol-runner
