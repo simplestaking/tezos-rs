@@ -5654,7 +5654,7 @@ volumes:
       path: /usr/local/etc/tezedge-ci/data/
   - name: tools
     host:
-      path: /home/alexander/drone/tools
+      path: /usr/local/etc/tezedge-ci/tools
 
 steps:
 
