@@ -5742,6 +5742,7 @@ steps:
         --init-sapling-spend-params-file ./tezos/sys/lib_tezos/artifacts/sapling-spend.params
         --init-sapling-output-params-file ./tezos/sys/lib_tezos/artifacts/sapling-output.params &
         echo $! > /var/run/tezedge.pid
+      - sleep 10
       - |
         sh -c '
         block=0
