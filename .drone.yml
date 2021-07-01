@@ -5671,7 +5671,7 @@ steps:
     commands:
       - tezos-node config init --network florencenet
       - cp /identities/identity_1.json $${TEZOS_NODE_DIR}/identity.json
-      - tezos-node snapshot import /snapshots/tezos-009-florence-1000.snapshot --block BKqNZHy5CFYLD6v6BjDLrEavrkK4qH39hhrsD7QtbWcdnnwoYub
+      - tezos-node snapshot import /snapshots/octez-009-florence-1000.snapshot --block BKqNZHy5CFYLD6v6BjDLrEavrkK4qH39hhrsD7QtbWcdnnwoYub
       - tezos-node run --no-bootstrap-peers
 
   - name: tezedge-new-node
