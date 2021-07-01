@@ -5637,19 +5637,21 @@ depends_on:
 kind: pipeline
 name: perf/memory-allocation-bootstrap-009-florence
 
-node:
-  tag: akoptelov
+trigger:
+  branches:
+    - master
+    - develop
 
 volumes:
   - name: identities
     host:
-      path: /home/alexander/drone/identities
+      path: /usr/local/etc/tezedge-ci/build/build_${DRONE_BUILD_NUMBER}/build_files/identities
   - name: snapshots
     host:
-      path: /home/alexander/drone/snapshots
-  - name: perf
+      path: /usr/local/etc/tezedge-ci/data/
+  - name: tools
     host:
-      path: /home/alexander/drone/perf
+      path: /home/alexander/drone/tools
 
 steps:
 
@@ -5669,14 +5671,14 @@ steps:
       - tezos-node snapshot import /snapshots/tezos-009-florence-1000.snapshot --block BKqNZHy5CFYLD6v6BjDLrEavrkK4qH39hhrsD7QtbWcdnnwoYub
       - tezos-node run --no-bootstrap-peers
 
-  - name: tezedge-node-new
+  - name: tezedge-new-node
     image: tezedge/tezedge-ci-builder
     user: root
     volumes:
       - name: identities
         path: /identities
-      - name: perf
-        path: /perf
+      - name: tools
+        path: /tools
     commands:
       - OCTEZ_IP=$(perl -e 'use Socket; my $a = gethostbyname("octez-node"); print inet_ntoa($a)')
       - echo $${OCTEZ_IP}
@@ -5700,7 +5702,7 @@ steps:
         sh -c '
         block=0
         while [ $block -lt 1000 ]; do
-          sleep 1
+          sleep 5
           b=$(curl -s localhost:18732/chains/main/blocks/head | jq .header.level)
           block=$${b:-$block}
           echo "===> Block level $block"
@@ -5708,4 +5710,48 @@ steps:
         '
       - echo "Bootstrapped. Killind the node and waiting for 10 seconds."
       - kill -INT $(cat /var/run/tezedge.pid) && sleep 10
-      - ms_print new-node.massif.out | awk -f /perf/massif.awk
+      - ms_print new-node.massif.out | awk -f /tools/massif.awk
+
+  - name: tezedge-old-node
+    image: tezedge/tezedge-ci-builder
+    user: root
+    volumes:
+      - name: identities
+        path: /identities
+      - name: tools
+        path: /tools
+    commands:
+      - OCTEZ_IP=$(perl -e 'use Socket; my $a = gethostbyname("octez-node"); print inet_ntoa($a)')
+      - git reset --hard $TARGET_BRANCH
+      # use alloc instead of jemalloc
+      - awk '/allocator/ { print "//" $0; next } /.*/ { print }' light_node/src/main.rs > /tmp/main.rs && mv /tmp/main.rs light_node/src/main.rs
+      - cargo build --package light-node --package protocol-runner
+      - export LD_LIBRARY_PATH=tezos/sys/lib_tezos/artifacts/
+      # install valgrind
+      - apt-get install -y valgrind
+      - >
+        valgrind --tool=massif --massif-out-file=old-node.massif.out
+        target/debug/light-node --protocol-runner target/debug/protocol-runner
+        --network florencenet --peers $${OCTEZ_IP}:9732
+        --config-file light_node/etc/tezedge/tezedge_drone.config
+        --identity-file /identities/identity_2.json
+        --peer-thresh-low 1 --peer-thresh-high 1
+        --init-sapling-spend-params-file ./tezos/sys/lib_tezos/artifacts/sapling-spend.params
+        --init-sapling-output-params-file ./tezos/sys/lib_tezos/artifacts/sapling-output.params &
+        echo $! > /var/run/tezedge.pid
+      - |
+        sh -c '
+        block=0
+        while [ $block -lt 1000 ]; do
+          sleep 5
+          b=$(curl -s localhost:18732/chains/main/blocks/head | jq .header.level)
+          block=$${b:-$block}
+          echo "===> Block level $block"
+        done
+        '
+      - echo "Bootstrapped. Killind the node and waiting for 10 seconds."
+      - kill -INT $(cat /var/run/tezedge.pid) && sleep 10
+      - ms_print old-node.massif.out | awk -f /tools/massif.awk
+    when:
+      ref:
+      - refs/pull/*/head
