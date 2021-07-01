@@ -164,8 +164,8 @@ volumes:
 
 trigger:
   branch:
-    - xmaster
-    - xdevelop
+    - master
+    - develop
 
 ##############################################################################################################
 # This pipeline runs cyclictest routed to the real time node to verify that the environment is indeed
@@ -5636,6 +5636,9 @@ depends_on:
 ---
 kind: pipeline
 name: perf/memory-allocation-bootstrap-009-florence
+
+depends_on:
+  - build-tezedge-binaries
 
 trigger:
   branches:
