@@ -2,7 +2,7 @@ use tla_sm::Acceptor;
 use crate::{Handshake, HandshakeStep, P2pState, PendingPeer, TezedgeState};
 use crate::proposals::NewPeerConnectProposal;
 
-impl Acceptor<NewPeerConnectProposal> for TezedgeState {
+impl<E> Acceptor<NewPeerConnectProposal> for TezedgeState<E> {
     fn accept(&mut self, proposal: NewPeerConnectProposal) {
         if let Err(_err) = self.validate_proposal(&proposal) {
             #[cfg(test)]

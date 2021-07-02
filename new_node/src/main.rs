@@ -67,6 +67,7 @@ fn build_tezedge_state() -> TezedgeState {
         },
         node_identity.clone(),
         shell_compatibility_version(),
+        Default::default(),
         Instant::now(),
     );
 

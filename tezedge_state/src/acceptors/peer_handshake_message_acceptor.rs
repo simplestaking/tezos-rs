@@ -1,18 +1,16 @@
-use std::fmt::Debug;
-
-use crypto::proof_of_work::{PowError, ProofOfWork, check_proof_of_work};
 use tla_sm::{Proposal, Acceptor};
 use crypto::crypto_box::{CryptoKey, PrecomputedKey, PublicKey};
-use crypto::nonce::{Nonce, generate_nonces};
+use crypto::nonce::generate_nonces;
 use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryWrite};
 use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, AckMessage, PeerMessage};
 use tezos_messages::p2p::encoding::ack::NackMotive;
 
-use crate::{HandleReceivedConnMessageError, Handshake, HandshakeStep, P2pState, PeerCrypto, RequestState, TezedgeState};
+use crate::{Effects, HandleReceivedConnMessageError, Handshake, HandshakeStep, P2pState, PeerCrypto, RequestState, TezedgeState};
 use crate::proposals::{PeerHandshakeMessage, ExtendPotentialPeersProposal, PeerHandshakeMessageProposal};
 
-impl<M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState
-    where M: Debug + PeerHandshakeMessage,
+impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
+    where E: Effects,
+          M: PeerHandshakeMessage,
 {
     fn accept(&mut self, mut proposal: PeerHandshakeMessageProposal<M>) {
         if let Err(_err) = self.validate_proposal(&proposal) {
@@ -57,6 +55,7 @@ impl<M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState
                     &self.config,
                     &self.identity,
                     &self.shell_compatibility_version,
+                    &mut self.effects,
                     proposal.at,
                     proposal.message,
                 );
@@ -148,7 +147,6 @@ impl<M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState
                 let (conn_msg, sent_conn_msg) = match step {
                     Connect { sent_conn_msg, received, .. } => {
                         if let None = received {
-                            dbg!(&self);
                             unreachable!();
                         }
                         received.take().map(|x| (x, sent_conn_msg))

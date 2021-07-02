@@ -4,7 +4,7 @@ use tla_sm::Acceptor;
 use crate::TezedgeState;
 use crate::proposals::ExtendPotentialPeersProposal;
 
-impl<P> Acceptor<ExtendPotentialPeersProposal<P>> for TezedgeState
+impl<E, P> Acceptor<ExtendPotentialPeersProposal<P>> for TezedgeState<E>
     where P: IntoIterator<Item = SocketAddr>,
 {
     fn accept(&mut self, proposal: ExtendPotentialPeersProposal<P>) {

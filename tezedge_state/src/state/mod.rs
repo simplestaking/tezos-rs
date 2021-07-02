@@ -4,7 +4,6 @@ use std::collections::HashSet;
 use crypto::crypto_box::{CryptoKey, PublicKey};
 
 pub use tla_sm::{Proposal, GetRequests};
-use crypto::nonce::Nonce;
 use tezos_identity::Identity;
 use tezos_messages::p2p::encoding::ack::{NackInfo, NackMotive};
 use tezos_messages::p2p::encoding::prelude::{
@@ -12,7 +11,7 @@ use tezos_messages::p2p::encoding::prelude::{
     MetadataMessage,
 };
 
-use crate::{InvalidProposalError, PeerCrypto, PeerAddress, Port, ShellCompatibilityVersion};
+use crate::{DefaultEffects, InvalidProposalError, PeerAddress, PeerCrypto, Port, ShellCompatibilityVersion};
 use crate::peer_address::PeerListenerAddress;
 
 // mod peer_token;
@@ -89,14 +88,15 @@ impl P2pState {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct TezedgeState {
+#[derive(Debug)]
+pub struct TezedgeState<E = DefaultEffects> {
     pub(crate) listening_for_connection_requests: bool,
     pub(crate) newest_time_seen: Instant,
     pub(crate) last_periodic_react: Instant,
     pub(crate) config: TezedgeConfig,
     pub(crate) identity: Identity,
     pub(crate) shell_compatibility_version: ShellCompatibilityVersion,
+    pub(crate) effects: E,
     pub(crate) potential_peers: HashSet<PeerListenerAddress>,
     pub(crate) connected_peers: ConnectedPeers,
     pub(crate) blacklisted_peers: BlacklistedPeers,
@@ -105,11 +105,12 @@ pub struct TezedgeState {
     pub(crate) requests: slab::Slab<PendingRequestState>,
 }
 
-impl TezedgeState {
+impl<E> TezedgeState<E> {
     pub fn new(
         config: TezedgeConfig,
         identity: Identity,
         shell_compatibility_version: ShellCompatibilityVersion,
+        effects: E,
         initial_time: Instant,
     ) -> Self
     {
@@ -121,6 +122,7 @@ impl TezedgeState {
             config,
             identity,
             shell_compatibility_version,
+            effects,
             listening_for_connection_requests: false,
             potential_peers: HashSet::new(),
             connected_peers: ConnectedPeers::with_capacity(max_connected_peers),
@@ -581,6 +583,26 @@ impl TezedgeState {
             blacklisted_peers_len: self.blacklisted_peers.len(),
             pending_peers_len: self.pending_peers_len(),
             requests_len: self.requests.len(),
+        }
+    }
+}
+
+impl<E: Clone> Clone for TezedgeState<E> {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            identity: self.identity.clone(),
+            shell_compatibility_version: self.shell_compatibility_version.clone(),
+            effects: self.effects.clone(),
+            listening_for_connection_requests: self.listening_for_connection_requests,
+            newest_time_seen: self.newest_time_seen,
+            last_periodic_react: self.last_periodic_react,
+
+            p2p_state: self.p2p_state.clone(),
+            potential_peers: self.potential_peers.clone(),
+            connected_peers: self.connected_peers.clone(),
+            blacklisted_peers: self.blacklisted_peers.clone(),
+            requests: self.requests.clone(),
         }
     }
 }

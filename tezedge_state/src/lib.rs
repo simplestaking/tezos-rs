@@ -11,6 +11,9 @@ pub mod chunking;
 mod shell_compatibility_version;
 pub use shell_compatibility_version::*;
 
+mod effects;
+pub use effects::*;
+
 mod state;
 pub use state::*;
 

@@ -1,19 +1,15 @@
 use std::io::{self, Read};
 
-use tla_sm::{Proposal, Acceptor};
-use crypto::crypto_box::{CryptoKey, PrecomputedKey, PublicKey};
-use crypto::nonce::{Nonce, generate_nonces};
-use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryWrite};
-use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, AckMessage, PeerMessage};
-use tezos_messages::p2p::encoding::ack::NackMotive;
-
+use tla_sm::Acceptor;
+use crate::Effects;
 use crate::proposals::peer_handshake_message::PeerBinaryHandshakeMessage;
-use crate::{Handshake, HandshakeStep, P2pState, PeerCrypto, PendingRequest, PendingRequestState, RequestState, TezedgeState};
+use crate::TezedgeState;
 use crate::proposals::{PeerReadableProposal, PeerMessageProposal, PeerHandshakeMessageProposal};
 use crate::chunking::ReadMessageError;
 
-impl<'a, R> Acceptor<PeerReadableProposal<'a, R>> for TezedgeState
-    where R: Read,
+impl<'a, E, R> Acceptor<PeerReadableProposal<'a, R>> for TezedgeState<E>
+    where E: Effects,
+          R: Read,
 {
     fn accept(&mut self, proposal: PeerReadableProposal<R>) {
         if let Err(_err) = self.validate_proposal(&proposal) {

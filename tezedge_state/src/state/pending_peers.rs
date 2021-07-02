@@ -18,7 +18,7 @@ use tezos_messages::p2p::encoding::prelude::{
 
 use crate::peer_address::PeerListenerAddress;
 use crate::proposals::{PeerHandshakeMessage, PeerHandshakeMessageError};
-use crate::{PeerAddress, PeerCrypto, Port, ShellCompatibilityVersion, TezedgeConfig};
+use crate::{Effects, PeerAddress, PeerCrypto, Port, ShellCompatibilityVersion, TezedgeConfig};
 use crate::state::{NotMatchingAddress, RequestState};
 use crate::chunking::{HandshakeReadBuffer, ChunkWriter, EncryptedMessageWriter, WriteMessageError};
 
@@ -401,14 +401,17 @@ impl PendingPeer {
         }
     }
 
-    pub fn handle_received_conn_message<M: PeerHandshakeMessage>(
+    pub fn handle_received_conn_message<E, M>(
         &mut self,
         config: &TezedgeConfig,
         node_identity: &Identity,
         shell_compatibility_version: &ShellCompatibilityVersion,
+        effects: &mut E,
         at: Instant,
         mut message: M,
     ) -> Result<PublicKey, HandleReceivedConnMessageError>
+        where E: Effects,
+              M: PeerHandshakeMessage,
     {
         use Handshake::*;
         use HandshakeStep::*;
@@ -456,8 +459,7 @@ impl PendingPeer {
                         config.port,
                         &node_identity.public_key,
                         &node_identity.proof_of_work_stamp,
-                        // TODO: this introduces non-determinism
-                        Nonce::random(),
+                        effects.get_nonce(&self.address),
                         compatible_network_version,
                     ).unwrap(),
                 };

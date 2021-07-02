@@ -6,7 +6,7 @@ use crate::{TezedgeState, HandshakeMessageType, Handshake, HandshakeStep, Reques
 use crate::proposals::PeerWritableProposal;
 use crate::chunking::{ChunkWriter, WriteMessageError};
 
-impl<'a, W> Acceptor<PeerWritableProposal<'a, W>> for TezedgeState
+impl<'a, E, W> Acceptor<PeerWritableProposal<'a, W>> for TezedgeState<E>
     where W: Write,
 {
     fn accept(&mut self, proposal: PeerWritableProposal<W>) {

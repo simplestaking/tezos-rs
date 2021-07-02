@@ -4,13 +4,12 @@ use std::time::Instant;
 use tla_sm::GetRequests;
 use tla_sm::{Acceptor, Proposal};
 
-use crate::TezedgeRequest;
-use crate::{PeerAddress, TezedgeState, TezedgeStats};
+use crate::{PeerAddress, TezedgeState, TezedgeStats, TezedgeRequest, DefaultEffects};
 
-#[derive(Debug, Clone)]
-pub struct TezedgeStateWrapper(TezedgeState);
+#[derive(Debug)]
+pub struct TezedgeStateWrapper<E = DefaultEffects>(TezedgeState<E>);
 
-impl TezedgeStateWrapper {
+impl<E> TezedgeStateWrapper<E> {
     #[inline]
     pub fn newest_time_seen(&self) -> Instant {
         self.0.newest_time_seen()
@@ -26,9 +25,9 @@ impl TezedgeStateWrapper {
     }
 }
 
-impl<P> Acceptor<P> for TezedgeStateWrapper
+impl<E, P> Acceptor<P> for TezedgeStateWrapper<E>
     where P: Proposal + Debug,
-          TezedgeState: Acceptor<P>,
+          TezedgeState<E>: Acceptor<P>,
 {
     #[inline]
     fn accept(&mut self, proposal: P) {
@@ -37,7 +36,7 @@ impl<P> Acceptor<P> for TezedgeStateWrapper
     }
 }
 
-impl GetRequests for TezedgeStateWrapper {
+impl<E> GetRequests for TezedgeStateWrapper<E> {
     type Request = TezedgeRequest;
 
     #[inline]
@@ -46,9 +45,9 @@ impl GetRequests for TezedgeStateWrapper {
     }
 }
 
-impl From<TezedgeState> for TezedgeStateWrapper {
+impl<E> From<TezedgeState<E>> for TezedgeStateWrapper<E> {
     #[inline]
-    fn from(state: TezedgeState) -> Self {
+    fn from(state: TezedgeState<E>) -> Self {
         TezedgeStateWrapper(state)
     }
 }

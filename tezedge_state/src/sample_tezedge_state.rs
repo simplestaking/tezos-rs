@@ -35,6 +35,7 @@ pub fn build(initial_time: Instant, config: TezedgeConfig) -> TezedgeState {
             vec![0],
             vec![0, 1],
         ),
+        Default::default(),
         initial_time,
     );
 

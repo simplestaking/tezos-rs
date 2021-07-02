@@ -1,11 +1,12 @@
-use crypto::nonce::Nonce;
 use tezos_messages::p2p::encoding::connection::ConnectionMessage;
-use tla_sm::{Proposal, Acceptor};
+use tla_sm::Acceptor;
 
-use crate::{Handshake, HandshakeStep, PendingRequest, PendingRequestState, RequestState, TezedgeState};
+use crate::{Effects, Handshake, HandshakeStep, PendingRequest, RequestState, TezedgeState};
 use crate::proposals::{PendingRequestProposal, PendingRequestMsg};
 
-impl Acceptor<PendingRequestProposal> for TezedgeState {
+impl<E> Acceptor<PendingRequestProposal> for TezedgeState<E>
+    where E: Effects
+{
     fn accept(&mut self, proposal: PendingRequestProposal) {
         if let Err(_err) = self.validate_proposal(&proposal) {
             #[cfg(test)]
@@ -48,8 +49,7 @@ impl Acceptor<PendingRequestProposal> for TezedgeState {
                                 self.config.port,
                                 &self.identity.public_key,
                                 &self.identity.proof_of_work_stamp,
-                                // TODO: this introduces non-determinism
-                                Nonce::random(),
+                                self.effects.get_nonce(&peer_address),
                                 self.shell_compatibility_version.to_network_version(),
                             ).unwrap();
                             let peer = self.pending_peers_mut()

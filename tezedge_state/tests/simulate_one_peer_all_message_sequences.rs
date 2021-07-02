@@ -159,6 +159,7 @@ fn simulate_one_peer_all_message_sequences() {
         },
         node_identity.clone(),
         network_version(),
+        Default::default(),
         Instant::now(),
     );
 

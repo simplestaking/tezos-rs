@@ -2,7 +2,7 @@ use tla_sm::Acceptor;
 use crate::TezedgeState;
 use crate::proposals::PeerDisconnectProposal;
 
-impl Acceptor<PeerDisconnectProposal> for TezedgeState {
+impl<E> Acceptor<PeerDisconnectProposal> for TezedgeState<E> {
     fn accept(&mut self, proposal: PeerDisconnectProposal) {
         if let Err(_err) = self.validate_proposal(&proposal) {
             #[cfg(test)]

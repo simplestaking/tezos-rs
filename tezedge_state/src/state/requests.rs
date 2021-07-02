@@ -95,7 +95,7 @@ pub struct PendingRequestState {
     pub status: RequestState,
 }
 
-impl GetRequests for TezedgeState {
+impl<E> GetRequests for TezedgeState<E> {
     type Request = TezedgeRequest;
 
     fn get_requests(&self, buf: &mut Vec<TezedgeRequest>) -> usize {
