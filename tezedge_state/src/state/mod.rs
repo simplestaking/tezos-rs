@@ -1,17 +1,15 @@
 use std::fmt::Debug;
 use std::time::{Instant, Duration};
 use std::collections::HashSet;
-use crypto::crypto_box::{CryptoKey, PublicKey};
+use slog::Logger;
 
+use crypto::crypto_box::{CryptoKey, PublicKey};
 pub use tla_sm::{Proposal, GetRequests};
 use tezos_identity::Identity;
 use tezos_messages::p2p::encoding::ack::{NackInfo, NackMotive};
-use tezos_messages::p2p::encoding::prelude::{
-    ConnectionMessage,
-    MetadataMessage,
-};
+use tezos_messages::p2p::encoding::prelude::MetadataMessage;
 
-use crate::{DefaultEffects, InvalidProposalError, PeerAddress, PeerCrypto, Port, ShellCompatibilityVersion};
+use crate::{DefaultEffects, InvalidProposalError, PeerAddress, Port, ShellCompatibilityVersion};
 use crate::peer_address::PeerListenerAddress;
 
 // mod peer_token;
@@ -90,6 +88,7 @@ impl P2pState {
 
 #[derive(Debug)]
 pub struct TezedgeState<E = DefaultEffects> {
+    pub(crate) log: Logger,
     pub(crate) listening_for_connection_requests: bool,
     pub(crate) newest_time_seen: Instant,
     pub(crate) last_periodic_react: Instant,
@@ -107,6 +106,7 @@ pub struct TezedgeState<E = DefaultEffects> {
 
 impl<E> TezedgeState<E> {
     pub fn new(
+        log: Logger,
         config: TezedgeConfig,
         identity: Identity,
         shell_compatibility_version: ShellCompatibilityVersion,
@@ -119,6 +119,7 @@ impl<E> TezedgeState<E> {
         let max_pending_peers = config.max_pending_peers;
 
         Self {
+            log,
             config,
             identity,
             shell_compatibility_version,
@@ -590,6 +591,7 @@ impl<E> TezedgeState<E> {
 impl<E: Clone> Clone for TezedgeState<E> {
     fn clone(&self) -> Self {
         Self {
+            log: self.log.clone(),
             config: self.config.clone(),
             identity: self.identity.clone(),
             shell_compatibility_version: self.shell_compatibility_version.clone(),

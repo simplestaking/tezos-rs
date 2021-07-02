@@ -1,3 +1,5 @@
+use slog::{crit, debug, info, trace, warn, error, Logger};
+
 use tla_sm::{Proposal, Acceptor};
 use crypto::crypto_box::{CryptoKey, PrecomputedKey, PublicKey};
 use crypto::nonce::generate_nonces;
@@ -61,16 +63,20 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                 );
                 match result {
                     Err(HandleReceivedConnMessageError::BadPow) => {
-                        eprintln!("blacklisting peer as identity check failed");
+                        warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Bad Proof of work");
                         self.blacklist_peer(proposal.at, proposal.peer);
                     }
-                    Err(HandleReceivedConnMessageError::BadHandshakeMessage(_)) => {
+                    Err(HandleReceivedConnMessageError::BadHandshakeMessage(error)) => {
+                        warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Unexpected handshake message", "error" => format!("{:?}", error));
                         self.blacklist_peer(proposal.at, proposal.peer);
                     }
                     Err(HandleReceivedConnMessageError::Nack(motive)) => {
+                        warn!(&self.log, "Nacking peer handshake"; "peer_address" => proposal.peer.to_string(), "motive" => motive.to_string());
                         self.nack_peer_handshake(proposal.at, proposal.peer, motive);
                     }
                     Err(HandleReceivedConnMessageError::UnexpectedState) => {
+                        warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Unexpected state!");
+                        trace!(&self.log, "Trace"; "peer_state" => format!("{:?}", &pending_peer));
                         self.blacklist_peer(proposal.at, proposal.peer);
                     }
                     Ok(pub_key) => {

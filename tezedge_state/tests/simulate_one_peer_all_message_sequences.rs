@@ -145,6 +145,7 @@ fn simulate_one_peer_all_message_sequences() {
     let msgs = message_iter(&mut g, &identity).collect::<Vec<_>>();
 
     let tezedge_state = TezedgeState::new(
+        slog::Logger::root(slog_term::term_full(), slog::o!()),
         TezedgeConfig {
             port: 0,
             disable_mempool: false,

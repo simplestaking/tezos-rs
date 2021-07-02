@@ -1,4 +1,6 @@
 use std::time::Instant;
+use std::sync::Arc;
+use slog::Drain;
 
 use crypto::{crypto_box::{CryptoKey, PublicKey, SecretKey}, hash::{CryptoboxPublicKeyHash, HashTrait}, proof_of_work::ProofOfWork};
 use hex::FromHex;
@@ -24,10 +26,26 @@ fn identity_1() -> Identity {
     )
 }
 
+fn logger(level: slog::Level) -> slog::Logger {
+    let drain = Arc::new(
+        slog_async::Async::new(
+            slog_term::FullFormat::new(slog_term::TermDecorator::new().build())
+                .build()
+                .fuse()
+        )
+        .chan_size(32768)
+        .overflow_strategy(slog_async::OverflowStrategy::Block)
+        .build()
+    );
+
+    slog::Logger::root(drain.filter_level(level).fuse(), slog::o!())
+}
+
 pub fn build(initial_time: Instant, config: TezedgeConfig) -> TezedgeState {
     let node_identity = identity_1();
 
     let tezedge_state = TezedgeState::new(
+        logger(slog::Level::Info),
         config,
         node_identity.clone(),
         ShellCompatibilityVersion::new(
