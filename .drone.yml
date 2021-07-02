@@ -5713,6 +5713,7 @@ steps:
         '
       - echo "Bootstrapped. Killind the node and waiting for 10 seconds."
       - kill -INT $(cat /var/run/tezedge.pid) && sleep 10
+      - ms_print new-node.massif.out > new-node.msp.out
 
   - name: tezedge-old-node
     image: tezedge/tezedge-ci-builder
@@ -5755,6 +5756,7 @@ steps:
         '
       - echo "Bootstrapped. Killind the node and waiting for 10 seconds."
       - kill -INT $(cat /var/run/tezedge.pid) && sleep 10
+      - ms_print old-node.massif.out > old-node.msp.out
     when:
       ref:
       - refs/pull/*/head
@@ -5765,7 +5767,7 @@ steps:
       - name: tools
         path: /tools
     commands:
-      - ms_print new-node.massif.out | awk -f /tools/massif.awk
+      - awk -f /tools/massif.awk -v headers="New node" new-node.msp.out
     when:
       ref:
         exclude:
@@ -5777,9 +5779,7 @@ steps:
       - name: tools
         path: /tools
     commands:
-      - ms_print old-node.massif.out > old-node.msr
-      - ms_print new-node.massif.out > new-node.msr
-      - awk -f /tools/massif.awk -v headers="New node, Old Node" new-node.msr old-node.msr
+      - awk -f /tools/massif.awk -v headers="New node, Old Node" new-node.msp.out old-node.msp.out
     when:
       ref:
       - refs/pull/*/head
