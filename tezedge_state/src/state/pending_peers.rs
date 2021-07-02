@@ -2,7 +2,12 @@ use std::io::{self, Read, Write};
 use std::fmt::{self, Debug};
 use std::time::{Instant, Duration};
 
+use crypto::crypto_box::{CryptoKey, PrecomputedKey, PublicKey};
+use crypto::nonce::{Nonce, generate_nonces};
+use crypto::proof_of_work::{PowError, PowResult, check_proof_of_work};
+use tezos_identity::Identity;
 use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryWrite};
+use tezos_messages::p2p::encoding::ack::NackMotive;
 pub use tla_sm::{Proposal, GetRequests};
 use tezos_messages::p2p::encoding::prelude::{
     NetworkVersion,
@@ -12,9 +17,30 @@ use tezos_messages::p2p::encoding::prelude::{
 };
 
 use crate::peer_address::PeerListenerAddress;
-use crate::{PeerCrypto, PeerAddress, Port};
+use crate::proposals::{PeerHandshakeMessage, PeerHandshakeMessageError};
+use crate::{PeerAddress, PeerCrypto, Port, ShellCompatibilityVersion, TezedgeConfig};
 use crate::state::{NotMatchingAddress, RequestState};
 use crate::chunking::{HandshakeReadBuffer, ChunkWriter, EncryptedMessageWriter, WriteMessageError};
+
+#[derive(Debug)]
+pub enum HandleReceivedConnMessageError {
+    UnexpectedState,
+    BadPow,
+    BadHandshakeMessage(PeerHandshakeMessageError),
+    Nack(NackMotive)
+}
+
+impl From<PeerHandshakeMessageError> for HandleReceivedConnMessageError {
+    fn from(err: PeerHandshakeMessageError) -> Self {
+        Self::BadHandshakeMessage(err)
+    }
+}
+
+impl From<NackMotive> for HandleReceivedConnMessageError {
+    fn from(motive: NackMotive) -> Self {
+        Self::Nack(motive)
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum HandshakeMessageType {
@@ -47,6 +73,20 @@ impl Handshake {
         match self {
             Self::Incoming(step) => step.crypto(),
             Self::Outgoing(step) => step.crypto(),
+        }
+    }
+
+    pub fn step(&self) -> &HandshakeStep {
+        match self {
+            Self::Incoming(step) => step,
+            Self::Outgoing(step) => step,
+        }
+    }
+
+    pub fn step_mut(&mut self) -> &mut HandshakeStep {
+        match self {
+            Self::Incoming(step) => step,
+            Self::Outgoing(step) => step,
         }
     }
 
@@ -350,6 +390,82 @@ impl PendingPeer {
         } else {
             Err(WriteMessageError::Empty)
         }
+    }
+
+    fn check_proof_of_work(pow_target: f64, conn_msg_bytes: &[u8]) -> PowResult {
+        if conn_msg_bytes.len() < 58 {
+            Err(PowError::CheckFailed)
+        } else {
+            // skip first 2 bytes which are for port.
+            check_proof_of_work(&conn_msg_bytes[2..58], pow_target)
+        }
+    }
+
+    pub fn handle_received_conn_message<M: PeerHandshakeMessage>(
+        &mut self,
+        config: &TezedgeConfig,
+        node_identity: &Identity,
+        shell_compatibility_version: &ShellCompatibilityVersion,
+        at: Instant,
+        mut message: M,
+    ) -> Result<PublicKey, HandleReceivedConnMessageError>
+    {
+        use Handshake::*;
+        use HandshakeStep::*;
+        use RequestState::*;
+
+        if let Err(e) = Self::check_proof_of_work(config.pow_target, message.binary_chunk().content()){
+            // TODO: check maybe this message is nack.
+            return Err(HandleReceivedConnMessageError::BadPow);
+        }
+        let conn_msg = message.as_connection_msg()?;
+        let public_key = PublicKey::from_bytes(conn_msg.public_key()).unwrap();
+
+        match &self.handshake {
+            Outgoing(Connect { sent_conn_msg, sent: Some(Success { .. }), .. }) => {
+
+                if node_identity.public_key == public_key {
+                    return Err(NackMotive::AlreadyConnected.into());
+                }
+                let nonce_pair = generate_nonces(
+                    &BinaryChunk::from_content(&sent_conn_msg.as_bytes().unwrap()).unwrap().raw(),
+                    message.take_binary_chunk().raw(),
+                    false,
+                ).unwrap();
+
+                let precomputed_key = PrecomputedKey::precompute(
+                    &public_key,
+                    &node_identity.secret_key,
+                );
+
+                let crypto = PeerCrypto::new(precomputed_key, nonce_pair);
+                *self.handshake.step_mut() = Metadata {
+                    conn_msg,
+                    crypto,
+                    sent: Some(Idle { at }),
+                    received: None,
+                };
+            }
+            Incoming(Initiated { .. }) => {
+                let compatible_network_version = shell_compatibility_version
+                    .choose_compatible_version(conn_msg.version())?;
+                *self.handshake.step_mut() = Connect {
+                    sent: Some(Idle { at }),
+                    received: Some(conn_msg),
+                    sent_conn_msg: ConnectionMessage::try_new(
+                        config.port,
+                        &node_identity.public_key,
+                        &node_identity.proof_of_work_stamp,
+                        // TODO: this introduces non-determinism
+                        Nonce::random(),
+                        compatible_network_version,
+                    ).unwrap(),
+                };
+            }
+            _ => return Err(HandleReceivedConnMessageError::UnexpectedState),
+        }
+
+        Ok(public_key)
     }
 
     pub fn to_result(self) -> Option<HandshakeResult> {

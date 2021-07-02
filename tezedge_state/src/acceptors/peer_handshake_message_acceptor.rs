@@ -8,7 +8,7 @@ use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryWrite};
 use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, AckMessage, PeerMessage};
 use tezos_messages::p2p::encoding::ack::NackMotive;
 
-use crate::{Handshake, HandshakeStep, P2pState, PeerCrypto, RequestState, TezedgeState, ShellCompatibilityVersion};
+use crate::{HandleReceivedConnMessageError, Handshake, HandshakeStep, P2pState, PeerCrypto, RequestState, TezedgeState};
 use crate::proposals::{PeerHandshakeMessage, ExtendPotentialPeersProposal, PeerHandshakeMessageProposal};
 
 impl<M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState
@@ -21,69 +21,88 @@ impl<M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState
             return;
         }
 
-        let pow_target = self.config.pow_target;
-        let shell_compatibility_version = &self.shell_compatibility_version;
-
         // handle handshake messages.
         use Handshake::*;
         use HandshakeStep::*;
         use RequestState::*;
 
-        let (pending_peers, allow_new_peers) = match &mut self.p2p_state {
+        let pending_peers = match &mut self.p2p_state {
             P2pState::ReadyMaxed => {
                 self.nack_peer_handshake(proposal.at, proposal.peer, NackMotive::TooManyConnections);
                 return;
             }
-            P2pState::PendingFull { pending_peers }
-            | P2pState::ReadyFull { pending_peers } => {
-                (pending_peers, false)
-            }
             P2pState::Pending { pending_peers }
-            | P2pState::Ready { pending_peers } => {
-                (pending_peers, true)
+            | P2pState::PendingFull { pending_peers }
+            | P2pState::Ready { pending_peers }
+            | P2pState::ReadyFull { pending_peers } => pending_peers,
+        };
+
+        let pending_peer = match pending_peers.get_mut(&proposal.peer) {
+            Some(peer) => peer,
+            None => {
+                // Receiving any message from a peer that is not in pending peers
+                // is impossible. When new peer opens connection with us,
+                // we add new pending peer with `Initiated` state. So this
+                // can only happen if outside world is out of sync with TezedgeState.
+                eprintln!("WARNING: received message proposal from an unknown peer. Should be impossible!");
+                self.disconnect_peer(proposal.at, proposal.peer);
+                return self.periodic_react(proposal.at);
             }
         };
 
-        let pending_peer = pending_peers.get_mut(&proposal.peer);
+        match &mut pending_peer.handshake {
+            Incoming(Initiated { .. })
+            | Outgoing(Connect { sent: Some(Success { .. }), .. }) => {
+                let result = pending_peer.handle_received_conn_message(
+                    &self.config,
+                    &self.identity,
+                    &self.shell_compatibility_version,
+                    proposal.at,
+                    proposal.message,
+                );
+                match result {
+                    Err(HandleReceivedConnMessageError::BadPow) => {
+                        eprintln!("blacklisting peer as identity check failed");
+                        self.blacklist_peer(proposal.at, proposal.peer);
+                    }
+                    Err(HandleReceivedConnMessageError::BadHandshakeMessage(_)) => {
+                        self.blacklist_peer(proposal.at, proposal.peer);
+                    }
+                    Err(HandleReceivedConnMessageError::Nack(motive)) => {
+                        self.nack_peer_handshake(proposal.at, proposal.peer, motive);
+                    }
+                    Err(HandleReceivedConnMessageError::UnexpectedState) => {
+                        self.blacklist_peer(proposal.at, proposal.peer);
+                    }
+                    Ok(pub_key) => {
+                        let proposal_peer = proposal.peer;
+                        // check if peer with such identity is already connected.
+                        let already_connected = self.pending_peers().unwrap()
+                            .iter()
+                            .any(|(_, peer)| {
+                                let existing_pub_key = match peer.handshake.step() {
+                                    Connect { received: Some(conn_msg), .. }
+                                    | Metadata { conn_msg, .. }
+                                    | Ack { conn_msg, .. } => {
+                                        conn_msg.public_key()
+                                    }
+                                    _ => return false,
+                                };
+                                existing_pub_key == pub_key.as_ref().as_ref()
+                                    && peer.address != proposal_peer
+                            }) || {
+                                self.connected_peers.iter().any(|peer| {
+                                    peer.public_key == pub_key.as_ref().as_ref()
+                                })
+                            };
 
-        match pending_peer.map(|x| &mut x.handshake) {
-            Some(Outgoing(step @ Connect { sent: Some(Success { .. }), .. })) => {
-                let pow_check_result = if proposal.message.binary_chunk().raw().len() < 60 {
-                    Err(PowError::CheckFailed)
-                } else {
-                    Ok(&proposal.message.binary_chunk().raw()[4..60])
-                }.map(|pow_bytes| check_proof_of_work(pow_bytes, pow_target));
-
-                if let Err(e) = pow_check_result {
-                    // TODO: check maybe this message is nack.
-                    eprintln!("blacklisting peer as identity check failed");
-                    self.blacklist_peer(proposal.at, proposal.peer);
-                } else if let Ok(conn_msg) = proposal.message.as_connection_msg() {
-                    let sent_conn_msg = match step {
-                        Connect { sent_conn_msg, .. } => Some(sent_conn_msg.clone()),
-                        _ => None
-                    }.unwrap();
-                    let nonce_pair = generate_nonces(
-                        &BinaryChunk::from_content(&sent_conn_msg.as_bytes().unwrap()).unwrap().raw(),
-                        proposal.message.take_binary_chunk().raw(),
-                        false,
-                    ).unwrap();
-                    let precomputed_key = PrecomputedKey::precompute(
-                        &PublicKey::from_bytes(conn_msg.public_key()).unwrap(),
-                        &self.identity.secret_key,
-                    );
-                    let crypto = PeerCrypto::new(precomputed_key, nonce_pair);
-                    *step = Metadata {
-                        conn_msg,
-                        crypto,
-                        sent: Some(Idle { at: proposal.at }),
-                        received: None,
-                    };
-                } else {
-                    self.blacklist_peer(proposal.at, proposal.peer);
+                        if already_connected {
+                            self.nack_peer_handshake(proposal.at, proposal.peer, NackMotive::AlreadyConnected);
+                        }
+                    }
                 }
             }
-            Some(Outgoing(step @ Metadata { sent: Some(Success { .. }), .. })) => {
+            Outgoing(step @ Metadata { sent: Some(Success { .. }), .. }) => {
                 let crypto = match step {
                     Metadata { crypto, .. } => Some(crypto),
                     _ => None,
@@ -107,7 +126,7 @@ impl<M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState
                     self.blacklist_peer(proposal.at, proposal.peer);
                 }
             }
-            Some(Outgoing(Ack { sent: Some(Success { .. }), crypto, .. })) => {
+            Outgoing(Ack { sent: Some(Success { .. }), crypto, .. }) => {
                 match proposal.message.as_ack_msg(crypto) {
                     Ok(AckMessage::Ack) => {
                         let result = pending_peers
@@ -125,44 +144,7 @@ impl<M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState
                     Err(_) => self.blacklist_peer(proposal.at, proposal.peer),
                 }
             }
-            Some(Incoming(step @ Initiated { .. })) => {
-                let pow_check_result = if proposal.message.binary_chunk().raw().len() < 60 {
-                    Err(PowError::CheckFailed)
-                } else {
-                    Ok(&proposal.message.binary_chunk().raw()[4..60])
-                }.map(|pow_bytes| check_proof_of_work(pow_bytes, pow_target));
-
-                if let Err(e) = pow_check_result {
-                    // TODO: check maybe this message is nack.
-                    eprintln!("blacklisting peer as identity check failed");
-                    self.blacklist_peer(proposal.at, proposal.peer);
-                } else if let Ok(conn_msg) = proposal.message.as_connection_msg() {
-                    let chosen_version_result = shell_compatibility_version
-                        .choose_compatible_version(conn_msg.version());
-                    match chosen_version_result{
-                        Ok(compatible_network_version) => {
-                            *step = Connect {
-                                sent: Some(Idle { at: proposal.at }),
-                                received: Some(conn_msg),
-                                sent_conn_msg: ConnectionMessage::try_new(
-                                    self.config.port,
-                                    &self.identity.public_key,
-                                    &self.identity.proof_of_work_stamp,
-                                    // TODO: this introduces non-determinism
-                                    Nonce::random(),
-                                    compatible_network_version,
-                                ).unwrap(),
-                            };
-                        }
-                        Err(motive) => {
-                            self.nack_peer_handshake(proposal.at, proposal.peer, motive);
-                        }
-                    }
-                } else {
-                    self.blacklist_peer(proposal.at, proposal.peer);
-                }
-            }
-            Some(Incoming(step @ Connect { sent: Some(Success { .. }), .. })) => {
+            Incoming(step @ Connect { sent: Some(Success { .. }), .. }) => {
                 let (conn_msg, sent_conn_msg) = match step {
                     Connect { sent_conn_msg, received, .. } => {
                         if let None = received {
@@ -195,7 +177,7 @@ impl<M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState
                     self.blacklist_peer(proposal.at, proposal.peer);
                 }
             }
-            Some(Incoming(step @ Metadata { sent: Some(Success { .. }), .. })) => {
+            Incoming(step @ Metadata { sent: Some(Success { .. }), .. }) => {
                 let crypto = match step {
                     Metadata { crypto, .. } => Some(crypto),
                     _ => None,
@@ -223,13 +205,6 @@ impl<M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState
                     Ok(AckMessage::Nack(_)) => self.blacklist_peer(proposal.at, proposal.peer),
                     Err(_) => self.blacklist_peer(proposal.at, proposal.peer),
                 }
-            }
-            None => {
-                // Receiving any message from a peer that is not in pending peers
-                // is impossible. When new peer opens connection with us,
-                // we add new pending peer with `Initiated` state. So this
-                // can only happen if outside world is out of sync with TezedgeState.
-                eprintln!("WARNING: received message proposal from an unknown peer. Should be impossible!");
             }
             _ => {
                 self.blacklist_peer(proposal.at, proposal.peer);
