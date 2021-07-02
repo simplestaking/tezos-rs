@@ -92,6 +92,10 @@ impl<'a, W> Acceptor<PeerWritableProposal<'a, W>> for TezedgeState
                         }
                     };
                 }
+            } else {
+                // we received event for a non existant peer, probably
+                // mio's view about connected peers is out of sync.
+                self.disconnect_peer(proposal.at, proposal.peer);
             }
         }
 

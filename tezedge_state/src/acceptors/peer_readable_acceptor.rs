@@ -58,6 +58,10 @@ impl<'a, R> Acceptor<PeerReadableProposal<'a, R>> for TezedgeState
                     });
                     self.accept(proposal);
                 }
+            } else {
+                // we received event for a non existant peer, probably
+                // mio's view about connected peers is out of sync.
+                self.disconnect_peer(proposal.at, proposal.peer);
             }
         }
 
