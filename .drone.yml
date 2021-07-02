@@ -5713,7 +5713,6 @@ steps:
         '
       - echo "Bootstrapped. Killind the node and waiting for 10 seconds."
       - kill -INT $(cat /var/run/tezedge.pid) && sleep 10
-      - ms_print new-node.massif.out | awk -f /tools/massif.awk
 
   - name: tezedge-old-node
     image: tezedge/tezedge-ci-builder
@@ -5725,7 +5724,8 @@ steps:
         path: /tools
     commands:
       - OCTEZ_IP=$(perl -e 'use Socket; my $a = gethostbyname("octez-node"); print inet_ntoa($a)')
-      - git reset --hard origin/${DRONE_TARGET_BRANCH} && git clean -df
+      - git reset --hard origin/${DRONE_TARGET_BRANCH}
+      - rm -rf ./tezos-node-data ./light-node-data
       # use alloc instead of jemalloc
       - awk '/allocator/ { print "//" $0; next } /.*/ { print }' light_node/src/main.rs > /tmp/main.rs && mv /tmp/main.rs light_node/src/main.rs
       - cargo clean && cargo build --package light-node --package protocol-runner
@@ -5755,7 +5755,31 @@ steps:
         '
       - echo "Bootstrapped. Killind the node and waiting for 10 seconds."
       - kill -INT $(cat /var/run/tezedge.pid) && sleep 10
-      - ms_print old-node.massif.out | awk -f /tools/massif.awk
+    when:
+      ref:
+      - refs/pull/*/head
+
+  - name: report
+    image: busybox
+    volumes:
+      - name: tools
+        path: /tools
+    commands:
+      - ms_print new-node.massif.out | awk -f /tools/massif.awk
+    when:
+      ref:
+        exclude:
+          - refs/pull/*/head
+
+  - name: report-and-verify
+    image: busybox
+    volumes:
+      - name: tools
+        path: /tools
+    commands:
+      - ms_print old-node.massif.out > old-node.msr
+      - ms_print new-node.massif.out > new-node.msr
+      - awk -f /tools/massif.awk -v headers="New node, Old Node" new-node.msr old-node.msr
     when:
       ref:
       - refs/pull/*/head
