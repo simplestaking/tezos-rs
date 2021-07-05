@@ -1,8 +1,8 @@
 use tla_sm::Acceptor;
-use crate::TezedgeState;
+use crate::{TezedgeState, Effects};
 use crate::proposals::PeerBlacklistProposal;
 
-impl<E> Acceptor<PeerBlacklistProposal> for TezedgeState<E> {
+impl<E: Effects> Acceptor<PeerBlacklistProposal> for TezedgeState<E> {
     fn accept(&mut self, proposal: PeerBlacklistProposal) {
         if let Err(_err) = self.validate_proposal(&proposal) {
             #[cfg(test)]

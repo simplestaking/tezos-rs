@@ -3,10 +3,10 @@ use std::net::SocketAddr;
 use tla_sm::Acceptor;
 use tezos_messages::p2p::encoding::prelude::PeerMessage;
 
-use crate::{PendingRequest, PendingRequestState, RequestState, TezedgeState};
+use crate::{Effects, PendingRequest, PendingRequestState, RequestState, TezedgeState};
 use crate::proposals::{ExtendPotentialPeersProposal, PeerMessageProposal};
 
-impl<E> Acceptor<PeerMessageProposal> for TezedgeState<E> {
+impl<E: Effects> Acceptor<PeerMessageProposal> for TezedgeState<E> {
     fn accept(&mut self, mut proposal: PeerMessageProposal) {
         if let Err(_err) = self.validate_proposal(&proposal) {
             #[cfg(test)]

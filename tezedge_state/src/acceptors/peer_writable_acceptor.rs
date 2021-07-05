@@ -2,12 +2,13 @@ use std::io::Write;
 
 use tezos_messages::p2p::encoding::ack::{AckMessage, NackMotive};
 use tla_sm::Acceptor;
-use crate::{TezedgeState, P2pState, HandshakeMessageType};
+use crate::{TezedgeState, P2pState, Effects, HandshakeMessageType};
 use crate::proposals::PeerWritableProposal;
 use crate::chunking::WriteMessageError;
 
 impl<'a, E, W> Acceptor<PeerWritableProposal<'a, W>> for TezedgeState<E>
-    where W: Write,
+    where E: Effects,
+          W: Write,
 {
     fn accept(&mut self, proposal: PeerWritableProposal<W>) {
         if let Err(_err) = self.validate_proposal(&proposal) {

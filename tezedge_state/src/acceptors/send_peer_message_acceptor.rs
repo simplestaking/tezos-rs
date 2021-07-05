@@ -1,9 +1,9 @@
 use tla_sm::Acceptor;
 
-use crate::TezedgeState;
+use crate::{TezedgeState, Effects};
 use crate::proposals::SendPeerMessageProposal;
 
-impl<E> Acceptor<SendPeerMessageProposal> for TezedgeState<E> {
+impl<E: Effects> Acceptor<SendPeerMessageProposal> for TezedgeState<E> {
     fn accept(&mut self, mut proposal: SendPeerMessageProposal) {
         if let Err(_err) = self.validate_proposal(&proposal) {
             #[cfg(test)]

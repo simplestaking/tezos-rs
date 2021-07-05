@@ -9,7 +9,7 @@ use tezos_identity::Identity;
 use tezos_messages::p2p::encoding::ack::{NackInfo, NackMotive};
 use tezos_messages::p2p::encoding::prelude::MetadataMessage;
 
-use crate::{DefaultEffects, InvalidProposalError, PeerAddress, Port, ShellCompatibilityVersion};
+use crate::{DefaultEffects, Effects, InvalidProposalError, PeerAddress, Port, ShellCompatibilityVersion};
 use crate::peer_address::PeerListenerAddress;
 
 // mod peer_token;
@@ -260,6 +260,93 @@ impl<E> TezedgeState<E> {
         });
     }
 
+    pub(crate) fn check_blacklisted_peers(&mut self, at: Instant) {
+        let whitelist_peers = self.blacklisted_peers
+            .take_expired_blacklisted_peers(at, self.config.peer_blacklist_duration);
+
+        self.extend_potential_peers(
+            whitelist_peers.into_iter()
+                .filter_map(|(ip, port)| {
+                    port.map(|port| PeerListenerAddress::new(ip, port))
+                })
+        )
+    }
+
+    pub(crate) fn disconnect_peer(
+        &mut self,
+        at: Instant,
+        address: PeerAddress,
+    ) {
+        let pending_peer_addr = self.pending_peers_mut()
+            .and_then(|pending_peers| pending_peers.remove(&address))
+            .and_then(|peer| peer.listener_address());
+
+        let listener_addr = self.connected_peers.remove(&address)
+            .map(|peer| peer.listener_address())
+            .or(pending_peer_addr);
+
+        if let Some(addr) = listener_addr {
+            self.extend_potential_peers(std::iter::once(addr));
+        }
+
+        self.requests.insert(PendingRequestState {
+            request: PendingRequest::DisconnectPeer { peer: address },
+            status: RequestState::Idle { at },
+        });
+    }
+
+    pub(crate) fn blacklist_peer(
+        &mut self,
+        at: Instant,
+        address: PeerAddress,
+    ) {
+        let pending_peer_port = self.pending_peers_mut()
+            .and_then(|pending_peers| pending_peers.remove(&address))
+            .and_then(|peer| peer.listener_port());
+
+        let listener_port = self.connected_peers.remove(&address)
+            .map(|peer| peer.listener_port())
+            .or(pending_peer_port);
+
+        self.blacklisted_peers.insert_ip(address.ip(), BlacklistedPeer {
+            since: at,
+            port: listener_port,
+        });
+        // TODO: blacklist identity as well.
+
+        self.requests.insert(PendingRequestState {
+            request: PendingRequest::BlacklistPeer { peer: address },
+            status: RequestState::Idle { at },
+        });
+    }
+
+    pub(crate) fn nack_peer_handshake(
+        &mut self,
+        at: Instant,
+        peer: PeerAddress,
+        motive: NackMotive
+    ) {
+        if let Some(pending_peers) = self.pending_peers_mut() {
+            let entry = self.requests.vacant_entry();
+            // TODO: send nack
+            self.disconnect_peer(at, peer);
+        }
+    }
+
+    pub fn stats(&self) -> TezedgeStats {
+        TezedgeStats {
+            newest_time_seen: self.newest_time_seen,
+            last_periodic_react: self.last_periodic_react,
+            potential_peers_len: self.potential_peers.len(),
+            connected_peers_len: self.connected_peers.len(),
+            blacklisted_peers_len: self.blacklisted_peers.len(),
+            pending_peers_len: self.pending_peers_len(),
+            requests_len: self.requests.len(),
+        }
+    }
+}
+
+impl<E: Effects> TezedgeState<E> {
     pub(crate) fn adjust_p2p_state(&mut self, at: Instant) {
         use P2pState::*;
         let min_connected = self.config.min_connected_peers as usize;
@@ -442,18 +529,6 @@ impl<E> TezedgeState<E> {
         }
     }
 
-    pub(crate) fn check_blacklisted_peers(&mut self, at: Instant) {
-        let whitelist_peers = self.blacklisted_peers
-            .take_expired_blacklisted_peers(at, self.config.peer_blacklist_duration);
-
-        self.extend_potential_peers(
-            whitelist_peers.into_iter()
-                .filter_map(|(ip, port)| {
-                    port.map(|port| PeerListenerAddress::new(ip, port))
-                })
-        )
-    }
-
     pub(crate) fn initiate_handshakes(&mut self, at: Instant) {
         use P2pState::*;
         let requests = &mut self.requests;
@@ -468,10 +543,11 @@ impl<E> TezedgeState<E> {
                     max_pending - pending_peers.len(),
                 );
 
-                let peers = potential_peers.iter()
-                    .take(len)
-                    .cloned()
-                    .collect::<Vec<_>>();
+                let peers = self.effects.choose_peers_to_connect_to(
+                    potential_peers.iter(),
+                    potential_peers.len(),
+                    len,
+                );
 
                 for peer in peers {
                     potential_peers.remove(&peer);
@@ -500,79 +576,6 @@ impl<E> TezedgeState<E> {
             self.check_timeouts(at);
             self.check_blacklisted_peers(at);
             self.initiate_handshakes(at);
-        }
-    }
-
-    pub(crate) fn disconnect_peer(
-        &mut self,
-        at: Instant,
-        address: PeerAddress,
-    ) {
-        let pending_peer_addr = self.pending_peers_mut()
-            .and_then(|pending_peers| pending_peers.remove(&address))
-            .and_then(|peer| peer.listener_address());
-
-        let listener_addr = self.connected_peers.remove(&address)
-            .map(|peer| peer.listener_address())
-            .or(pending_peer_addr);
-
-        if let Some(addr) = listener_addr {
-            self.extend_potential_peers(std::iter::once(addr));
-        }
-
-        self.requests.insert(PendingRequestState {
-            request: PendingRequest::DisconnectPeer { peer: address },
-            status: RequestState::Idle { at },
-        });
-    }
-
-    pub(crate) fn blacklist_peer(
-        &mut self,
-        at: Instant,
-        address: PeerAddress,
-    ) {
-        let pending_peer_port = self.pending_peers_mut()
-            .and_then(|pending_peers| pending_peers.remove(&address))
-            .and_then(|peer| peer.listener_port());
-
-        let listener_port = self.connected_peers.remove(&address)
-            .map(|peer| peer.listener_port())
-            .or(pending_peer_port);
-
-        self.blacklisted_peers.insert_ip(address.ip(), BlacklistedPeer {
-            since: at,
-            port: listener_port,
-        });
-        // TODO: blacklist identity as well.
-
-        self.requests.insert(PendingRequestState {
-            request: PendingRequest::BlacklistPeer { peer: address },
-            status: RequestState::Idle { at },
-        });
-    }
-
-    pub(crate) fn nack_peer_handshake(
-        &mut self,
-        at: Instant,
-        peer: PeerAddress,
-        motive: NackMotive
-    ) {
-        if let Some(pending_peers) = self.pending_peers_mut() {
-            let entry = self.requests.vacant_entry();
-            // TODO: send nack
-            self.disconnect_peer(at, peer);
-        }
-    }
-
-    pub fn stats(&self) -> TezedgeStats {
-        TezedgeStats {
-            newest_time_seen: self.newest_time_seen,
-            last_periodic_react: self.last_periodic_react,
-            potential_peers_len: self.potential_peers.len(),
-            connected_peers_len: self.connected_peers.len(),
-            blacklisted_peers_len: self.blacklisted_peers.len(),
-            pending_peers_len: self.pending_peers_len(),
-            requests_len: self.requests.len(),
         }
     }
 }
