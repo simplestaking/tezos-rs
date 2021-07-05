@@ -1289,7 +1289,7 @@ pub mod tests {
 
             // register as incoming
             let PeerState { peer_id, .. } =
-                test_peer(&actor_system, network_channel.clone(), &tokio_runtime, 7777);
+                test_peer(&actor_system, network_channel.clone(), &tokio_runtime, 7777, &log);
             p2p_peers
                 .add_incoming_peer(peer_id.peer_ref.clone(), peer_id.peer_address)
                 .unwrap();
@@ -1309,7 +1309,7 @@ pub mod tests {
 
             // register as incoming
             let PeerState { peer_id, .. } =
-                test_peer(&actor_system, network_channel.clone(), &tokio_runtime, 7778);
+                test_peer(&actor_system, network_channel.clone(), &tokio_runtime, 7778, &log);
             p2p_peers
                 .add_incoming_peer(peer_id.peer_ref.clone(), peer_id.peer_address)
                 .unwrap();
@@ -1324,7 +1324,7 @@ pub mod tests {
 
         // register as outgoing
         let PeerState { peer_id, .. } =
-            test_peer(&actor_system, network_channel.clone(), &tokio_runtime, 7779);
+            test_peer(&actor_system, network_channel.clone(), &tokio_runtime, 7779, &log);
         p2p_peers
             .add_outgoing_peer(peer_id.peer_ref.clone(), peer_id.peer_address)
             .unwrap();

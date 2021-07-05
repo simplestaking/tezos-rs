@@ -1594,7 +1594,7 @@ mod tests {
         ));
 
         // peer1
-        let peer_id = test_peer(&sys, network_channel, &runtime, 1234).peer_id;
+        let peer_id = test_peer(&sys, network_channel, &runtime, 1234, &log).peer_id;
         let peer_queues = Arc::new(DataQueues::new(DataQueuesLimits {
             max_queued_block_headers_count: 10,
             max_queued_block_operations_count: 10,

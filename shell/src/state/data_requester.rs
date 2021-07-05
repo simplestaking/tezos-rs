@@ -573,7 +573,7 @@ mod tests {
         let shell_channel =
             ShellChannel::actor(&actor_system).expect("Failed to create network channel");
         let storage = TmpStorage::create_to_out_dir("__test_requester_fetch_and_receive_block")?;
-        let mut peer1 = test_peer(&actor_system, network_channel, &tokio_runtime, 7777);
+        let mut peer1 = test_peer(&actor_system, network_channel, &tokio_runtime, 7777, &log);
         let (chain_feeder_mock, _) =
             chain_feeder_mock(&actor_system, "mocked_chain_feeder", shell_channel)?;
 
@@ -647,7 +647,7 @@ mod tests {
             ShellChannel::actor(&actor_system).expect("Failed to create network channel");
         let storage =
             TmpStorage::create_to_out_dir("__test_requester_fetch_and_receive_block_operations")?;
-        let mut peer1 = test_peer(&actor_system, network_channel, &tokio_runtime, 7777);
+        let mut peer1 = test_peer(&actor_system, network_channel, &tokio_runtime, 7777, &log);
         let (chain_feeder_mock, _) =
             chain_feeder_mock(&actor_system, "mocked_chain_feeder", shell_channel)?;
 
