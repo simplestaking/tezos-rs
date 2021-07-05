@@ -211,7 +211,47 @@ struct Network {
 const THROTTLING_QUOTA_NUM: usize = 18;
 
 // TODO: use individual per-message values
-const THROTTLING_QUOTA_MAX: [usize; THROTTLING_QUOTA_NUM] = [200; THROTTLING_QUOTA_NUM];
+const THROTTLING_QUOTA_MAX: [usize; THROTTLING_QUOTA_NUM] = [
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    2000,
+];
+
+const THROTTLING_QUOTA_INC: [usize; THROTTLING_QUOTA_NUM] = [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    100,
+    100,
+    1,
+    1,
+    1,
+    1,
+    100,
+    300,
+];
 
 struct ThrottleQuota {
     quotas: [usize; THROTTLING_QUOTA_NUM],
@@ -299,10 +339,10 @@ impl ThrottleQuota {
         for index in 0..THROTTLING_QUOTA_NUM {
             if self.quotas[index] < THROTTLING_QUOTA_MAX[index] {
                 debug!(self.log, "Increasing quota {} for {}", self.quotas[index], Self::index_to_str(index));
-                self.quotas[index] += 1;
+                self.quotas[index] = std::cmp::min(self.quotas[index] + THROTTLING_QUOTA_INC[index], THROTTLING_QUOTA_MAX[index]);
             } else if self.quotas[index] > THROTTLING_QUOTA_MAX[index] {
                 debug!(self.log, "Decreasing quota {} for {}", self.quotas[index], Self::index_to_str(index));
-                self.quotas[index] -= 1;
+                self.quotas[index] = std::cmp::max(self.quotas[index] - THROTTLING_QUOTA_INC[index], THROTTLING_QUOTA_MAX[index]);
             }
         }
     }
@@ -335,11 +375,11 @@ impl Peer {
         network_channel: NetworkChannelRef,
         tokio_executor: Handle,
         info: BootstrapOutput,
-        log: Logger,
+        log: &Logger,
     ) -> Result<PeerRef, CreateError> {
         sys.actor_of_props(
             peer_actor_name,
-            Props::new_args::<Peer, _>((network_channel, tokio_executor, info, log)),
+            Props::new_args::<Peer, _>((network_channel, tokio_executor, info, log.clone())),
         )
     }
 }
@@ -860,7 +900,7 @@ mod tests {
                         NetworkVersion::new("".to_owned(), 0, 0),
                         "127.0.0.1:9732".parse().unwrap(),
                     ),
-                    log,
+                    &log,
         ).expect("Cannot create a test actor")
     }
 
