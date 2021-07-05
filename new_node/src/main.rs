@@ -1,6 +1,9 @@
 use std::iter::FromIterator;
 use std::time::{Duration, Instant};
+use std::sync::Arc;
 use std::collections::HashSet;
+use slog::Drain;
+
 use tezedge_state::ShellCompatibilityVersion;
 use tezos_messages::p2p::encoding::peer::PeerMessage;
 use tla_sm::Acceptor;
@@ -42,6 +45,21 @@ fn identity_1() -> Identity {
 
 const SERVER_PORT: u16 = 13632;
 
+fn logger(level: slog::Level) -> slog::Logger {
+    let drain = Arc::new(
+        slog_async::Async::new(
+            slog_term::FullFormat::new(slog_term::TermDecorator::new().build())
+                .build()
+                .fuse()
+        )
+        .chan_size(32768)
+        .overflow_strategy(slog_async::OverflowStrategy::Block)
+        .build()
+    );
+
+    slog::Logger::root(drain.filter_level(level).fuse(), slog::o!())
+}
+
 fn build_tezedge_state() -> TezedgeState {
     // println!("generating identity...");
     // let node_identity = Identity::generate(ProofOfWork::DEFAULT_TARGET).unwrap();
@@ -52,6 +70,7 @@ fn build_tezedge_state() -> TezedgeState {
 
     // println!("identity generated!");
     let mut tezedge_state = TezedgeState::new(
+        logger(slog::Level::Trace),
         TezedgeConfig {
             port: SERVER_PORT,
             disable_mempool: true,

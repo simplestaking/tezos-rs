@@ -68,6 +68,7 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                     }
                     Err(HandleReceivedConnMessageError::BadHandshakeMessage(error)) => {
                         warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Unexpected handshake message", "error" => format!("{:?}", error));
+                        debug!(&self.log, ""; "peer_state" => format!("{:?}", &pending_peer));
                         self.blacklist_peer(proposal.at, proposal.peer);
                     }
                     Err(HandleReceivedConnMessageError::Nack(motive)) => {
@@ -76,7 +77,7 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                     }
                     Err(HandleReceivedConnMessageError::UnexpectedState) => {
                         warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Unexpected state!");
-                        trace!(&self.log, "Trace"; "peer_state" => format!("{:?}", &pending_peer));
+                        debug!(&self.log, ""; "peer_state" => format!("{:?}", &pending_peer));
                         self.blacklist_peer(proposal.at, proposal.peer);
                     }
                     Ok(pub_key) => {
@@ -211,6 +212,8 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                 }
             }
             _ => {
+                warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Unexpected state!");
+                debug!(&self.log, ""; "peer_state" => format!("{:?}", &pending_peer));
                 self.blacklist_peer(proposal.at, proposal.peer);
             }
         }
