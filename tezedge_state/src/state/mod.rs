@@ -395,44 +395,31 @@ impl<E> TezedgeState<E> {
             | ReadyFull { pending_peers }
             | Pending { pending_peers }
             | PendingFull { pending_peers } => {
-                use Handshake::*;
                 use HandshakeStep::*;
                 use RequestState::*;
 
                 let end_handshakes = pending_peers.iter_mut()
                     .filter_map(|(_, peer)| {
+                        let incoming = peer.incoming;
 
-                        match &mut peer.handshake {
-                            Outgoing(Initiated { at })
-                            | Incoming(Connect { sent: Some(Idle { at, .. }), .. })
-                            | Incoming(Connect { sent: Some(Pending { at, .. }), .. })
-                            | Incoming(Metadata { sent: Some(Idle { at, .. }), .. })
-                            | Incoming(Metadata { sent: Some(Pending { at, .. }), .. })
-                            | Incoming(Ack { sent: Some(Idle { at, .. }), .. })
-                            | Incoming(Ack { sent: Some(Pending { at, .. }), .. })
-                            | Outgoing(Connect { sent: Some(Idle { at, .. }), .. })
-                            | Outgoing(Connect { sent: Some(Pending { at, .. }), .. })
-                            | Outgoing(Metadata { sent: Some(Idle { at, .. }), .. })
-                            | Outgoing(Metadata { sent: Some(Pending { at, .. }), .. })
-                            | Outgoing(Ack { sent: Some(Idle { at, .. }), .. })
-                            | Outgoing(Ack { sent: Some(Pending { at, .. }), .. })
+                        match &mut peer.step {
+                            // send or receive timed out based on `peer.incoming`
+                            Initiated { at }
+
+                            // send timed out
+                            | Connect { sent: Idle { at, .. }, .. }
+                            | Connect { sent: Pending { at, .. }, .. }
+                            | Metadata { sent: Idle { at, .. }, .. }
+                            | Metadata { sent: Pending { at, .. }, .. }
+                            | Ack { sent: Idle { at, .. }, .. }
+                            | Ack { sent: Pending { at, .. }, .. }
+
+                            // receive timed out
+                            | Connect { sent: Success { at, .. }, .. }
+                            | Metadata { sent: Success { at, .. }, .. }
+                            | Ack { sent: Success { at, .. }, .. }
                             => {
                                 if now.duration_since(*at) >= peer_timeout {
-                                    // sending timed out
-                                    Some(peer.address.clone())
-                                } else {
-                                    None
-                                }
-                            }
-                            Incoming(Initiated { at })
-                            | Incoming(Connect { sent: Some(Success { at, .. }), .. })
-                            | Incoming(Metadata { sent: Some(Success { at, .. }), .. })
-                            | Outgoing(Connect { received: None, sent: Some(Success { at, .. }), .. })
-                            | Outgoing(Metadata { received: None, sent: Some(Success { at, .. }), .. })
-                            | Outgoing(Ack { received: false, sent: Some(Success { at, .. }), .. })
-                            => {
-                                if now.duration_since(*at) >= peer_timeout {
-                                    // receiving timed out
                                     Some(peer.address.clone())
                                 } else {
                                     None
@@ -488,9 +475,11 @@ impl<E> TezedgeState<E> {
 
                 for peer in peers {
                     potential_peers.remove(&peer);
-                    pending_peers.insert(PendingPeer::new(peer.into(), Handshake::Outgoing(
+                    pending_peers.insert(PendingPeer::new(
+                        peer.into(),
+                        false,
                         HandshakeStep::Initiated { at },
-                    )));
+                    ));
                     requests.insert(PendingRequestState {
                         status: RequestState::Idle { at },
                         request: PendingRequest::ConnectPeer { peer: peer.into() },

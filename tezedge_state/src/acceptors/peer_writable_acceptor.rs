@@ -1,10 +1,10 @@
-use std::io::{self, Write};
+use std::io::Write;
 
-use tezos_messages::p2p::encoding::ack::AckMessage;
-use tla_sm::{Proposal, Acceptor};
-use crate::{TezedgeState, HandshakeMessageType, Handshake, HandshakeStep, RequestState};
+use tezos_messages::p2p::encoding::ack::{AckMessage, NackMotive};
+use tla_sm::Acceptor;
+use crate::{TezedgeState, P2pState, HandshakeMessageType};
 use crate::proposals::PeerWritableProposal;
-use crate::chunking::{ChunkWriter, WriteMessageError};
+use crate::chunking::WriteMessageError;
 
 impl<'a, E, W> Acceptor<PeerWritableProposal<'a, W>> for TezedgeState<E>
     where W: Write,
@@ -32,25 +32,35 @@ impl<'a, E, W> Acceptor<PeerWritableProposal<'a, W>> for TezedgeState<E>
             }
         } else {
             let meta_msg = self.meta_msg();
-            let peer = self.pending_peers_mut().and_then(|peers| peers.get_mut(&proposal.peer));
+            let pending_peers = match &mut self.p2p_state {
+                P2pState::ReadyMaxed => {
+                    self.nack_peer_handshake(proposal.at, proposal.peer, NackMotive::TooManyConnections);
+                    return self.periodic_react(time);
+                }
+                P2pState::Pending { pending_peers }
+                | P2pState::PendingFull { pending_peers }
+                | P2pState::Ready { pending_peers }
+                | P2pState::ReadyFull { pending_peers } => pending_peers,
+            };
+            let peer = pending_peers.get_mut(&proposal.peer);
             if let Some(peer) = peer {
                 loop {
                     match peer.write_to(proposal.stream) {
                         Ok(msg_type) => {
                             match msg_type {
                                 HandshakeMessageType::Connection => {
-                                    peer.send_conn_msg_successful(proposal.at);
+                                    peer.send_conn_msg_successful(proposal.at, &self.identity);
                                 }
                                 HandshakeMessageType::Metadata => {
                                     peer.send_meta_msg_successful(proposal.at);
                                 }
                                 HandshakeMessageType::Ack => {
                                     peer.send_ack_msg_successful(proposal.at);
-                                    if peer.handshake.is_finished() {
+                                    if peer.is_handshake_finished() {
                                         let peer = self.pending_peers_mut().unwrap()
                                             .remove(&proposal.peer)
                                             .unwrap();
-                                        let result = peer.handshake.to_result().unwrap();
+                                        let result = peer.to_handshake_result().unwrap();
                                         self.set_peer_connected(proposal.at, proposal.peer, result);
                                         return self.accept(proposal);
                                     }

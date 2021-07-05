@@ -22,21 +22,41 @@ use crate::{Effects, PeerAddress, PeerCrypto, Port, ShellCompatibilityVersion, T
 use crate::state::{NotMatchingAddress, RequestState};
 use crate::chunking::{HandshakeReadBuffer, ChunkWriter, EncryptedMessageWriter, WriteMessageError};
 
+#[derive(Clone)]
+pub struct ConnectionMessageEncodingCached {
+    decoded: ConnectionMessage,
+    encoded: BinaryChunk,
+}
+
+impl ConnectionMessageEncodingCached {
+    pub fn decoded(&self) -> &ConnectionMessage {
+        &self.decoded
+    }
+}
+
+impl Debug for ConnectionMessageEncodingCached {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConnectionMessageEncodingCached")
+            .field("decoded", &self.decoded)
+            .finish()
+    }
+}
+
 #[derive(Debug)]
-pub enum HandleReceivedConnMessageError {
+pub enum HandleReceivedMessageError {
     UnexpectedState,
     BadPow,
     BadHandshakeMessage(PeerHandshakeMessageError),
     Nack(NackMotive)
 }
 
-impl From<PeerHandshakeMessageError> for HandleReceivedConnMessageError {
+impl From<PeerHandshakeMessageError> for HandleReceivedMessageError {
     fn from(err: PeerHandshakeMessageError) -> Self {
         Self::BadHandshakeMessage(err)
     }
 }
 
-impl From<NackMotive> for HandleReceivedConnMessageError {
+impl From<NackMotive> for HandleReceivedMessageError {
     fn from(motive: NackMotive) -> Self {
         Self::Nack(motive)
     }
@@ -49,76 +69,91 @@ pub enum HandshakeMessageType {
     Ack,
 }
 
-#[derive(Debug, Clone)]
-pub enum Handshake {
-    Incoming(HandshakeStep),
-    Outgoing(HandshakeStep),
-}
-
 pub struct HandshakeResult {
     pub conn_msg: ConnectionMessage,
     pub meta_msg: MetadataMessage,
     pub crypto: PeerCrypto,
 }
 
-impl Handshake {
-    pub fn is_finished(&self) -> bool {
-        match self {
-            Self::Incoming(step) => step.is_finished(),
-            Self::Outgoing(step) => step.is_finished(),
-        }
-    }
-
-    pub fn crypto(&mut self) -> Option<&mut PeerCrypto> {
-        match self {
-            Self::Incoming(step) => step.crypto(),
-            Self::Outgoing(step) => step.crypto(),
-        }
-    }
-
-    pub fn step(&self) -> &HandshakeStep {
-        match self {
-            Self::Incoming(step) => step,
-            Self::Outgoing(step) => step,
-        }
-    }
-
-    pub fn step_mut(&mut self) -> &mut HandshakeStep {
-        match self {
-            Self::Incoming(step) => step,
-            Self::Outgoing(step) => step,
-        }
-    }
-
-    pub fn to_result(self) -> Option<HandshakeResult> {
-        match self {
-            Self::Incoming(step) => step.to_result(),
-            Self::Outgoing(step) => step.to_result(),
-        }
-    }
-}
 
 #[derive(Clone)]
 pub enum HandshakeStep {
     Initiated { at: Instant },
     Connect {
-        sent: Option<RequestState>,
-        received: Option<ConnectionMessage>,
+        sent: RequestState,
+        received: Option<ConnectionMessageEncodingCached>,
         sent_conn_msg: ConnectionMessage,
     },
     Metadata {
         conn_msg: ConnectionMessage,
         crypto: PeerCrypto,
-        sent: Option<RequestState>,
+        sent: RequestState,
         received: Option<MetadataMessage>,
     },
     Ack {
         conn_msg: ConnectionMessage,
         meta_msg: MetadataMessage,
         crypto: PeerCrypto,
-        sent: Option<RequestState>,
+        sent: RequestState,
         received: bool,
     },
+}
+
+impl HandshakeStep {
+    pub fn is_finished(&self) -> bool {
+        use RequestState::*;
+        matches!(
+            self,
+            Self::Ack { sent: Success { .. }, received: true, .. }
+        )
+    }
+
+    pub fn public_key(&self) -> Option<&[u8]> {
+        match self {
+            Self::Connect { received: Some(conn_msg), .. } => {
+                Some(conn_msg.decoded().public_key())
+            }
+            Self::Metadata { conn_msg, .. }
+            | Self::Ack { conn_msg, .. } => {
+                Some(conn_msg.public_key())
+            }
+            _ => None,
+        }
+    }
+
+    pub fn crypto(&mut self) -> Option<&mut PeerCrypto> {
+        match self {
+            Self::Connect { .. }
+            | Self::Initiated { .. } => None,
+            Self::Metadata { crypto, .. }
+            | Self::Ack { crypto, .. } => Some(crypto),
+        }
+    }
+
+    /// Port on which peer is listening.
+    pub fn listener_port(&self) -> Option<Port> {
+        match self {
+            Self::Initiated { .. } => None,
+            Self::Connect { received, .. } => received.as_ref().map(|x| x.decoded.port),
+            Self::Metadata { conn_msg, .. } => Some(conn_msg.port),
+            Self::Ack { conn_msg, .. } => Some(conn_msg.port),
+        }
+    }
+
+    pub fn to_result(self) -> Option<HandshakeResult> {
+        use RequestState::*;
+
+        match self {
+            Self::Ack {
+                sent: Success { .. },
+                received: true,
+                conn_msg, meta_msg, crypto, ..
+            } => {
+                Some(HandshakeResult { conn_msg, meta_msg, crypto })
+            }
+            _ => None,
+        }
+    }
 }
 
 impl Debug for HandshakeStep {
@@ -151,49 +186,23 @@ impl Debug for HandshakeStep {
     }
 }
 
-impl HandshakeStep {
-    pub fn is_finished(&self) -> bool {
-        use RequestState::*;
-        matches!(
-            self,
-            Self::Ack { sent: Some(Success { .. }), received: true, .. }
-        )
-    }
-
-    pub fn crypto(&mut self) -> Option<&mut PeerCrypto> {
-        match self {
-            Self::Connect { .. }
-            | Self::Initiated { .. } => None,
-            Self::Metadata { crypto, .. }
-            | Self::Ack { crypto, .. } => Some(crypto),
-        }
-    }
-
-    pub fn to_result(self) -> Option<HandshakeResult> {
-        match self {
-            Self::Ack { conn_msg, meta_msg, crypto, .. } =>
-            {
-                Some(HandshakeResult { conn_msg, meta_msg, crypto })
-            }
-            _ => None,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct PendingPeer {
     pub address: PeerAddress,
-    pub handshake: Handshake,
+    pub incoming: bool,
+    /// Handshake step.
+    pub step: HandshakeStep,
     pub read_buf: HandshakeReadBuffer,
     conn_msg_writer: Option<ChunkWriter>,
     msg_writer: Option<(HandshakeMessageType, EncryptedMessageWriter)>,
 }
 
 impl PendingPeer {
-    pub(crate) fn new(address: PeerAddress, handshake: Handshake) -> Self {
+    pub(crate) fn new(address: PeerAddress, incoming: bool, step: HandshakeStep) -> Self {
         Self {
             address,
-            handshake,
+            incoming,
+            step,
             read_buf: HandshakeReadBuffer::new(),
             conn_msg_writer: None,
             msg_writer: None,
@@ -202,16 +211,11 @@ impl PendingPeer {
 
     /// Port on which peer is listening.
     pub fn listener_port(&self) -> Option<Port> {
-        use Handshake::*;
-        use HandshakeStep::*;
-
-        match &self.handshake {
-            // if it's outgoing connection, then the port is correct.
-            Outgoing(_) => Some(self.address.port()),
-            Incoming(Initiated { .. }) => None,
-            Incoming(Connect { received, .. }) => received.as_ref().map(|x| x.port),
-            Incoming(Metadata { conn_msg, .. }) => Some(conn_msg.port),
-            Incoming(Ack { conn_msg, .. }) => Some(conn_msg.port),
+        if !self.incoming {
+            // if it's outgoing connection, then the port is listener port.
+            Some(self.address.port())
+        } else {
+            self.step.listener_port()
         }
     }
 
@@ -219,6 +223,71 @@ impl PendingPeer {
         self.listener_port()
             .map(|port| PeerListenerAddress::new(self.address.ip(), port))
     }
+
+    pub fn public_key(&self) -> Option<&[u8]> {
+        self.step.public_key()
+    }
+
+    /// Advance to the `Metadata` step if current step is finished.
+    fn advance_to_metadata(&mut self, at: Instant, node_identity: &Identity) -> bool {
+        use HandshakeStep::*;
+        use RequestState::*;
+
+        match &self.step {
+            Connect {
+                sent: Success { .. },
+                received: Some(conn_msg),
+                sent_conn_msg,
+            } => {
+                let public_key = PublicKey::from_bytes(conn_msg.decoded.public_key()).unwrap();
+                let nonce_pair = generate_nonces(
+                    &BinaryChunk::from_content(&sent_conn_msg.as_bytes().unwrap()).unwrap().raw(),
+                    conn_msg.encoded.raw(),
+                    self.incoming,
+                ).unwrap();
+
+                let precomputed_key = PrecomputedKey::precompute(
+                    &public_key,
+                    &node_identity.secret_key,
+                );
+
+                let crypto = PeerCrypto::new(precomputed_key, nonce_pair);
+                self.step = Metadata {
+                    crypto,
+                    conn_msg: conn_msg.decoded.clone(),
+                    sent: Idle { at },
+                    received: None,
+                };
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn advance_to_ack(&mut self, at: Instant) -> bool {
+        use HandshakeStep::*;
+        use RequestState::*;
+
+        match &self.step {
+            Metadata {
+                sent: Success { .. },
+                received: Some(meta_msg),
+                conn_msg,
+                crypto,
+            } => {
+                self.step = Ack {
+                    conn_msg: conn_msg.clone(),
+                    meta_msg: meta_msg.clone(),
+                    crypto: crypto.clone(),
+                    sent: Idle { at },
+                    received: false,
+                };
+                true
+            }
+            _ => false,
+        }
+    }
+
 
     #[inline]
     pub fn read_message_from<R: Read>(&mut self, reader: &mut R) -> Result<(), io::Error> {
@@ -236,13 +305,11 @@ impl PendingPeer {
     ///
     /// - `Err(error)`: if error ocurred when encoding the message.
     pub fn enqueue_send_conn_msg(&mut self, at: Instant) -> Result<bool, WriteMessageError> {
-        use Handshake::*;
         use HandshakeStep::*;
         use RequestState::*;
 
-        match &mut self.handshake {
-            Incoming(Connect { sent: Some(req_state @ Idle { .. }), received: Some(_), sent_conn_msg })
-            | Outgoing(Connect { sent: Some(req_state @ Idle { .. }), sent_conn_msg, .. }) => {
+        match &mut self.step {
+            Connect { sent: req_state @ Idle { .. }, sent_conn_msg, .. } => {
                 self.conn_msg_writer = Some(ChunkWriter::new(
                     BinaryChunk::from_content(
                         &sent_conn_msg.as_bytes()?,
@@ -266,13 +333,11 @@ impl PendingPeer {
     ///
     /// - `Err(error)`: if error ocurred when encoding the message.
     pub fn enqueue_send_meta_msg(&mut self, at: Instant, meta_msg: MetadataMessage) -> Result<bool, WriteMessageError> {
-        use Handshake::*;
         use HandshakeStep::*;
         use RequestState::*;
 
-        match &mut self.handshake {
-            Incoming(Metadata { sent: Some(req_state @ Idle { .. }), received: Some(_), .. })
-            | Outgoing(Metadata { sent: Some(req_state @ Idle { .. }), .. }) => {
+        match &mut self.step {
+            Metadata { sent: req_state @ Idle { .. }, .. } => {
                 self.msg_writer = Some((
                     HandshakeMessageType::Metadata,
                     EncryptedMessageWriter::try_new(&meta_msg)?,
@@ -295,13 +360,11 @@ impl PendingPeer {
     ///
     /// - `Err(error)`: if error ocurred when encoding the message.
     pub fn enqueue_send_ack_msg(&mut self, at: Instant, ack_msg: AckMessage) -> Result<bool, WriteMessageError> {
-        use Handshake::*;
         use HandshakeStep::*;
         use RequestState::*;
 
-        match &mut self.handshake {
-            Incoming(Ack { sent: Some(req_state @ Idle { .. }), received: true, .. })
-            | Outgoing(Ack { sent: Some(req_state @ Idle { .. }), .. }) => {
+        match &mut self.step {
+            Ack { sent: req_state @ Idle { .. }, .. } => {
                 self.msg_writer = Some((
                     HandshakeMessageType::Ack,
                     EncryptedMessageWriter::try_new(&ack_msg)?,
@@ -313,15 +376,14 @@ impl PendingPeer {
         }
     }
 
-    pub fn send_conn_msg_successful(&mut self, at: Instant) -> bool {
-        use Handshake::*;
+    pub fn send_conn_msg_successful(&mut self, at: Instant, node_identity: &Identity) -> bool {
         use HandshakeStep::*;
         use RequestState::*;
 
-        match &mut self.handshake {
-            Incoming(Connect { sent: Some(req_state @ Pending { .. }), received: Some(_), sent_conn_msg })
-            | Outgoing(Connect { sent: Some(req_state @ Pending { .. }), sent_conn_msg, .. }) => {
+        match &mut self.step {
+            Connect { sent: req_state @ Pending { .. }, sent_conn_msg, .. } => {
                 *req_state = Success { at };
+                self.advance_to_metadata(at, node_identity);
                 self.conn_msg_writer = None;
                 true
             }
@@ -330,14 +392,13 @@ impl PendingPeer {
     }
 
     pub fn send_meta_msg_successful(&mut self, at: Instant) -> bool {
-        use Handshake::*;
         use HandshakeStep::*;
         use RequestState::*;
 
-        match &mut self.handshake {
-            Incoming(Metadata { sent: Some(req_state @ Pending { .. }), received: Some(_), .. })
-            | Outgoing(Metadata { sent: Some(req_state @ Pending { .. }), .. }) => {
+        match &mut self.step {
+            Metadata { sent: req_state @ Pending { .. }, .. } => {
                 *req_state = Success { at };
+                self.advance_to_ack(at);
                 self.msg_writer = None;
                 true
             }
@@ -346,15 +407,14 @@ impl PendingPeer {
     }
 
     pub fn send_ack_msg_successful(&mut self, at: Instant) -> bool {
-        use Handshake::*;
         use HandshakeStep::*;
         use RequestState::*;
 
-        match &mut self.handshake {
-            Incoming(Ack { sent: Some(req_state @ Pending { .. }), received: true, .. })
-            | Outgoing(Ack { sent: Some(req_state @ Pending { .. }), .. }) => {
+        match &mut self.step {
+            Ack { sent: req_state @ Pending { .. }, .. } => {
                 *req_state = Success { at };
                 self.msg_writer = None;
+
                 true
             }
             _ => false,
@@ -373,7 +433,7 @@ impl PendingPeer {
         } else if let Some((msg_type, msg_writer)) = self.msg_writer.as_mut() {
             let msg_type = *msg_type;
 
-            let crypto = match self.handshake.crypto() {
+            let crypto = match self.step.crypto() {
                 Some(crypto) => crypto,
                 None => {
                     #[cfg(test)]
@@ -409,69 +469,106 @@ impl PendingPeer {
         effects: &mut E,
         at: Instant,
         mut message: M,
-    ) -> Result<PublicKey, HandleReceivedConnMessageError>
+    ) -> Result<PublicKey, HandleReceivedMessageError>
         where E: Effects,
               M: PeerHandshakeMessage,
     {
-        use Handshake::*;
         use HandshakeStep::*;
         use RequestState::*;
 
         if let Err(e) = Self::check_proof_of_work(config.pow_target, message.binary_chunk().content()){
             // TODO: check maybe this message is nack.
-            return Err(HandleReceivedConnMessageError::BadPow);
+            return Err(HandleReceivedMessageError::BadPow);
         }
         let conn_msg = message.as_connection_msg()?;
+
+        if node_identity.public_key.as_ref().as_ref() == conn_msg.public_key() {
+            return Err(NackMotive::AlreadyConnected.into());
+        }
+        let compatible_network_version = shell_compatibility_version
+            .choose_compatible_version(conn_msg.version())?;
+
         let public_key = PublicKey::from_bytes(conn_msg.public_key()).unwrap();
 
-        match &self.handshake {
-            Outgoing(Connect { sent_conn_msg, sent: Some(Success { .. }), .. }) => {
-
-                if node_identity.public_key == public_key {
-                    return Err(NackMotive::AlreadyConnected.into());
-                }
-                let nonce_pair = generate_nonces(
-                    &BinaryChunk::from_content(&sent_conn_msg.as_bytes().unwrap()).unwrap().raw(),
-                    message.take_binary_chunk().raw(),
-                    false,
-                ).unwrap();
-
-                let precomputed_key = PrecomputedKey::precompute(
-                    &public_key,
-                    &node_identity.secret_key,
-                );
-
-                let crypto = PeerCrypto::new(precomputed_key, nonce_pair);
-                *self.handshake.step_mut() = Metadata {
-                    conn_msg,
-                    crypto,
-                    sent: Some(Idle { at }),
-                    received: None,
+        match &mut self.step {
+            Initiated { .. } => {
+                let conn_msg = ConnectionMessageEncodingCached {
+                    decoded: conn_msg,
+                    encoded: message.take_binary_chunk(),
                 };
-            }
-            Incoming(Initiated { .. }) => {
-                let compatible_network_version = shell_compatibility_version
-                    .choose_compatible_version(conn_msg.version())?;
-                *self.handshake.step_mut() = Connect {
-                    sent: Some(Idle { at }),
+                self.step = Connect {
+                    sent: Idle { at },
                     received: Some(conn_msg),
                     sent_conn_msg: ConnectionMessage::try_new(
                         config.port,
                         &node_identity.public_key,
                         &node_identity.proof_of_work_stamp,
                         effects.get_nonce(&self.address),
-                        compatible_network_version,
+                        shell_compatibility_version.to_network_version(),
                     ).unwrap(),
                 };
             }
-            _ => return Err(HandleReceivedConnMessageError::UnexpectedState),
+            Connect { received, .. } => {
+                *received = Some(ConnectionMessageEncodingCached {
+                    decoded: conn_msg,
+                    encoded: message.take_binary_chunk(),
+                });
+                self.advance_to_metadata(at, node_identity);
+            }
+            _ => return Err(HandleReceivedMessageError::UnexpectedState),
         }
 
         Ok(public_key)
     }
 
-    pub fn to_result(self) -> Option<HandshakeResult> {
-        self.handshake.to_result()
+    pub fn handle_received_meta_message<M>(
+        &mut self,
+        at: Instant,
+        mut message: M,
+    ) -> Result<(), HandleReceivedMessageError>
+        where M: PeerHandshakeMessage,
+    {
+        use HandshakeStep::*;
+
+        match &mut self.step {
+            Metadata { received, crypto, .. } => {
+                let meta_msg = message.as_metadata_msg(crypto)?;
+                *received = Some(meta_msg);
+                self.advance_to_ack(at);
+                Ok(())
+            }
+            _ => return Err(HandleReceivedMessageError::UnexpectedState),
+
+        }
+    }
+
+    pub fn handle_received_ack_message<M>(
+        &mut self,
+        at: Instant,
+        mut message: M,
+    ) -> Result<AckMessage, HandleReceivedMessageError>
+        where M: PeerHandshakeMessage,
+    {
+        use HandshakeStep::*;
+
+        match &mut self.step {
+            Ack { received, crypto, .. } => {
+                let msg = message.as_ack_msg(crypto)?;
+                *received = true;
+                Ok(msg)
+            }
+            _ => return Err(HandleReceivedMessageError::UnexpectedState),
+        }
+    }
+
+    #[inline]
+    pub fn is_handshake_finished(&self) -> bool {
+        self.step.is_finished()
+    }
+
+    #[inline]
+    pub fn to_handshake_result(self) -> Option<HandshakeResult> {
+        self.step.to_result()
     }
 }
 

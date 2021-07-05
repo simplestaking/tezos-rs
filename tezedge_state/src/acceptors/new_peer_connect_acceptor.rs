@@ -1,5 +1,5 @@
 use tla_sm::Acceptor;
-use crate::{Handshake, HandshakeStep, P2pState, PendingPeer, TezedgeState};
+use crate::{HandshakeStep, P2pState, PendingPeer, TezedgeState};
 use crate::proposals::NewPeerConnectProposal;
 
 impl<E> Acceptor<NewPeerConnectProposal> for TezedgeState<E> {
@@ -15,7 +15,8 @@ impl<E> Acceptor<NewPeerConnectProposal> for TezedgeState<E> {
             | P2pState::Ready { pending_peers } => {
                 pending_peers.insert(PendingPeer::new(
                     proposal.peer.clone(),
-                    Handshake::Incoming(HandshakeStep::Initiated { at: proposal.at }),
+                    true,
+                    HandshakeStep::Initiated { at: proposal.at },
                 ));
             }
             _ => {

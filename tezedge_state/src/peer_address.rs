@@ -120,6 +120,13 @@ impl PeerListenerAddress {
     }
 }
 
+impl FromStr for PeerListenerAddress {
+    type Err = AddrParseError;
+    fn from_str(s: &str) -> Result<Self, AddrParseError> {
+        Ok(Self(s.parse()?))
+    }
+}
+
 impl From<SocketAddr> for PeerListenerAddress {
     fn from(addr: SocketAddr) -> Self {
         Self(addr)

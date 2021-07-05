@@ -1,7 +1,7 @@
 use tezos_messages::p2p::encoding::connection::ConnectionMessage;
 use tla_sm::Acceptor;
 
-use crate::{Effects, Handshake, HandshakeStep, PendingRequest, RequestState, TezedgeState};
+use crate::{Effects, HandshakeStep, PendingRequest, RequestState, TezedgeState};
 use crate::proposals::{PendingRequestProposal, PendingRequestMsg};
 
 impl<E> Acceptor<PendingRequestProposal> for TezedgeState<E>
@@ -56,13 +56,11 @@ impl<E> Acceptor<PendingRequestProposal> for TezedgeState<E>
                                 .and_then(|peers| peers.get_mut(&peer_address));
 
                             if let Some(peer) = peer {
-                                peer.handshake = Handshake::Outgoing(
-                                    HandshakeStep::Connect {
-                                        sent_conn_msg,
-                                        sent: Some(RequestState::Idle { at: proposal.at }),
-                                        received: None,
-                                    },
-                                );
+                                peer.step = HandshakeStep::Connect {
+                                    sent_conn_msg,
+                                    sent: RequestState::Idle { at: proposal.at },
+                                    received: None,
+                                };
                             }
                             self.requests.remove(proposal.req_id);
                         }
