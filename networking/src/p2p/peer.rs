@@ -212,11 +212,11 @@ const THROTTLING_QUOTA_NUM: usize = 18;
 
 // TODO: use individual per-message values
 const THROTTLING_QUOTA_MAX: [usize; THROTTLING_QUOTA_NUM] = [
-    200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 2000,
+    200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 2000, 2000, 200, 200, 200, 200, 2000, 2000,
 ];
 
 const THROTTLING_QUOTA_INC: [usize; THROTTLING_QUOTA_NUM] =
-    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 100, 100, 1, 1, 1, 1, 100, 300];
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1000, 1000, 1, 1, 1, 1, 2000, 2000];
 
 struct ThrottleQuota {
     quotas: [usize; THROTTLING_QUOTA_NUM],
