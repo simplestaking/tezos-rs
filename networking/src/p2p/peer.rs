@@ -208,8 +208,6 @@ struct Network {
     socket_address: SocketAddr,
 }
 
-const THROTTLING_QUOTA_RESET_MS: u64 = 1000;
-
 const THROTTLING_QUOTA_NUM: usize = 18;
 
 const THROTTLING_QUOTA_STRS: [&str; THROTTLING_QUOTA_NUM] = [
@@ -233,6 +231,8 @@ const THROTTLING_QUOTA_STRS: [&str; THROTTLING_QUOTA_NUM] = [
     "OperationsForBlocks",
 ];
 
+const THROTTLING_QUOTA_RESET_MS_DEFAULT: u64 = 5000; // 5 secs
+
 lazy_static::lazy_static! {
     static ref THROTTLING_QUOTA_DISABLE: bool = {
         match std::env::var("THROTTLING_QUOTA_DISABLE") {
@@ -241,26 +241,34 @@ lazy_static::lazy_static! {
         }
     };
 
-    /// Quota for tx/rx messages
+    /// Quota reset period, in ms
+    static ref THROTTLING_QUOTA_RESET_MS: u64 = {
+        match std::env::var("THROTTLING_QUOTA_RESET_MS") {
+            Ok(v) => v.parse().unwrap_or(THROTTLING_QUOTA_RESET_MS_DEFAULT),
+            _ => THROTTLING_QUOTA_RESET_MS_DEFAULT,
+        }
+    };
+
+    /// Quota for tx/rx messages per [THROTTLING_QUOTA_RESET_MS]
     static ref THROTTLING_QUOTA_MAX: [(isize, isize); THROTTLING_QUOTA_NUM] = {
         let mut default = [
             (1, 1), // Disconnect
-            (10, 10), // Advertise
+            (1, 1), // Advertise
             (10, 10), // SwapRequest
             (10, 10), // SwapAck
-            (10, 10), // Bootstrap
+            (1, 1), // Bootstrap
             (10, 10), // GetCurrentBranch
             (10, 10), // CurrentBranch
             (10, 10), // Deactivate
             (10, 10), // GetCurrentHead
             (10, 10), // CurrentHead
-            (1000, 1000), // GetBlockHeaders
-            (1000, 1000), // BlockHeader
-            (1, 1), // GetOperations
-            (1, 1), // Operation
-            (1, 1), // GetProtocols
-            (1, 1), // Protocol
-            (1000, 1000), // GetOperationsForBlocks
+            (5000, 5000), // GetBlockHeaders
+            (5000, 5000), // BlockHeader
+            (10, 10), // GetOperations
+            (10, 10), // Operation
+            (10, 10), // GetProtocols
+            (10, 10), // Protocol
+            (5000, 5000), // GetOperationsForBlocks
             (10000, 10000), // OperationsForBlocks
         ];
         for (i, s) in THROTTLING_QUOTA_STRS.iter().enumerate() {
@@ -461,7 +469,7 @@ impl Actor for Peer {
         self.tokio_executor.spawn(async move {
             loop {
                 tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_millis(THROTTLING_QUOTA_RESET_MS)) => {
+                    _ = tokio::time::sleep(Duration::from_millis(*THROTTLING_QUOTA_RESET_MS)) => {
                         match throttle_quota.lock() {
                             Ok(ref mut quota) => quota.reset_all(),
                             Err(_) => error!(log, "Failed to obtain a lock on throttling quota"),
@@ -998,7 +1006,7 @@ mod tests {
         // 11 warnings on dropped messages
         assert_eq!(received_messages.load(Ordering::Relaxed), 11);
 
-        std::thread::sleep(Duration::from_millis(super::THROTTLING_QUOTA_RESET_MS));
+        std::thread::sleep(Duration::from_millis(*super::THROTTLING_QUOTA_RESET_MS));
         received_messages.store(0, Ordering::Release);
 
         for _ in 0..super::THROTTLING_QUOTA_MAX[idx].0 + 10 {
