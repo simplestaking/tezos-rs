@@ -7,7 +7,7 @@ use crypto::nonce::{Nonce, generate_nonces};
 use crypto::proof_of_work::{PowError, PowResult, check_proof_of_work};
 use tezos_identity::Identity;
 use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryWrite};
-use tezos_messages::p2p::encoding::ack::NackMotive;
+use tezos_messages::p2p::encoding::ack::{NackInfo, NackMotive};
 pub use tla_sm::{Proposal, GetRequests};
 use tezos_messages::p2p::encoding::prelude::{
     NetworkVersion,
@@ -46,19 +46,13 @@ impl Debug for ConnectionMessageEncodingCached {
 pub enum HandleReceivedMessageError {
     UnexpectedState,
     BadPow,
+    ConnectingToMyself,
     BadHandshakeMessage(PeerHandshakeMessageError),
-    Nack(NackMotive)
 }
 
 impl From<PeerHandshakeMessageError> for HandleReceivedMessageError {
     fn from(err: PeerHandshakeMessageError) -> Self {
         Self::BadHandshakeMessage(err)
-    }
-}
-
-impl From<NackMotive> for HandleReceivedMessageError {
-    fn from(motive: NackMotive) -> Self {
-        Self::Nack(motive)
     }
 }
 
@@ -192,6 +186,8 @@ pub struct PendingPeer {
     pub incoming: bool,
     /// Handshake step.
     pub step: HandshakeStep,
+    /// Will be some if we should nack the handshake.
+    nack_motive: Option<NackMotive>,
     pub read_buf: HandshakeReadBuffer,
     conn_msg_writer: Option<ChunkWriter>,
     msg_writer: Option<(HandshakeMessageType, EncryptedMessageWriter)>,
@@ -203,6 +199,7 @@ impl PendingPeer {
             address,
             incoming,
             step,
+            nack_motive: None,
             read_buf: HandshakeReadBuffer::new(),
             conn_msg_writer: None,
             msg_writer: None,
@@ -226,6 +223,12 @@ impl PendingPeer {
 
     pub fn public_key(&self) -> Option<&[u8]> {
         self.step.public_key()
+    }
+
+    pub fn nack_peer(&mut self, motive: NackMotive) {
+        if self.nack_motive.is_none() {
+            self.nack_motive = Some(motive);
+        }
     }
 
     /// Advance to the `Metadata` step if current step is finished.
@@ -359,7 +362,13 @@ impl PendingPeer {
     ///   sending this concrete message at a current stage(state).
     ///
     /// - `Err(error)`: if error ocurred when encoding the message.
-    pub fn enqueue_send_ack_msg(&mut self, at: Instant, ack_msg: AckMessage) -> Result<bool, WriteMessageError> {
+    pub fn enqueue_send_ack_msg<F>(
+        &mut self,
+        at: Instant,
+        get_potential_peers: F,
+    ) -> Result<bool, WriteMessageError>
+        where F: FnOnce() -> Vec<String>,
+    {
         use HandshakeStep::*;
         use RequestState::*;
 
@@ -367,7 +376,12 @@ impl PendingPeer {
             Ack { sent: req_state @ Idle { .. }, .. } => {
                 self.msg_writer = Some((
                     HandshakeMessageType::Ack,
-                    EncryptedMessageWriter::try_new(&ack_msg)?,
+                    EncryptedMessageWriter::try_new(&match &self.nack_motive {
+                        Some(motive) => {
+                            AckMessage::Nack(NackInfo::new(motive.clone(), &get_potential_peers()))
+                        }
+                        None => AckMessage::Ack,
+                    })?,
                 ));
                 *req_state = Pending { at };
                 Ok(true)
@@ -483,10 +497,16 @@ impl PendingPeer {
         let conn_msg = message.as_connection_msg()?;
 
         if node_identity.public_key.as_ref().as_ref() == conn_msg.public_key() {
-            return Err(NackMotive::AlreadyConnected.into());
+            return Err(HandleReceivedMessageError::ConnectingToMyself);
         }
-        let compatible_network_version = shell_compatibility_version
-            .choose_compatible_version(conn_msg.version())?;
+        let compatible_version =
+            match shell_compatibility_version.choose_compatible_version(conn_msg.version()) {
+                Ok(compatible_version) => Some(compatible_version),
+                Err(motive) => {
+                    self.nack_peer(motive);
+                    None
+                }
+            };
 
         let public_key = PublicKey::from_bytes(conn_msg.public_key()).unwrap();
 
@@ -566,9 +586,15 @@ impl PendingPeer {
         self.step.is_finished()
     }
 
+    /// Returns handshake result if the handshake is finished and
+    /// we didn't nack the peer.
     #[inline]
     pub fn to_handshake_result(self) -> Option<HandshakeResult> {
-        self.step.to_result()
+        if self.nack_motive.is_some() {
+            None
+        } else {
+            self.step.to_result()
+        }
     }
 }
 

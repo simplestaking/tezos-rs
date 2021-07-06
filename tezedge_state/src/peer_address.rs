@@ -120,6 +120,12 @@ impl PeerListenerAddress {
     }
 }
 
+impl Display for PeerListenerAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 impl FromStr for PeerListenerAddress {
     type Err = AddrParseError;
     fn from_str(s: &str) -> Result<Self, AddrParseError> {

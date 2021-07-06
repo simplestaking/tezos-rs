@@ -36,8 +36,7 @@ impl<'a, E, R> Acceptor<PeerReadableProposal<'a, R>> for TezedgeState<E>
                 }
             };
         } else {
-            let peer = self.pending_peers_mut().and_then(|peers| peers.get_mut(&proposal.peer));
-            if let Some(peer) = peer {
+            if let Some(peer) = self.pending_peers.get_mut(&proposal.peer) {
                 if let Err(err) = peer.read_message_from(proposal.stream) {
                     match err.kind() {
                         io::ErrorKind::WouldBlock => {}

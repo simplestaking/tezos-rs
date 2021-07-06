@@ -10,16 +10,15 @@ impl<E: Effects> Acceptor<NewPeerConnectProposal> for TezedgeState<E> {
             return;
         }
 
-        match &mut self.p2p_state {
-            P2pState::Pending { pending_peers }
-            | P2pState::Ready { pending_peers } => {
-                pending_peers.insert(PendingPeer::new(
+        match self.p2p_state {
+            P2pState::Pending | P2pState::Ready => {
+                self.pending_peers.insert(PendingPeer::new(
                     proposal.peer.clone(),
                     true,
                     HandshakeStep::Initiated { at: proposal.at },
                 ));
             }
-            _ => {
+            P2pState::PendingFull | P2pState::ReadyFull | P2pState::ReadyMaxed => {
                 self.disconnect_peer(proposal.at, proposal.peer);
             }
         }

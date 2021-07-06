@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{Read, Write};
 
 use tezos_messages::p2p::encoding::ack::{AckMessage, NackMotive};
 use tla_sm::Acceptor;
@@ -6,11 +6,11 @@ use crate::{TezedgeState, P2pState, Effects, HandshakeMessageType};
 use crate::proposals::PeerWritableProposal;
 use crate::chunking::WriteMessageError;
 
-impl<'a, E, W> Acceptor<PeerWritableProposal<'a, W>> for TezedgeState<E>
+impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
     where E: Effects,
-          W: Write,
+          S: Read + Write,
 {
-    fn accept(&mut self, proposal: PeerWritableProposal<W>) {
+    fn accept(&mut self, proposal: PeerWritableProposal<S>) {
         if let Err(_err) = self.validate_proposal(&proposal) {
             #[cfg(test)]
             assert_ne!(_err, crate::InvalidProposalError::ProposalOutdated);
@@ -33,18 +33,7 @@ impl<'a, E, W> Acceptor<PeerWritableProposal<'a, W>> for TezedgeState<E>
             }
         } else {
             let meta_msg = self.meta_msg();
-            let pending_peers = match &mut self.p2p_state {
-                P2pState::ReadyMaxed => {
-                    self.nack_peer_handshake(proposal.at, proposal.peer, NackMotive::TooManyConnections);
-                    return self.periodic_react(time);
-                }
-                P2pState::Pending { pending_peers }
-                | P2pState::PendingFull { pending_peers }
-                | P2pState::Ready { pending_peers }
-                | P2pState::ReadyFull { pending_peers } => pending_peers,
-            };
-            let peer = pending_peers.get_mut(&proposal.peer);
-            if let Some(peer) = peer {
+            if let Some(peer) = self.pending_peers.get_mut(&proposal.peer) {
                 loop {
                     match peer.write_to(proposal.stream) {
                         Ok(msg_type) => {
@@ -58,17 +47,26 @@ impl<'a, E, W> Acceptor<PeerWritableProposal<'a, W>> for TezedgeState<E>
                                 HandshakeMessageType::Ack => {
                                     peer.send_ack_msg_successful(proposal.at);
                                     if peer.is_handshake_finished() {
-                                        let peer = self.pending_peers_mut().unwrap()
+                                        let peer = self.pending_peers
                                             .remove(&proposal.peer)
                                             .unwrap();
-                                        let result = peer.to_handshake_result().unwrap();
-                                        self.set_peer_connected(proposal.at, proposal.peer, result);
-                                        return self.accept(proposal);
+                                        if let Some(result) = peer.to_handshake_result() {
+                                            self.set_peer_connected(proposal.at, proposal.peer, result);
+                                            return self.accept(proposal);
+                                        } else {
+                                            self.blacklist_peer(proposal.at, proposal.peer);
+                                            self.adjust_p2p_state(time);
+                                            return self.periodic_react(time);
+                                        }
                                     }
                                 }
                             }
                         }
                         Err(WriteMessageError::Empty) => {
+                            let p2p_state = self.p2p_state;
+                            let effects = &mut self.effects;
+                            let potential_peers = &self.potential_peers;
+
                             let result = peer.enqueue_send_conn_msg(proposal.at)
                                 .and_then(|enqueued| {
                                     if !enqueued {
@@ -79,7 +77,23 @@ impl<'a, E, W> Acceptor<PeerWritableProposal<'a, W>> for TezedgeState<E>
                                 })
                                 .and_then(|enqueued| {
                                     if !enqueued {
-                                        peer.enqueue_send_ack_msg(proposal.at, AckMessage::Ack)
+                                        match p2p_state {
+                                            P2pState::Pending
+                                            | P2pState::PendingFull
+                                            | P2pState::Ready
+                                            | P2pState::ReadyFull
+                                            => {}
+                                            P2pState::ReadyMaxed => {
+                                                peer.nack_peer(NackMotive::TooManyConnections);
+                                            }
+                                        }
+
+                                        peer.enqueue_send_ack_msg(proposal.at, || {
+                                            effects.choose_potential_peers_for_nack(potential_peers)
+                                                .into_iter()
+                                                .map(|x| x.to_string())
+                                                .collect()
+                                        })
                                     } else {
                                         Ok(enqueued)
                                     }

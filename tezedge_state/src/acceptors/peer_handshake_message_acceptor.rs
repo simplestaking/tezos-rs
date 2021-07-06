@@ -21,18 +21,7 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
         // handle handshake messages.
         use HandshakeStep::*;
 
-        let pending_peers = match &mut self.p2p_state {
-            P2pState::ReadyMaxed => {
-                self.nack_peer_handshake(proposal.at, proposal.peer, NackMotive::TooManyConnections);
-                return self.periodic_react(proposal.at);
-            }
-            P2pState::Pending { pending_peers }
-            | P2pState::PendingFull { pending_peers }
-            | P2pState::Ready { pending_peers }
-            | P2pState::ReadyFull { pending_peers } => pending_peers,
-        };
-
-        let pending_peer = match pending_peers.get_mut(&proposal.peer) {
+        let mut pending_peer = match self.pending_peers.get_mut(&proposal.peer) {
             Some(peer) => peer,
             None => {
                 // Receiving any message from a peer that is not in pending peers
@@ -62,7 +51,7 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                     Ok(pub_key) => {
                         let proposal_peer = proposal.peer;
                         // check if peer with such identity is already connected.
-                        let already_connected = pending_peers
+                        let already_connected = self.pending_peers
                             .iter()
                             .any(|(_, peer)| {
                                 peer.step.public_key().map(|existing_pub_key| {
@@ -76,7 +65,8 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                             };
 
                         if already_connected {
-                            self.nack_peer_handshake(proposal.at, proposal.peer, NackMotive::AlreadyConnected);
+                            pending_peer = self.pending_peers.get_mut(&proposal.peer).unwrap();
+                            pending_peer.nack_peer(NackMotive::AlreadyConnected);
                         }
                         Ok(())
                     }
@@ -93,14 +83,16 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                 match result {
                     Ok(AckMessage::Ack) => {
                         if pending_peer.is_handshake_finished() {
-                            let result = self.pending_peers_mut().unwrap()
+                            let result = self.pending_peers
                                 .remove(&proposal.peer).unwrap()
-                                .to_handshake_result().unwrap();
-                            self.set_peer_connected(
-                                proposal.at,
-                                proposal.peer,
-                                result,
-                            );
+                                .to_handshake_result();
+                            if let Some(result) = result {
+                                self.set_peer_connected(
+                                    proposal.at,
+                                    proposal.peer,
+                                    result,
+                                );
+                            }
                         }
                         Ok(())
                     }
@@ -131,6 +123,10 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
         };
 
         match result {
+            Err(HandleReceivedMessageError::ConnectingToMyself) => {
+                warn!(&self.log, "Blacklisting myself"; "peer_address" => proposal.peer.to_string(), "reason" => "Connecting to myself(identities are the same)");
+                self.blacklist_peer(proposal.at, proposal.peer);
+            }
             Err(HandleReceivedMessageError::BadPow) => {
                 warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Bad Proof of work");
                 self.blacklist_peer(proposal.at, proposal.peer);
@@ -138,10 +134,6 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
             Err(HandleReceivedMessageError::BadHandshakeMessage(error)) => {
                 warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Unexpected handshake message", "error" => format!("{:?}", error));
                 self.blacklist_peer(proposal.at, proposal.peer);
-            }
-            Err(HandleReceivedMessageError::Nack(motive)) => {
-                warn!(&self.log, "Nacking peer handshake"; "peer_address" => proposal.peer.to_string(), "motive" => motive.to_string());
-                self.nack_peer_handshake(proposal.at, proposal.peer, motive);
             }
             Err(HandleReceivedMessageError::UnexpectedState) => {
                 warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Unexpected state!");

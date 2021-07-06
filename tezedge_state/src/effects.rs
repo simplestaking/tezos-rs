@@ -1,5 +1,7 @@
-use crypto::nonce::Nonce;
+use std::collections::HashSet;
 use rand::{Rng, prelude::IteratorRandom};
+
+use crypto::nonce::Nonce;
 
 use crate::peer_address::{PeerAddress, PeerListenerAddress};
 
@@ -8,9 +10,13 @@ pub trait Effects {
 
     fn choose_peers_to_connect_to(
         &mut self,
-        potential_peers: std::collections::hash_set::Iter<PeerListenerAddress>,
-        potential_peers_len: usize,
+        potential_peers: &HashSet<PeerListenerAddress>,
         choice_len: usize,
+    ) -> Vec<PeerListenerAddress>;
+
+    fn choose_potential_peers_for_nack(
+        &mut self,
+        potential_peers: &HashSet<PeerListenerAddress>,
     ) -> Vec<PeerListenerAddress>;
 }
 
@@ -24,16 +30,29 @@ impl Effects for DefaultEffects {
 
     fn choose_peers_to_connect_to(
         &mut self,
-        potential_peers: std::collections::hash_set::Iter<PeerListenerAddress>,
-        potential_peers_len: usize,
+        potential_peers: &HashSet<PeerListenerAddress>,
         choice_len: usize,
     ) -> Vec<PeerListenerAddress>
     {
-        if choice_len >= potential_peers_len {
-            potential_peers.cloned().collect()
+        if choice_len >= potential_peers.len() {
+            potential_peers.iter().cloned().collect()
         } else {
             let mut rng = rand::thread_rng();
-            potential_peers.cloned().choose_multiple(&mut rng, choice_len)
+            potential_peers.iter().cloned().choose_multiple(&mut rng, choice_len)
+        }
+    }
+
+    fn choose_potential_peers_for_nack(
+        &mut self,
+        potential_peers: &HashSet<PeerListenerAddress>,
+    ) -> Vec<PeerListenerAddress>
+    {
+        let mut rng = rand::thread_rng();
+        let len = rng.gen_range(1, 80.min(potential_peers.len()));
+        if len >= potential_peers.len() {
+            potential_peers.iter().cloned().collect()
+        } else {
+            potential_peers.iter().cloned().choose_multiple(&mut rng, len)
         }
     }
 }

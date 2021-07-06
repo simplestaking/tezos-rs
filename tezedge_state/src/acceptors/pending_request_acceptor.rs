@@ -52,10 +52,8 @@ impl<E> Acceptor<PendingRequestProposal> for TezedgeState<E>
                                 self.effects.get_nonce(&peer_address),
                                 self.shell_compatibility_version.to_network_version(),
                             ).unwrap();
-                            let peer = self.pending_peers_mut()
-                                .and_then(|peers| peers.get_mut(&peer_address));
 
-                            if let Some(peer) = peer {
+                            if let Some(peer) = self.pending_peers.get_mut(&peer_address) {
                                 peer.step = HandshakeStep::Connect {
                                     sent_conn_msg,
                                     sent: RequestState::Idle { at: proposal.at },
