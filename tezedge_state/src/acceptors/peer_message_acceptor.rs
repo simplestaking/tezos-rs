@@ -7,7 +7,7 @@ use crate::{Effects, PendingRequest, PendingRequestState, RequestState, TezedgeS
 use crate::proposals::{ExtendPotentialPeersProposal, PeerMessageProposal};
 
 impl<E: Effects> Acceptor<PeerMessageProposal> for TezedgeState<E> {
-    fn accept(&mut self, mut proposal: PeerMessageProposal) {
+    fn accept(&mut self, proposal: PeerMessageProposal) {
         if let Err(_err) = self.validate_proposal(&proposal) {
             #[cfg(test)]
             assert_ne!(_err, crate::InvalidProposalError::ProposalOutdated);
@@ -38,6 +38,7 @@ impl<E: Effects> Acceptor<PeerMessageProposal> for TezedgeState<E> {
                 }
             }
         } else {
+            slog::warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Received PeerMessage from not connected(handshake not done) or non-existant peer");
             self.blacklist_peer(proposal.at, proposal.peer);
         }
 

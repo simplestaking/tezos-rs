@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::time::{Instant, Duration};
 use std::collections::HashSet;
-use slog::Logger;
+use slog::{Logger, warn};
 
 use crypto::crypto_box::{CryptoKey, PublicKey};
 pub use tla_sm::{Proposal, GetRequests};
@@ -201,32 +201,6 @@ impl<E> TezedgeState<E> {
         self.connected_peers.contains_address(peer)
     }
 
-    pub(crate) fn set_peer_connected(
-        &mut self,
-        at: Instant,
-        peer_address: PeerAddress,
-        result: HandshakeResult,
-    ) {
-        // TODO: put public key in state instead of having unwrap here.
-        let public_key_hash = PublicKey::from_bytes(&result.conn_msg.public_key).unwrap().public_key_hash().unwrap();
-
-        let connected_peer = self.connected_peers
-            .set_peer_connected(at, peer_address, result);
-
-        self.requests.insert(PendingRequestState {
-            request: PendingRequest::NotifyHandshakeSuccessful {
-                peer_address: peer_address.clone(),
-                peer_public_key_hash: public_key_hash,
-                metadata: MetadataMessage::new(
-                    connected_peer.disable_mempool,
-                    connected_peer.private_node,
-                ),
-                network_version: connected_peer.version.clone(),
-            },
-            status: RequestState::Idle { at },
-        });
-    }
-
     pub(crate) fn check_blacklisted_peers(&mut self, at: Instant) {
         let whitelist_peers = self.blacklisted_peers
             .take_expired_blacklisted_peers(at, self.config.peer_blacklist_duration);
@@ -287,6 +261,12 @@ impl<E> TezedgeState<E> {
         });
     }
 
+    #[inline]
+    fn missing_connections(&self) -> usize {
+        self.config.max_connected_peers
+            .checked_sub(self.connected_peers.len()).unwrap_or(0)
+    }
+
     pub fn stats(&self) -> TezedgeStats {
         TezedgeStats {
             newest_time_seen: self.newest_time_seen,
@@ -301,15 +281,52 @@ impl<E> TezedgeState<E> {
 }
 
 impl<E: Effects> TezedgeState<E> {
+    pub(crate) fn set_peer_connected(
+        &mut self,
+        at: Instant,
+        peer_address: PeerAddress,
+        result: HandshakeResult,
+    ) {
+        // double check to make sure we don't go over the limit.
+        use P2pState::*;
+        self.adjust_p2p_state(at);
+        match &self.p2p_state {
+            Pending | PendingFull | Ready | ReadyFull => {}
+            ReadyMaxed => {
+                warn!(&self.log, "Blacklisting Peer"; "reason" => "Tried to connect to peer while we are maxed out on connected peers.");
+                return self.blacklist_peer(at, peer_address);
+            }
+        }
+
+        // TODO: put public key in state instead of having unwrap here.
+        let public_key_hash = PublicKey::from_bytes(&result.conn_msg.public_key).unwrap().public_key_hash().unwrap();
+
+        let connected_peer = self.connected_peers
+            .set_peer_connected(at, peer_address, result);
+
+        self.requests.insert(PendingRequestState {
+            request: PendingRequest::NotifyHandshakeSuccessful {
+                peer_address: peer_address.clone(),
+                peer_public_key_hash: public_key_hash,
+                metadata: MetadataMessage::new(
+                    connected_peer.disable_mempool,
+                    connected_peer.private_node,
+                ),
+                network_version: connected_peer.version.clone(),
+            },
+            status: RequestState::Idle { at },
+        });
+    }
+
     pub(crate) fn adjust_p2p_state(&mut self, at: Instant) {
         use P2pState::*;
         let min_connected = self.config.min_connected_peers as usize;
-        let max_connected = self.config.max_connected_peers as usize;
-        let max_pending = self.config.max_pending_peers as usize;
+        let missing_connections  = self.missing_connections();
+        let max_pending = self.config.max_pending_peers.min(missing_connections);
 
         let mut should_listen_for_connections = false;
 
-        if self.connected_peers.len() == max_connected {
+        if missing_connections == 0 {
             should_listen_for_connections = false;
             self.p2p_state = ReadyMaxed;
         } else if self.connected_peers.len() < min_connected {
@@ -425,9 +442,15 @@ impl<E: Effects> TezedgeState<E> {
             ReadyMaxed | ReadyFull | PendingFull => return,
             Pending | Ready => {}
         }
-        let len = self.potential_peers.len().min(
-            max_pending - self.pending_peers.len(),
-        );
+        let len = self.potential_peers.len()
+            .min(max_pending - self.pending_peers.len())
+            .min(self.config.max_connected_peers - self.connected_peers.len() - self.pending_peers.len());
+
+        slog::info!(&self.log, "Initiating handshakes";
+                     "connected_peers" => self.connected_peers.len(),
+                     "pending_peers" => self.pending_peers.len(),
+                     "potential_peers" => self.potential_peers.len(),
+                     "initiated_handshakes" => len);
 
         let peers = self.effects.choose_peers_to_connect_to(
             &self.potential_peers,

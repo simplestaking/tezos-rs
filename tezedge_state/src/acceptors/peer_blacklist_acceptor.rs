@@ -10,6 +10,7 @@ impl<E: Effects> Acceptor<PeerBlacklistProposal> for TezedgeState<E> {
             return;
         }
 
+        slog::warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Requested by the Proposer");
         self.blacklist_peer(proposal.at, proposal.peer);
 
         self.periodic_react(proposal.at);

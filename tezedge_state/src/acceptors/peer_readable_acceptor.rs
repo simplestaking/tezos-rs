@@ -30,7 +30,7 @@ impl<'a, E, S> Acceptor<PeerReadableProposal<'a, S>> for TezedgeState<E>
                 }
                 Err(ReadMessageError::Pending) => {}
                 Err(err) => {
-                    eprintln!("error while trying to read/decrypt/decode from peer stream: {:?}", err);
+                    slog::warn!(&self.log, "Read failed!"; "description" => "error while trying to read from connected peer stream.", "error" => format!("{:?}", err));
                     self.blacklist_peer(proposal.at, proposal.peer);
                 }
             };
@@ -43,7 +43,7 @@ impl<'a, E, S> Acceptor<PeerReadableProposal<'a, S>> for TezedgeState<E>
                     match err.kind() {
                         io::ErrorKind::WouldBlock => {}
                         _ => {
-                            eprintln!("error while trying to read from peer stream: {:?}", err);
+                            slog::warn!(&self.log, "Read failed!"; "description" => "error while trying to read from peer stream during handshake.", "error" => format!("{:?}", err));
                             self.blacklist_peer(proposal.at, proposal.peer);
                         }
                     }
@@ -59,6 +59,7 @@ impl<'a, E, S> Acceptor<PeerReadableProposal<'a, S>> for TezedgeState<E>
             } else {
                 // we received event for a non existant peer, probably
                 // mio's view about connected peers is out of sync.
+                slog::warn!(&self.log, "Disconnecting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Received readable proposal for a non-existant peer. MIO out of sync!");
                 self.disconnect_peer(proposal.at, proposal.peer);
             }
         }

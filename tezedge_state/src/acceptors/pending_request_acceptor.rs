@@ -64,6 +64,7 @@ impl<E> Acceptor<PendingRequestProposal> for TezedgeState<E>
                         }
                         PendingRequestMsg::ConnectPeerError => {
                             let peer = *peer;
+                            slog::warn!(&self.log, "Blacklisting peer!"; "reason" => "Initiating connection failed!");
                             self.blacklist_peer(proposal.at, peer);
                             self.requests.remove(proposal.req_id);
                         }

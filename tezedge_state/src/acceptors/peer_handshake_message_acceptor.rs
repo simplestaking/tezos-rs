@@ -1,5 +1,3 @@
-use slog::{crit, debug, info, trace, warn, error, Logger};
-
 use tla_sm::Acceptor;
 use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, AckMessage, PeerMessage};
 use tezos_messages::p2p::encoding::ack::NackMotive;
@@ -28,7 +26,7 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                 // is impossible. When new peer opens connection with us,
                 // we add new pending peer with `Initiated` state. So this
                 // can only happen if outside world is out of sync with TezedgeState.
-                eprintln!("WARNING: received message proposal from an unknown peer. Should be impossible!");
+                slog::warn!(&self.log, "Received decrypted/decoded handshake message proposal from an unknown peer. Should be impossible!");
                 self.disconnect_peer(proposal.at, proposal.peer);
                 return self.periodic_react(proposal.at);
             }
@@ -92,12 +90,13 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                                     proposal.peer,
                                     result,
                                 );
+                                self.adjust_p2p_state(proposal.at);
                             }
                         }
                         Ok(())
                     }
                     Ok(AckMessage::NackV0) => {
-                        warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Received NackV0");
+                        slog::warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Received NackV0");
                         self.blacklist_peer(proposal.at, proposal.peer);
                         Ok(())
                     }
@@ -107,7 +106,7 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                                 .into_iter()
                                 .filter_map(|x| x.parse::<>().ok()),
                         );
-                        warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Received Nack", "motive" => info.motive().to_string());
+                        slog::warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Received Nack", "motive" => info.motive().to_string());
                         self.blacklist_peer(proposal.at, proposal.peer);
                         Ok(())
                     }
@@ -115,8 +114,8 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                 }
             }
             _ => {
-                warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Unexpected message!");
-                debug!(&self.log, ""; "peer_state" => format!("{:?}", &pending_peer));
+                slog::warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Unexpected message!");
+                slog::debug!(&self.log, ""; "peer_state" => format!("{:?}", &pending_peer));
                 self.blacklist_peer(proposal.at, proposal.peer);
                 Ok(())
             }
@@ -124,19 +123,19 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
 
         match result {
             Err(HandleReceivedMessageError::ConnectingToMyself) => {
-                warn!(&self.log, "Blacklisting myself"; "peer_address" => proposal.peer.to_string(), "reason" => "Connecting to myself(identities are the same)");
+                slog::warn!(&self.log, "Blacklisting myself"; "peer_address" => proposal.peer.to_string(), "reason" => "Connecting to myself(identities are the same)");
                 self.blacklist_peer(proposal.at, proposal.peer);
             }
             Err(HandleReceivedMessageError::BadPow) => {
-                warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Bad Proof of work");
+                slog::warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Bad Proof of work");
                 self.blacklist_peer(proposal.at, proposal.peer);
             }
             Err(HandleReceivedMessageError::BadHandshakeMessage(error)) => {
-                warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Unexpected handshake message", "error" => format!("{:?}", error));
+                slog::warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Unexpected handshake message", "error" => format!("{:?}", error));
                 self.blacklist_peer(proposal.at, proposal.peer);
             }
             Err(HandleReceivedMessageError::UnexpectedState) => {
-                warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Unexpected state!");
+                slog::warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Unexpected state!");
                 self.blacklist_peer(proposal.at, proposal.peer);
             }
             Ok(()) => {}

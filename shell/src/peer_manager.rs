@@ -274,7 +274,7 @@ impl Actor for PeerManager {
         ));
 
         let mut tezedge_state = TezedgeState::new(
-            ctx.system.log(),
+            ctx.system.log().to_erased(),
             TezedgeConfig {
                 port: self.config.listener_port,
                 disable_mempool: self.config.disable_mempool,

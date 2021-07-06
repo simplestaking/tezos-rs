@@ -25,7 +25,7 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
                     Err(WriteMessageError::Empty)
                     | Err(WriteMessageError::Pending) => break,
                     Err(err) => {
-                        eprintln!("error while trying to write to peer's stream: {:?}", err);
+                        slog::error!(&self.log, "Write failed!"; "description" => "error while trying to write to connected peer stream.", "error" => format!("{:?}", err));
                         self.blacklist_peer(proposal.at, proposal.peer);
                         break;
                     }
@@ -52,6 +52,7 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
                                             .unwrap();
                                         if let Some(result) = peer.to_handshake_result() {
                                             self.set_peer_connected(proposal.at, proposal.peer, result);
+                                            self.adjust_p2p_state(time);
                                             // try to write and read from peer
                                             // after successful handshake.
                                             self.accept(PeerReadableProposal {
@@ -61,6 +62,7 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
                                             });
                                             return self.accept(proposal);
                                         } else {
+                                            slog::warn!(&self.log, "Blacklisting peer!"; "reason" => "Handshake failed!");
                                             self.blacklist_peer(proposal.at, proposal.peer);
                                             self.adjust_p2p_state(time);
                                             return self.periodic_react(time);
@@ -111,7 +113,7 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
                                 Ok(true) => {}
                                 Ok(false) => break,
                                 Err(err) =>  {
-                                    eprintln!("failed to enqueue sending connection message for peer({}): {:?}", proposal.peer, err);
+                                    slog::error!(&self.log, "Failed to enqueue send handshake message!"; "error" => format!("{:?}", err));
                                     #[cfg(test)]
                                     unreachable!("enqueueing handshake messages should always succeed");
                                     break;
@@ -129,6 +131,7 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
             } else {
                 // we received event for a non existant peer, probably
                 // mio's view about connected peers is out of sync.
+                slog::warn!(&self.log, "Disconnecting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Received readable proposal for a non-existant peer. MIO out of sync!");
                 self.disconnect_peer(proposal.at, proposal.peer);
             }
         }

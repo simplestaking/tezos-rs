@@ -128,12 +128,13 @@ pub struct TezedgeProposer<Es, M> {
 impl<Es, M> TezedgeProposer<Es, M>
     where Es: Events,
 {
-    pub fn new(
+    pub fn new<S>(
         config: TezedgeProposerConfig,
-        state: TezedgeState,
+        state: S,
         mut events: Es,
         manager: M,
     ) -> Self
+        where S: Into<TezedgeStateWrapper>,
     {
         events.set_limit(config.events_limit);
         Self {

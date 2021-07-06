@@ -19,6 +19,7 @@ impl<E: Effects> Acceptor<NewPeerConnectProposal> for TezedgeState<E> {
                 ));
             }
             P2pState::PendingFull | P2pState::ReadyFull | P2pState::ReadyMaxed => {
+                slog::warn!(&self.log, "Disconnecting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Requested by the Proposer");
                 self.disconnect_peer(proposal.at, proposal.peer);
             }
         }
