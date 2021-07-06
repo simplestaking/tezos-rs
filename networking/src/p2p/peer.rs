@@ -349,6 +349,7 @@ pub struct Peer {
     peer_metadata: MetadataMessage,
     peer_compatible_network_version: NetworkVersion,
     throttle_quota: Arc<std::sync::Mutex<ThrottleQuota>>,
+    quota_update_stop: Arc<Notify>,
 }
 
 impl Peer {
@@ -396,6 +397,7 @@ impl ActorFactoryArgs<(NetworkChannelRef, Handle, BootstrapOutput, Logger)> for 
             peer_metadata: info.4,
             peer_compatible_network_version: info.5,
             throttle_quota: Arc::new(std::sync::Mutex::new(ThrottleQuota::new(log))),
+            quota_update_stop: Arc::new(Notify::new()),
         }
     }
 }
@@ -405,6 +407,7 @@ impl Actor for Peer {
 
     fn post_stop(&mut self) {
         self.net.rx_run.store(false, Ordering::Release);
+        self.quota_update_stop.notify_one();
     }
 
     fn pre_start(&mut self, ctx: &Context<Self::Msg>) {
@@ -412,8 +415,7 @@ impl Actor for Peer {
 
         let throttle_quota = self.throttle_quota.clone();
         let log = ctx.system.log().clone();
-        let notify = Arc::new(Notify::new());
-        let stop = notify.clone();
+        let stop = self.quota_update_stop.clone();
         self.tokio_executor.spawn(async move {
             loop {
                 tokio::select! {
@@ -461,8 +463,6 @@ impl Actor for Peer {
 
             // begin to process incoming messages in a loop
             begin_process_incoming(net, myself.clone(), network_channel, throttle_quota, log.clone()).await;
-
-            notify.notify_one();
 
             // connection to peer was closed, stop this actor
             system.stop(myself);
