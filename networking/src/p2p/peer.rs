@@ -208,18 +208,78 @@ struct Network {
     socket_address: SocketAddr,
 }
 
+const THROTTLING_QUOTA_RESET_MS: u64 = 1000;
+
 const THROTTLING_QUOTA_NUM: usize = 18;
 
-// TODO: use individual per-message values
-const THROTTLING_QUOTA_MAX: [usize; THROTTLING_QUOTA_NUM] = [
-    200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 2000, 2000, 200, 200, 200, 200, 2000, 2000,
+const THROTTLING_QUOTA_STRS: [&str; THROTTLING_QUOTA_NUM] = [
+    "Disconnect",
+    "Advertise",
+    "SwapRequest",
+    "SwapAck",
+    "Bootstrap",
+    "GetCurrentBranch",
+    "CurrentBranch",
+    "Deactivate",
+    "GetCurrentHead",
+    "CurrentHead",
+    "GetBlockHeaders",
+    "BlockHeader",
+    "GetOperations",
+    "Operation",
+    "GetProtocols",
+    "Protocol",
+    "GetOperationsForBlocks",
+    "OperationsForBlocks",
 ];
 
-const THROTTLING_QUOTA_INC: [usize; THROTTLING_QUOTA_NUM] =
-    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1000, 1000, 1, 1, 1, 1, 2000, 2000];
+lazy_static::lazy_static! {
+    static ref THROTTLING_QUOTA_DISABLE: bool = {
+        match std::env::var("THROTTLING_QUOTA_DISABLE") {
+            Ok(v) => v.parse::<bool>().unwrap_or(false),
+            _ => false,
+        }
+    };
+
+    /// Quota for tx/rx messages
+    static ref THROTTLING_QUOTA_MAX: [(isize, isize); THROTTLING_QUOTA_NUM] = {
+        let mut default = [
+            (1, 1), // Disconnect
+            (10, 10), // Advertise
+            (10, 10), // SwapRequest
+            (10, 10), // SwapAck
+            (10, 10), // Bootstrap
+            (10, 10), // GetCurrentBranch
+            (10, 10), // CurrentBranch
+            (10, 10), // Deactivate
+            (10, 10), // GetCurrentHead
+            (10, 10), // CurrentHead
+            (1000, 1000), // GetBlockHeaders
+            (1000, 1000), // BlockHeader
+            (1, 1), // GetOperations
+            (1, 1), // Operation
+            (1, 1), // GetProtocols
+            (1, 1), // Protocol
+            (1000, 1000), // GetOperationsForBlocks
+            (10000, 10000), // OperationsForBlocks
+        ];
+        for (i, s) in THROTTLING_QUOTA_STRS.iter().enumerate() {
+            let var = "THROTTLING_QUOTA_".to_owned() + &s.to_uppercase();
+            if let Ok(val) = std::env::var(var).or_else(|_| std::env::var("THROTTLING_QUOTA_MAX")) {
+                let q = val.split(",").collect::<Vec<_>>();
+                if q.len() == 2 {
+                    if let (Ok(tx), Ok(rx)) = (q[0].parse::<isize>(), q[1].parse::<isize>()) {
+                        default[i] = (tx, rx);
+                    }
+                }
+            }
+        }
+        default
+    };
+}
 
 struct ThrottleQuota {
-    quotas: [usize; THROTTLING_QUOTA_NUM],
+    quotas: [(isize, isize); THROTTLING_QUOTA_NUM],
     log: Logger,
 }
 
@@ -256,77 +316,59 @@ impl ThrottleQuota {
     }
 
     fn index_to_str(index: usize) -> &'static str {
-        const STRS: [&str; THROTTLING_QUOTA_NUM] = [
-            "Disconnect",
-            "Advertise",
-            "SwapRequest",
-            "SwapAck",
-            "Bootstrap",
-            "GetCurrentBranch",
-            "CurrentBranch",
-            "Deactivate",
-            "GetCurrentHead",
-            "CurrentHead",
-            "GetBlockHeaders",
-            "BlockHeader",
-            "GetOperations",
-            "Operation",
-            "GetProtocols",
-            "Protocol",
-            "GetOperationsForBlocks",
-            "OperationsForBlocks",
-        ];
         if index < THROTTLING_QUOTA_NUM {
-            STRS[index]
+            THROTTLING_QUOTA_STRS[index]
         } else {
             "<invalid index>"
         }
     }
 
-    fn can_receive(&mut self, msg: &PeerMessageResponse) -> bool {
-        let index = Self::msg_index(msg);
-        if self.quotas[index] > 0 {
-            self.quotas[index] -= 1;
-            true
-        } else {
-            false
-        }
-    }
-
     fn can_send(&mut self, msg: &PeerMessageResponse) -> bool {
         let index = Self::msg_index(msg);
-        if self.quotas[index] < THROTTLING_QUOTA_MAX[index] * 2 {
-            self.quotas[index] += 1;
+        self.quotas[index].0 -= 1;
+        if self.quotas[index].0 >= 0 {
+            if self.quotas[index].1 < THROTTLING_QUOTA_MAX[index].1 {
+                self.quotas[index].1 += 1;
+            }
             true
         } else {
-            false
+            *THROTTLING_QUOTA_DISABLE
         }
     }
 
-    fn increase_all(&mut self) {
+    fn can_receive(&mut self, msg: &PeerMessageResponse) -> bool {
+        let index = Self::msg_index(msg);
+        self.quotas[index].1 -= 1;
+        if self.quotas[index].1 >= 0 {
+            if self.quotas[index].0 < THROTTLING_QUOTA_MAX[index].0 {
+                self.quotas[index].0 += 1;
+            }
+            true
+        } else {
+            *THROTTLING_QUOTA_DISABLE
+        }
+    }
+
+    fn reset_all(&mut self) {
         for index in 0..THROTTLING_QUOTA_NUM {
-            if self.quotas[index] < THROTTLING_QUOTA_MAX[index] {
-                debug!(
+            let (tx_max, rx_max) = THROTTLING_QUOTA_MAX[index];
+            if self.quotas[index].0 < tx_max {
+                trace!(
                     self.log,
-                    "Increasing quota {} for {}",
-                    self.quotas[index],
+                    "Increasing tx quota {} for {}",
+                    self.quotas[index].0,
                     Self::index_to_str(index)
                 );
-                self.quotas[index] = std::cmp::min(
-                    self.quotas[index] + THROTTLING_QUOTA_INC[index],
-                    THROTTLING_QUOTA_MAX[index],
-                );
-            } else if self.quotas[index] > THROTTLING_QUOTA_MAX[index] {
-                debug!(
+                self.quotas[index].0 = tx_max;
+            }
+            if self.quotas[index].1 < rx_max {
+                trace!(
                     self.log,
-                    "Decreasing quota {} for {}",
-                    self.quotas[index],
+                    "Increasing rx quota {} for {}",
+                    self.quotas[index].1,
                     Self::index_to_str(index)
                 );
-                self.quotas[index] = std::cmp::max(
-                    self.quotas[index] - THROTTLING_QUOTA_INC[index],
-                    THROTTLING_QUOTA_MAX[index],
-                );
+                self.quotas[index].1 = rx_max;
             }
         }
     }
@@ -419,9 +461,9 @@ impl Actor for Peer {
         self.tokio_executor.spawn(async move {
             loop {
                 tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_millis(1000)) => {
+                    _ = tokio::time::sleep(Duration::from_millis(THROTTLING_QUOTA_RESET_MS)) => {
                         match throttle_quota.lock() {
-                            Ok(ref mut quota) => quota.increase_all(),
+                            Ok(ref mut quota) => quota.reset_all(),
                             Err(_) => error!(log, "Failed to obtain a lock on throttling quota"),
                         }
                     }
@@ -848,7 +890,7 @@ mod tests {
     };
     use tokio::runtime::Handle;
 
-    use crate::p2p::network_channel::{NetworkChannel, NetworkChannelRef};
+    use crate::p2p::{network_channel::{NetworkChannel, NetworkChannelRef}, peer::ThrottleQuota};
 
     use super::{BootstrapOutput, Peer, PeerRef, SendMessage};
 
@@ -947,19 +989,19 @@ mod tests {
             log.clone(),
         );
         let msg = create_test_mgs();
-
-        for _ in 0..210 {
+        let idx = ThrottleQuota::msg_index(&msg);
+        for _ in 0..super::THROTTLING_QUOTA_MAX[idx].0 + 11 {
             peer.tell(SendMessage::new(Arc::new(msg.clone())), None);
         }
         std::thread::sleep(Duration::from_millis(50));
 
-        // 10 warnings on dropped messages
-        assert_eq!(received_messages.load(Ordering::Relaxed), 10);
+        // 11 warnings on dropped messages
+        assert_eq!(received_messages.load(Ordering::Relaxed), 11);
 
-        std::thread::sleep(Duration::from_millis(1000));
-        received_messages.store(0, Ordering::Relaxed);
+        std::thread::sleep(Duration::from_millis(super::THROTTLING_QUOTA_RESET_MS));
+        received_messages.store(0, Ordering::Release);
 
-        for _ in 0..11 {
+        for _ in 0..super::THROTTLING_QUOTA_MAX[idx].0 + 10 {
             peer.tell(SendMessage::new(Arc::new(msg.clone())), None);
         }
         std::thread::sleep(Duration::from_millis(50));
