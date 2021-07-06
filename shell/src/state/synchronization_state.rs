@@ -229,8 +229,13 @@ pub mod tests {
         let actor_system = create_test_actor_system(log.clone());
         let network_channel =
             NetworkChannel::actor(&actor_system).expect("Failed to create network channel");
-        let mut peer_state1 =
-            test_peer(&actor_system, network_channel.clone(), &tokio_runtime, 7775, &log);
+        let mut peer_state1 = test_peer(
+            &actor_system,
+            network_channel.clone(),
+            &tokio_runtime,
+            7775,
+            &log,
+        );
         let mut peer_state2 = test_peer(&actor_system, network_channel, &tokio_runtime, 7776, &log);
 
         let done_peer = |to_level, peer_state: &PeerState| -> PeerBranchSynchronizationDone {
