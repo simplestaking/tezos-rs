@@ -1,17 +1,16 @@
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 
 use tla_sm::Acceptor;
-use crate::Effects;
-use crate::proposals::peer_handshake_message::PeerBinaryHandshakeMessage;
-use crate::TezedgeState;
-use crate::proposals::{PeerReadableProposal, PeerMessageProposal, PeerHandshakeMessageProposal};
+use crate::{TezedgeState, Effects};
 use crate::chunking::ReadMessageError;
+use crate::proposals::peer_handshake_message::PeerBinaryHandshakeMessage;
+use crate::proposals::{PeerReadableProposal, PeerWritableProposal, PeerMessageProposal, PeerHandshakeMessageProposal};
 
-impl<'a, E, R> Acceptor<PeerReadableProposal<'a, R>> for TezedgeState<E>
+impl<'a, E, S> Acceptor<PeerReadableProposal<'a, S>> for TezedgeState<E>
     where E: Effects,
-          R: Read,
+          S: Read + Write,
 {
-    fn accept(&mut self, proposal: PeerReadableProposal<R>) {
+    fn accept(&mut self, proposal: PeerReadableProposal<S>) {
         if let Err(_err) = self.validate_proposal(&proposal) {
             #[cfg(test)]
             assert_ne!(_err, crate::InvalidProposalError::ProposalOutdated);
@@ -37,6 +36,9 @@ impl<'a, E, R> Acceptor<PeerReadableProposal<'a, R>> for TezedgeState<E>
             };
         } else {
             if let Some(peer) = self.pending_peers.get_mut(&proposal.peer) {
+                if !peer.should_read() {
+                    return;
+                }
                 if let Err(err) = peer.read_message_from(proposal.stream) {
                     match err.kind() {
                         io::ErrorKind::WouldBlock => {}
@@ -51,7 +53,8 @@ impl<'a, E, R> Acceptor<PeerReadableProposal<'a, R>> for TezedgeState<E>
                         peer: proposal.peer,
                         message: PeerBinaryHandshakeMessage::new(message),
                     });
-                    self.accept(proposal);
+                    // try writing to peer after succesfully reading a message.
+                    return self.accept(PeerWritableProposal::from(proposal));
                 }
             } else {
                 // we received event for a non existant peer, probably

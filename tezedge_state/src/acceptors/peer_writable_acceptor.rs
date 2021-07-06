@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use tezos_messages::p2p::encoding::ack::{AckMessage, NackMotive};
 use tla_sm::Acceptor;
 use crate::{TezedgeState, P2pState, Effects, HandshakeMessageType};
-use crate::proposals::PeerWritableProposal;
+use crate::proposals::{PeerReadableProposal, PeerWritableProposal};
 use crate::chunking::WriteMessageError;
 
 impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
@@ -52,6 +52,13 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
                                             .unwrap();
                                         if let Some(result) = peer.to_handshake_result() {
                                             self.set_peer_connected(proposal.at, proposal.peer, result);
+                                            // try to write and read from peer
+                                            // after successful handshake.
+                                            self.accept(PeerReadableProposal {
+                                                at: proposal.at,
+                                                peer: proposal.peer,
+                                                stream: proposal.stream,
+                                            });
                                             return self.accept(proposal);
                                         } else {
                                             self.blacklist_peer(proposal.at, proposal.peer);
@@ -61,6 +68,8 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
                                     }
                                 }
                             }
+                            // try reading from peer after succesfully sending a message.
+                            return self.accept(PeerReadableProposal::from(proposal));
                         }
                         Err(WriteMessageError::Empty) => {
                             let p2p_state = self.p2p_state;

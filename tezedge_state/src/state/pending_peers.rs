@@ -291,6 +291,20 @@ impl PendingPeer {
         }
     }
 
+    /// We should read from pending peer only if we are waiting for a
+    /// message from them.
+    pub fn should_read(&mut self) -> bool {
+        use HandshakeStep::*;
+        use RequestState::*;
+
+        match &self.step {
+            Initiated { .. } if !self.incoming => true,
+            Connect { sent: Success { .. }, received: None, .. } => true,
+            Metadata { sent: Success { .. }, received: None, .. } => true,
+            Ack { sent: Success { .. }, received: false, .. } => true,
+            _ => false,
+        }
+    }
 
     #[inline]
     pub fn read_message_from<R: Read>(&mut self, reader: &mut R) -> Result<(), io::Error> {
