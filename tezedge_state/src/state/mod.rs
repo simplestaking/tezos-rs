@@ -262,9 +262,17 @@ impl<E> TezedgeState<E> {
     }
 
     #[inline]
-    fn missing_connections(&self) -> usize {
+    fn missing_connected_peers(&self) -> usize {
         self.config.max_connected_peers
             .checked_sub(self.connected_peers.len()).unwrap_or(0)
+    }
+
+    #[inline]
+    fn missing_pending_peers(&self) -> usize {
+        self.config.max_pending_peers
+            .min(self.missing_connected_peers())
+            .checked_sub(self.pending_peers.len())
+            .unwrap_or(0)
     }
 
     pub fn stats(&self) -> TezedgeStats {
@@ -321,30 +329,30 @@ impl<E: Effects> TezedgeState<E> {
     pub(crate) fn adjust_p2p_state(&mut self, at: Instant) {
         use P2pState::*;
         let min_connected = self.config.min_connected_peers as usize;
-        let missing_connections  = self.missing_connections();
-        let max_pending = self.config.max_pending_peers.min(missing_connections);
+        let missing_connected  = self.missing_connected_peers();
+        let missing_pending = self.missing_pending_peers();
 
         let mut should_listen_for_connections = false;
+        let mut should_initiate_connections = false;
 
-        if missing_connections == 0 {
-            should_listen_for_connections = false;
+        if missing_connected == 0 {
             self.p2p_state = ReadyMaxed;
         } else if self.connected_peers.len() < min_connected {
-            if self.pending_peers.len() == max_pending {
-                should_listen_for_connections = false;
+            if missing_pending == 0 {
                 self.p2p_state = PendingFull;
             } else {
                 should_listen_for_connections = true;
+                should_initiate_connections = true;
                 self.p2p_state = Pending;
                 self.initiate_handshakes(at);
             }
         } else {
-            if self.pending_peers.len() == max_pending {
+            if missing_pending == 0 {
                 self.p2p_state = ReadyFull;
-                should_listen_for_connections = false;
             } else {
                 self.p2p_state = Ready;
                 should_listen_for_connections = true;
+                should_initiate_connections = true;
                 self.initiate_handshakes(at);
             }
         }
@@ -363,6 +371,10 @@ impl<E: Effects> TezedgeState<E> {
                     status: RequestState::Idle { at },
                 });
             }
+        }
+
+        if should_initiate_connections {
+            return self.initiate_handshakes(at);
         }
     }
 
@@ -443,8 +455,7 @@ impl<E: Effects> TezedgeState<E> {
             Pending | Ready => {}
         }
         let len = self.potential_peers.len()
-            .min(max_pending - self.pending_peers.len())
-            .min(self.config.max_connected_peers - self.connected_peers.len() - self.pending_peers.len());
+            .min(self.missing_pending_peers());
 
         slog::info!(&self.log, "Initiating handshakes";
                      "connected_peers" => self.connected_peers.len(),

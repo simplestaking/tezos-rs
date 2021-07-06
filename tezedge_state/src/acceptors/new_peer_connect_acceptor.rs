@@ -19,7 +19,7 @@ impl<E: Effects> Acceptor<NewPeerConnectProposal> for TezedgeState<E> {
                 ));
             }
             P2pState::PendingFull | P2pState::ReadyFull | P2pState::ReadyMaxed => {
-                slog::warn!(&self.log, "Disconnecting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Requested by the Proposer");
+                slog::warn!(&self.log, "Rejecting incoming peer connection!"; "peer_address" => proposal.peer.to_string(), "reason" => "Max pending/connected peers threshold reached!");
                 self.disconnect_peer(proposal.at, proposal.peer);
             }
         }

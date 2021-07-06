@@ -47,6 +47,7 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
                                 HandshakeMessageType::Ack => {
                                     peer.send_ack_msg_successful(proposal.at);
                                     if peer.is_handshake_finished() {
+                                        let nack_motive = peer.nack_motive();
                                         let peer = self.pending_peers
                                             .remove(&proposal.peer)
                                             .unwrap();
@@ -62,7 +63,13 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
                                             });
                                             return self.accept(proposal);
                                         } else {
-                                            slog::warn!(&self.log, "Blacklisting peer!"; "reason" => "Handshake failed!");
+                                            slog::warn!(&self.log, "Blacklisting peer";
+                                                "peer_address" => proposal.peer.to_string(),
+                                                "reason" => format!("Sent Nack({:?})", match nack_motive {
+                                                    Some(motive) => motive.to_string(),
+                                                    None => "[Unknown]".to_string(),
+                                                }));
+                                            slog::warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Sent Nack");
                                             self.blacklist_peer(proposal.at, proposal.peer);
                                             self.adjust_p2p_state(time);
                                             return self.periodic_react(time);
@@ -131,7 +138,9 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
             } else {
                 // we received event for a non existant peer, probably
                 // mio's view about connected peers is out of sync.
-                slog::warn!(&self.log, "Disconnecting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Received readable proposal for a non-existant peer. MIO out of sync!");
+                // But the case could be that this event happened and
+                // was enqueued, before we made a decision to disconnect a peer.
+                slog::warn!(&self.log, "Disconnecting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Received readable proposal for a non-existant peer. Maybe MIO out of sync.");
                 self.disconnect_peer(proposal.at, proposal.peer);
             }
         }

@@ -225,6 +225,10 @@ impl PendingPeer {
         self.step.public_key()
     }
 
+    pub fn nack_motive(&self) -> Option<NackMotive> {
+        self.nack_motive.clone()
+    }
+
     pub fn nack_peer(&mut self, motive: NackMotive) {
         if self.nack_motive.is_none() {
             self.nack_motive = Some(motive);

@@ -81,6 +81,7 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                 match result {
                     Ok(AckMessage::Ack) => {
                         if pending_peer.is_handshake_finished() {
+                            let nack_motive = pending_peer.nack_motive();
                             let result = self.pending_peers
                                 .remove(&proposal.peer).unwrap()
                                 .to_handshake_result();
@@ -91,6 +92,14 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                                     result,
                                 );
                                 self.adjust_p2p_state(proposal.at);
+                            } else {
+                                slog::warn!(&self.log, "Blacklisting peer";
+                                            "peer_address" => proposal.peer.to_string(),
+                                            "reason" => format!("Sent Nack({:?})", match nack_motive {
+                                                Some(motive) => motive.to_string(),
+                                                None => "[Unknown]".to_string(),
+                                            }));
+                                self.blacklist_peer(proposal.at, proposal.peer);
                             }
                         }
                         Ok(())
