@@ -1,6 +1,7 @@
 use std::io::{Read, Write};
 use std::time::Instant;
 use std::collections::{HashMap, VecDeque};
+use crypto::crypto_box::PublicKey;
 use getset::{Getters, CopyGetters};
 
 use tezos_messages::p2p::encoding::peer::{PeerMessage, PeerMessageResponse};
@@ -25,7 +26,7 @@ pub struct ConnectedPeer {
     pub version: NetworkVersion,
 
     // #[get = "pub"]
-    pub public_key: Vec<u8>,
+    pub public_key: PublicKey,
 
     // #[get = "pub"]
     pub crypto: PeerCrypto,

@@ -26,7 +26,7 @@ use crate::chunking::{HandshakeReadBuffer, ChunkWriter, EncryptedMessageWriter, 
 pub struct ReceivedConnectionMessageData {
     port: Port,
     compatible_version: Option<NetworkVersion>,
-    public_key: Vec<u8>,
+    public_key: PublicKey,
     encoded: BinaryChunk,
 }
 
@@ -39,7 +39,7 @@ impl ReceivedConnectionMessageData {
         self.compatible_version.as_ref()
     }
 
-    pub fn public_key(&self) -> &[u8] {
+    pub fn public_key(&self) -> &PublicKey {
         &self.public_key
     }
 }
@@ -78,7 +78,7 @@ pub enum HandshakeMessageType {
 pub struct HandshakeResult {
     pub port: Port,
     pub compatible_version: NetworkVersion,
-    pub public_key: Vec<u8>,
+    pub public_key: PublicKey,
     pub disable_mempool: bool,
     pub private_node: bool,
     pub crypto: PeerCrypto,
@@ -98,7 +98,7 @@ pub enum HandshakeStep {
 
         port: Port,
         compatible_version: Option<NetworkVersion>,
-        public_key: Vec<u8>,
+        public_key: PublicKey,
         crypto: PeerCrypto,
     },
     Ack {
@@ -107,7 +107,7 @@ pub enum HandshakeStep {
 
         port: Port,
         compatible_version: Option<NetworkVersion>,
-        public_key: Vec<u8>,
+        public_key: PublicKey,
         disable_mempool: bool,
         private_node: bool,
         crypto: PeerCrypto,
@@ -123,7 +123,7 @@ impl HandshakeStep {
         )
     }
 
-    pub fn public_key(&self) -> Option<&[u8]> {
+    pub fn public_key(&self) -> Option<&PublicKey> {
         match self {
             Self::Connect { received: Some(conn_msg), .. } => {
                 Some(conn_msg.public_key())
@@ -255,7 +255,7 @@ impl PendingPeer {
             .map(|port| PeerListenerAddress::new(self.address.ip(), port))
     }
 
-    pub fn public_key(&self) -> Option<&[u8]> {
+    pub fn public_key(&self) -> Option<&PublicKey> {
         self.step.public_key()
     }
 
@@ -280,7 +280,6 @@ impl PendingPeer {
                 received: Some(conn_msg),
                 sent_conn_msg,
             } => {
-                let public_key = PublicKey::from_bytes(conn_msg.public_key()).unwrap();
                 let nonce_pair = generate_nonces(
                     &BinaryChunk::from_content(&sent_conn_msg.as_bytes().unwrap()).unwrap().raw(),
                     conn_msg.encoded.raw(),
@@ -288,7 +287,7 @@ impl PendingPeer {
                 ).unwrap();
 
                 let precomputed_key = PrecomputedKey::precompute(
-                    &public_key,
+                    &conn_msg.public_key(),
                     &node_identity.secret_key,
                 );
 
@@ -575,7 +574,7 @@ impl PendingPeer {
         let received_conn_msg = ReceivedConnectionMessageData {
             port: conn_msg.port,
             compatible_version,
-            public_key: conn_msg.public_key,
+            public_key: public_key.clone(),
             encoded: message.take_binary_chunk(),
         };
 

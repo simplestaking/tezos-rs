@@ -53,12 +53,12 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                             .iter()
                             .any(|(_, peer)| {
                                 peer.step.public_key().map(|existing_pub_key| {
-                                    existing_pub_key == pub_key.as_ref().as_ref()
+                                    existing_pub_key == &pub_key
                                         && peer.address != proposal_peer
                                 }).unwrap_or(false)
                             }) || {
                                 self.connected_peers.iter().any(|peer| {
-                                    peer.public_key == pub_key.as_ref().as_ref()
+                                    peer.public_key == pub_key
                                 })
                             };
 
