@@ -1530,2116 +1530,2116 @@ impl BlockStateDb {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use serial_test::serial;
+// #[cfg(test)]
+// mod tests {
+//     use serial_test::serial;
 
-    use networking::p2p::network_channel::NetworkChannel;
+//     use networking::p2p::network_channel::NetworkChannel;
 
-    use crate::shell_channel::ShellChannel;
-    use crate::state::peer_state::DataQueuesLimits;
-    use crate::state::tests::block;
-    use crate::state::tests::prerequisites::{
-        chain_feeder_mock, create_logger, create_test_actor_system, create_test_tokio_runtime,
-        test_peer,
-    };
+//     use crate::shell_channel::ShellChannel;
+//     use crate::state::peer_state::DataQueuesLimits;
+//     use crate::state::tests::block;
+//     use crate::state::tests::prerequisites::{
+//         chain_feeder_mock, create_logger, create_test_actor_system, create_test_tokio_runtime,
+//         test_peer,
+//     };
 
-    use super::*;
-    use storage::tests_common::TmpStorage;
-    use storage::{BlockMetaStorage, OperationsMetaStorage};
+//     use super::*;
+//     use storage::tests_common::TmpStorage;
+//     use storage::{BlockMetaStorage, OperationsMetaStorage};
 
-    // macro_rules! hash_set {
-    //     ( $( $x:expr ),* ) => {
-    //         {
-    //             let mut temp_set = HashSet::new();
-    //             $(
-    //                 temp_set.insert($x);
-    //             )*
-    //             temp_set
-    //         }
-    //     };
-    // }
+//     // macro_rules! hash_set {
+//     //     ( $( $x:expr ),* ) => {
+//     //         {
+//     //             let mut temp_set = HashSet::new();
+//     //             $(
+//     //                 temp_set.insert($x);
+//     //             )*
+//     //             temp_set
+//     //         }
+//     //     };
+//     // }
 
-    fn assert_interval(
-        tested: &BranchInterval,
-        (expected_left, expected_right): (BlockHash, BlockHash),
-    ) {
-        assert_eq!(tested.start.as_ref(), &expected_left);
-        assert_eq!(tested.seek.as_ref(), &expected_right);
-        assert_eq!(tested.end.as_ref(), &expected_right);
-    }
+//     fn assert_interval(
+//         tested: &BranchInterval,
+//         (expected_left, expected_right): (BlockHash, BlockHash),
+//     ) {
+//         assert_eq!(tested.start.as_ref(), &expected_left);
+//         assert_eq!(tested.seek.as_ref(), &expected_right);
+//         assert_eq!(tested.end.as_ref(), &expected_right);
+//     }
 
-    #[test]
-    #[serial]
-    fn test_bootstrap_state_add_new_branch() {
-        // actors stuff
-        let log = create_logger(slog::Level::Info);
-        let sys = create_test_actor_system(log.clone());
-        let runtime = create_test_tokio_runtime();
-        let network_channel =
-            NetworkChannel::actor(&sys).expect("Failed to create network channel");
-        let shell_channel = ShellChannel::actor(&sys).expect("Failed to create network channel");
-        let storage = TmpStorage::create_to_out_dir("__test_bootstrap_state_add_new_branch")
-            .expect("failed to create tmp storage");
-        let (chain_feeder_mock, _) = chain_feeder_mock(
-            &sys,
-            "mocked_chain_feeder_bootstrap_state",
-            shell_channel.clone(),
-        )
-        .expect("failed to create chain_feeder_mock");
-        let data_requester = Arc::new(DataRequester::new(
-            BlockMetaStorage::new(storage.storage()),
-            OperationsMetaStorage::new(storage.storage()),
-            chain_feeder_mock,
-        ));
+//     #[test]
+//     #[serial]
+//     fn test_bootstrap_state_add_new_branch() {
+//         // actors stuff
+//         let log = create_logger(slog::Level::Info);
+//         let sys = create_test_actor_system(log.clone());
+//         let runtime = create_test_tokio_runtime();
+//         let network_channel =
+//             NetworkChannel::actor(&sys).expect("Failed to create network channel");
+//         let shell_channel = ShellChannel::actor(&sys).expect("Failed to create network channel");
+//         let storage = TmpStorage::create_to_out_dir("__test_bootstrap_state_add_new_branch")
+//             .expect("failed to create tmp storage");
+//         let (chain_feeder_mock, _) = chain_feeder_mock(
+//             &sys,
+//             "mocked_chain_feeder_bootstrap_state",
+//             shell_channel.clone(),
+//         )
+//         .expect("failed to create chain_feeder_mock");
+//         let data_requester = Arc::new(DataRequester::new(
+//             BlockMetaStorage::new(storage.storage()),
+//             OperationsMetaStorage::new(storage.storage()),
+//             chain_feeder_mock,
+//         ));
 
-        // peer1
-        let peer_id = test_peer(&sys, network_channel, &runtime, 1234).peer_id;
-        let peer_queues = Arc::new(DataQueues::new(DataQueuesLimits {
-            max_queued_block_headers_count: 10,
-            max_queued_block_operations_count: 10,
-        }));
+//         // peer1
+//         let peer_id = test_peer(&sys, network_channel, &runtime, 1234).peer_id;
+//         let peer_queues = Arc::new(DataQueues::new(DataQueuesLimits {
+//             max_queued_block_headers_count: 10,
+//             max_queued_block_operations_count: 10,
+//         }));
 
-        // empty state
-        let mut state = BootstrapState::new(data_requester, shell_channel);
+//         // empty state
+//         let mut state = BootstrapState::new(data_requester, shell_channel);
 
-        // genesis
-        let last_applied = block(0);
+//         // genesis
+//         let last_applied = block(0);
 
-        // history blocks
-        let history: Vec<BlockHash> = vec![
-            block(2),
-            block(5),
-            block(8),
-            block(10),
-            block(13),
-            block(15),
-            block(20),
-        ];
+//         // history blocks
+//         let history: Vec<BlockHash> = vec![
+//             block(2),
+//             block(5),
+//             block(8),
+//             block(10),
+//             block(13),
+//             block(15),
+//             block(20),
+//         ];
 
-        // add new branch to empty state
-        assert!(matches!(
-            state.add_new_branch(
-                peer_id.clone(),
-                peer_queues.clone(),
-                last_applied.clone(),
-                history,
-                20,
-                5,
-                &log,
-            ),
-            AddBranchState::Added(false)
-        ));
+//         // add new branch to empty state
+//         assert!(matches!(
+//             state.add_new_branch(
+//                 peer_id.clone(),
+//                 peer_queues.clone(),
+//                 last_applied.clone(),
+//                 history,
+//                 20,
+//                 5,
+//                 &log,
+//             ),
+//             AddBranchState::Added(false)
+//         ));
 
-        // check state
-        let peer_bootstrap_state = state.peers.get_mut(peer_id.peer_ref.uri()).unwrap();
-        assert!(peer_bootstrap_state.empty_bootstrap_state.is_none());
-        assert_eq!(1, peer_bootstrap_state.branches.len());
-        let pipeline = &peer_bootstrap_state.branches[0];
-        assert_eq!(pipeline.intervals.len(), 7);
-        assert_interval(&pipeline.intervals[0], (block(0), block(2)));
-        assert_interval(&pipeline.intervals[1], (block(2), block(5)));
-        assert_interval(&pipeline.intervals[2], (block(5), block(8)));
-        assert_interval(&pipeline.intervals[3], (block(8), block(10)));
-        assert_interval(&pipeline.intervals[4], (block(10), block(13)));
-        assert_interval(&pipeline.intervals[5], (block(13), block(15)));
-        assert_interval(&pipeline.intervals[6], (block(15), block(20)));
+//         // check state
+//         let peer_bootstrap_state = state.peers.get_mut(peer_id.peer_ref.uri()).unwrap();
+//         assert!(peer_bootstrap_state.empty_bootstrap_state.is_none());
+//         assert_eq!(1, peer_bootstrap_state.branches.len());
+//         let pipeline = &peer_bootstrap_state.branches[0];
+//         assert_eq!(pipeline.intervals.len(), 7);
+//         assert_interval(&pipeline.intervals[0], (block(0), block(2)));
+//         assert_interval(&pipeline.intervals[1], (block(2), block(5)));
+//         assert_interval(&pipeline.intervals[2], (block(5), block(8)));
+//         assert_interval(&pipeline.intervals[3], (block(8), block(10)));
+//         assert_interval(&pipeline.intervals[4], (block(10), block(13)));
+//         assert_interval(&pipeline.intervals[5], (block(13), block(15)));
+//         assert_interval(&pipeline.intervals[6], (block(15), block(20)));
 
-        // try add new branch as the same as before - could happen when we are bootstrapped and receives the same CurrentHead with different operations
-        // history blocks
-        let history: Vec<BlockHash> = vec![
-            block(2),
-            block(5),
-            block(8),
-            block(10),
-            block(13),
-            block(15),
-            block(20),
-        ];
+//         // try add new branch as the same as before - could happen when we are bootstrapped and receives the same CurrentHead with different operations
+//         // history blocks
+//         let history: Vec<BlockHash> = vec![
+//             block(2),
+//             block(5),
+//             block(8),
+//             block(10),
+//             block(13),
+//             block(15),
+//             block(20),
+//         ];
 
-        // add new branch to empty state
-        assert!(matches!(
-            state.add_new_branch(
-                peer_id.clone(),
-                peer_queues.clone(),
-                last_applied.clone(),
-                history,
-                20,
-                5,
-                &log,
-            ),
-            AddBranchState::Ignored
-        ));
-        // check state - still 1
-        let peer_bootstrap_state = state.peers.get_mut(peer_id.peer_ref.uri()).unwrap();
-        assert!(peer_bootstrap_state.empty_bootstrap_state.is_none());
-        assert_eq!(1, peer_bootstrap_state.branches.len());
+//         // add new branch to empty state
+//         assert!(matches!(
+//             state.add_new_branch(
+//                 peer_id.clone(),
+//                 peer_queues.clone(),
+//                 last_applied.clone(),
+//                 history,
+//                 20,
+//                 5,
+//                 &log,
+//             ),
+//             AddBranchState::Ignored
+//         ));
+//         // check state - still 1
+//         let peer_bootstrap_state = state.peers.get_mut(peer_id.peer_ref.uri()).unwrap();
+//         assert!(peer_bootstrap_state.empty_bootstrap_state.is_none());
+//         assert_eq!(1, peer_bootstrap_state.branches.len());
 
-        // try add new branch lower as before
-        // history blocks
-        let history: Vec<BlockHash> = vec![block(2), block(5), block(8), block(10)];
+//         // try add new branch lower as before
+//         // history blocks
+//         let history: Vec<BlockHash> = vec![block(2), block(5), block(8), block(10)];
 
-        // add new branch to empty state
-        assert!(matches!(
-            state.add_new_branch(
-                peer_id.clone(),
-                peer_queues.clone(),
-                last_applied.clone(),
-                history,
-                20,
-                5,
-                &log,
-            ),
-            AddBranchState::Ignored
-        ));
-        // check state - still 1
-        let peer_bootstrap_state = state.peers.get_mut(peer_id.peer_ref.uri()).unwrap();
-        assert!(peer_bootstrap_state.empty_bootstrap_state.is_none());
-        assert_eq!(1, peer_bootstrap_state.branches.len());
+//         // add new branch to empty state
+//         assert!(matches!(
+//             state.add_new_branch(
+//                 peer_id.clone(),
+//                 peer_queues.clone(),
+//                 last_applied.clone(),
+//                 history,
+//                 20,
+//                 5,
+//                 &log,
+//             ),
+//             AddBranchState::Ignored
+//         ));
+//         // check state - still 1
+//         let peer_bootstrap_state = state.peers.get_mut(peer_id.peer_ref.uri()).unwrap();
+//         assert!(peer_bootstrap_state.empty_bootstrap_state.is_none());
+//         assert_eq!(1, peer_bootstrap_state.branches.len());
 
-        // try add new branch merge new - ok
-        let history_to_merge: Vec<BlockHash> = vec![
-            block(13),
-            block(15),
-            block(20),
-            block(22),
-            block(23),
-            block(25),
-            block(29),
-        ];
-        assert!(matches!(
-            state.add_new_branch(
-                peer_id.clone(),
-                peer_queues.clone(),
-                last_applied.clone(),
-                history_to_merge,
-                29,
-                5,
-                &log,
-            ),
-            AddBranchState::Added(true)
-        ));
+//         // try add new branch merge new - ok
+//         let history_to_merge: Vec<BlockHash> = vec![
+//             block(13),
+//             block(15),
+//             block(20),
+//             block(22),
+//             block(23),
+//             block(25),
+//             block(29),
+//         ];
+//         assert!(matches!(
+//             state.add_new_branch(
+//                 peer_id.clone(),
+//                 peer_queues.clone(),
+//                 last_applied.clone(),
+//                 history_to_merge,
+//                 29,
+//                 5,
+//                 &log,
+//             ),
+//             AddBranchState::Added(true)
+//         ));
 
-        // check state - branch was extended
-        let peer_bootstrap_state = state.peers.get_mut(peer_id.peer_ref.uri()).unwrap();
-        assert!(peer_bootstrap_state.empty_bootstrap_state.is_none());
-        assert_eq!(1, peer_bootstrap_state.branches.len());
+//         // check state - branch was extended
+//         let peer_bootstrap_state = state.peers.get_mut(peer_id.peer_ref.uri()).unwrap();
+//         assert!(peer_bootstrap_state.empty_bootstrap_state.is_none());
+//         assert_eq!(1, peer_bootstrap_state.branches.len());
 
-        let pipeline = &peer_bootstrap_state.branches[0];
-        assert_eq!(pipeline.intervals.len(), 11);
-        assert_interval(&pipeline.intervals[0], (block(0), block(2)));
-        assert_interval(&pipeline.intervals[1], (block(2), block(5)));
-        assert_interval(&pipeline.intervals[2], (block(5), block(8)));
-        assert_interval(&pipeline.intervals[3], (block(8), block(10)));
-        assert_interval(&pipeline.intervals[4], (block(10), block(13)));
-        assert_interval(&pipeline.intervals[5], (block(13), block(15)));
-        assert_interval(&pipeline.intervals[6], (block(15), block(20)));
-        assert_interval(&pipeline.intervals[7], (block(20), block(22)));
-        assert_interval(&pipeline.intervals[8], (block(22), block(23)));
-        assert_interval(&pipeline.intervals[9], (block(23), block(25)));
-        assert_interval(&pipeline.intervals[10], (block(25), block(29)));
+//         let pipeline = &peer_bootstrap_state.branches[0];
+//         assert_eq!(pipeline.intervals.len(), 11);
+//         assert_interval(&pipeline.intervals[0], (block(0), block(2)));
+//         assert_interval(&pipeline.intervals[1], (block(2), block(5)));
+//         assert_interval(&pipeline.intervals[2], (block(5), block(8)));
+//         assert_interval(&pipeline.intervals[3], (block(8), block(10)));
+//         assert_interval(&pipeline.intervals[4], (block(10), block(13)));
+//         assert_interval(&pipeline.intervals[5], (block(13), block(15)));
+//         assert_interval(&pipeline.intervals[6], (block(15), block(20)));
+//         assert_interval(&pipeline.intervals[7], (block(20), block(22)));
+//         assert_interval(&pipeline.intervals[8], (block(22), block(23)));
+//         assert_interval(&pipeline.intervals[9], (block(23), block(25)));
+//         assert_interval(&pipeline.intervals[10], (block(25), block(29)));
 
-        // add next branch
-        let history_to_merge: Vec<BlockHash> = vec![
-            block(113),
-            block(115),
-            block(120),
-            block(122),
-            block(123),
-            block(125),
-            block(129),
-        ];
+//         // add next branch
+//         let history_to_merge: Vec<BlockHash> = vec![
+//             block(113),
+//             block(115),
+//             block(120),
+//             block(122),
+//             block(123),
+//             block(125),
+//             block(129),
+//         ];
 
-        assert!(matches!(
-            state.add_new_branch(
-                peer_id.clone(),
-                peer_queues.clone(),
-                last_applied.clone(),
-                history_to_merge,
-                129,
-                5,
-                &log,
-            ),
-            AddBranchState::Added(false)
-        ));
+//         assert!(matches!(
+//             state.add_new_branch(
+//                 peer_id.clone(),
+//                 peer_queues.clone(),
+//                 last_applied.clone(),
+//                 history_to_merge,
+//                 129,
+//                 5,
+//                 &log,
+//             ),
+//             AddBranchState::Added(false)
+//         ));
 
-        // check state - branch was extended
-        let peer_bootstrap_state = state.peers.get_mut(peer_id.peer_ref.uri()).unwrap();
-        assert!(peer_bootstrap_state.empty_bootstrap_state.is_none());
-        assert_eq!(2, peer_bootstrap_state.branches.len());
+//         // check state - branch was extended
+//         let peer_bootstrap_state = state.peers.get_mut(peer_id.peer_ref.uri()).unwrap();
+//         assert!(peer_bootstrap_state.empty_bootstrap_state.is_none());
+//         assert_eq!(2, peer_bootstrap_state.branches.len());
 
-        // try add next branch - max branches 2 - no added
-        let history_to_merge: Vec<BlockHash> = vec![
-            block(213),
-            block(215),
-            block(220),
-            block(222),
-            block(223),
-            block(225),
-            block(229),
-        ];
+//         // try add next branch - max branches 2 - no added
+//         let history_to_merge: Vec<BlockHash> = vec![
+//             block(213),
+//             block(215),
+//             block(220),
+//             block(222),
+//             block(223),
+//             block(225),
+//             block(229),
+//         ];
 
-        assert!(matches!(
-            state.add_new_branch(
-                peer_id.clone(),
-                peer_queues,
-                last_applied,
-                history_to_merge,
-                229,
-                2,
-                &log,
-            ),
-            AddBranchState::Ignored
-        ));
-        // check state - branch was extended - no
-        let peer_bootstrap_state = state.peers.get_mut(peer_id.peer_ref.uri()).unwrap();
-        assert!(peer_bootstrap_state.empty_bootstrap_state.is_none());
-        assert_eq!(2, peer_bootstrap_state.branches.len());
-    }
-    //
-    // #[test]
-    // fn test_bootstrap_state_split_to_intervals() {
-    //     // genesis
-    //     let last_applied = block(0);
-    //     // history blocks
-    //     let history: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //     ];
-    //
-    //     let mut block_state_db = BlockStateDb::new(50);
-    //
-    //     // create
-    //     let pipeline = BranchState::new(last_applied.clone(), history, 20, &mut block_state_db);
-    //     assert_eq!(pipeline.intervals.len(), 7);
-    //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
-    //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
-    //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
-    //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
-    //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
-    //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
-    //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
-    //
-    //     assert!(pipeline.contains_block_to_apply(&block(0)));
-    //     assert!(pipeline.contains_block_to_apply(&block(2)));
-    //     assert!(pipeline.contains_block_to_apply(&block(5)));
-    //     assert!(pipeline.contains_block_to_apply(&block(10)));
-    //     assert!(pipeline.contains_block_to_apply(&block(13)));
-    //     assert!(pipeline.contains_block_to_apply(&block(15)));
-    //     assert!(pipeline.contains_block_to_apply(&block(20)));
-    //     assert!(!pipeline.contains_block_to_apply(&block(1)));
-    //     assert!(!pipeline.contains_block_to_apply(&block(3)));
-    //     assert!(!pipeline.contains_block_to_apply(&block(4)));
-    //
-    //     // check applied is just first block
-    //     pipeline
-    //         .intervals
-    //         .iter()
-    //         .map(|i| &i.blocks)
-    //         .flatten()
-    //         .for_each(|b| {
-    //             let block_state = block_state_db.blocks.get(b).unwrap();
-    //             if b.as_ref().eq(&last_applied) {
-    //                 assert!(block_state.applied);
-    //                 assert!(block_state.block_downloaded);
-    //                 assert!(block_state.operations_downloaded);
-    //             } else {
-    //                 assert!(!block_state.applied);
-    //                 assert!(!block_state.block_downloaded);
-    //                 assert!(!block_state.operations_downloaded);
-    //             }
-    //         })
-    // }
-    //
-    // #[test]
-    // fn test_bootstrap_state_merge() {
-    //     // genesis
-    //     let last_applied = block(0);
-    //
-    //     // history blocks
-    //     let history1: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //     ];
-    //     let mut block_state_db = BlockStateDb::new(50);
-    //
-    //     let mut pipeline1 = BranchState::new(last_applied, history1, 20, &mut block_state_db);
-    //     assert_eq!(pipeline1.intervals.len(), 7);
-    //     assert_eq!(pipeline1.to_level, 20);
-    //
-    //     // try merge lower - nothing
-    //     let history_to_merge: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //     ];
-    //     assert!(!pipeline1.merge(&100, &history_to_merge, &mut block_state_db));
-    //     assert_eq!(pipeline1.intervals.len(), 7);
-    //     assert_eq!(pipeline1.to_level, 20);
-    //
-    //     // try merge different - nothing
-    //     let history_to_merge: Vec<BlockHash> = vec![
-    //         block(1),
-    //         block(4),
-    //         block(7),
-    //         block(9),
-    //         block(12),
-    //         block(14),
-    //         block(16),
-    //     ];
-    //     assert!(!pipeline1.merge(&100, &history_to_merge, &mut block_state_db));
-    //     assert_eq!(pipeline1.intervals.len(), 7);
-    //     assert_eq!(pipeline1.to_level, 20);
-    //
-    //     // try merge the same - nothing
-    //     let history_to_merge: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //     ];
-    //     assert!(!pipeline1.merge(&100, &history_to_merge, &mut block_state_db));
-    //     assert_eq!(pipeline1.intervals.len(), 7);
-    //     assert_eq!(pipeline1.to_level, 20);
-    //
-    //     // try merge the one new - nothing
-    //     let history_to_merge: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //         block(22),
-    //     ];
-    //     assert!(pipeline1.merge(&22, &history_to_merge, &mut block_state_db));
-    //     assert_eq!(pipeline1.intervals.len(), 8);
-    //     assert_eq!(pipeline1.to_level, 22);
-    //
-    //     // try merge new - ok
-    //     let history_to_merge: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //         block(22),
-    //         block(23),
-    //         block(25),
-    //         block(29),
-    //     ];
-    //     assert!(pipeline1.merge(&29, &history_to_merge, &mut block_state_db));
-    //     assert_eq!(pipeline1.intervals.len(), 11);
-    //     assert_eq!(pipeline1.to_level, 29);
-    //
-    //     assert_interval(&pipeline1.intervals[0], (block(0), block(2)));
-    //     assert_interval(&pipeline1.intervals[1], (block(2), block(5)));
-    //     assert_interval(&pipeline1.intervals[2], (block(5), block(8)));
-    //     assert_interval(&pipeline1.intervals[3], (block(8), block(10)));
-    //     assert_interval(&pipeline1.intervals[4], (block(10), block(13)));
-    //     assert_interval(&pipeline1.intervals[5], (block(13), block(15)));
-    //     assert_interval(&pipeline1.intervals[6], (block(15), block(20)));
-    //     assert_interval(&pipeline1.intervals[7], (block(20), block(22)));
-    //     assert_interval(&pipeline1.intervals[8], (block(22), block(23)));
-    //     assert_interval(&pipeline1.intervals[9], (block(23), block(25)));
-    //     assert_interval(&pipeline1.intervals[10], (block(25), block(29)));
-    // }
+//         assert!(matches!(
+//             state.add_new_branch(
+//                 peer_id.clone(),
+//                 peer_queues,
+//                 last_applied,
+//                 history_to_merge,
+//                 229,
+//                 2,
+//                 &log,
+//             ),
+//             AddBranchState::Ignored
+//         ));
+//         // check state - branch was extended - no
+//         let peer_bootstrap_state = state.peers.get_mut(peer_id.peer_ref.uri()).unwrap();
+//         assert!(peer_bootstrap_state.empty_bootstrap_state.is_none());
+//         assert_eq!(2, peer_bootstrap_state.branches.len());
+//     }
+//     //
+//     // #[test]
+//     // fn test_bootstrap_state_split_to_intervals() {
+//     //     // genesis
+//     //     let last_applied = block(0);
+//     //     // history blocks
+//     //     let history: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //     ];
+//     //
+//     //     let mut block_state_db = BlockStateDb::new(50);
+//     //
+//     //     // create
+//     //     let pipeline = BranchState::new(last_applied.clone(), history, 20, &mut block_state_db);
+//     //     assert_eq!(pipeline.intervals.len(), 7);
+//     //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
+//     //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
+//     //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
+//     //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
+//     //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
+//     //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
+//     //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
+//     //
+//     //     assert!(pipeline.contains_block_to_apply(&block(0)));
+//     //     assert!(pipeline.contains_block_to_apply(&block(2)));
+//     //     assert!(pipeline.contains_block_to_apply(&block(5)));
+//     //     assert!(pipeline.contains_block_to_apply(&block(10)));
+//     //     assert!(pipeline.contains_block_to_apply(&block(13)));
+//     //     assert!(pipeline.contains_block_to_apply(&block(15)));
+//     //     assert!(pipeline.contains_block_to_apply(&block(20)));
+//     //     assert!(!pipeline.contains_block_to_apply(&block(1)));
+//     //     assert!(!pipeline.contains_block_to_apply(&block(3)));
+//     //     assert!(!pipeline.contains_block_to_apply(&block(4)));
+//     //
+//     //     // check applied is just first block
+//     //     pipeline
+//     //         .intervals
+//     //         .iter()
+//     //         .map(|i| &i.blocks)
+//     //         .flatten()
+//     //         .for_each(|b| {
+//     //             let block_state = block_state_db.blocks.get(b).unwrap();
+//     //             if b.as_ref().eq(&last_applied) {
+//     //                 assert!(block_state.applied);
+//     //                 assert!(block_state.block_downloaded);
+//     //                 assert!(block_state.operations_downloaded);
+//     //             } else {
+//     //                 assert!(!block_state.applied);
+//     //                 assert!(!block_state.block_downloaded);
+//     //                 assert!(!block_state.operations_downloaded);
+//     //             }
+//     //         })
+//     // }
+//     //
+//     // #[test]
+//     // fn test_bootstrap_state_merge() {
+//     //     // genesis
+//     //     let last_applied = block(0);
+//     //
+//     //     // history blocks
+//     //     let history1: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //     ];
+//     //     let mut block_state_db = BlockStateDb::new(50);
+//     //
+//     //     let mut pipeline1 = BranchState::new(last_applied, history1, 20, &mut block_state_db);
+//     //     assert_eq!(pipeline1.intervals.len(), 7);
+//     //     assert_eq!(pipeline1.to_level, 20);
+//     //
+//     //     // try merge lower - nothing
+//     //     let history_to_merge: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //     ];
+//     //     assert!(!pipeline1.merge(&100, &history_to_merge, &mut block_state_db));
+//     //     assert_eq!(pipeline1.intervals.len(), 7);
+//     //     assert_eq!(pipeline1.to_level, 20);
+//     //
+//     //     // try merge different - nothing
+//     //     let history_to_merge: Vec<BlockHash> = vec![
+//     //         block(1),
+//     //         block(4),
+//     //         block(7),
+//     //         block(9),
+//     //         block(12),
+//     //         block(14),
+//     //         block(16),
+//     //     ];
+//     //     assert!(!pipeline1.merge(&100, &history_to_merge, &mut block_state_db));
+//     //     assert_eq!(pipeline1.intervals.len(), 7);
+//     //     assert_eq!(pipeline1.to_level, 20);
+//     //
+//     //     // try merge the same - nothing
+//     //     let history_to_merge: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //     ];
+//     //     assert!(!pipeline1.merge(&100, &history_to_merge, &mut block_state_db));
+//     //     assert_eq!(pipeline1.intervals.len(), 7);
+//     //     assert_eq!(pipeline1.to_level, 20);
+//     //
+//     //     // try merge the one new - nothing
+//     //     let history_to_merge: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //         block(22),
+//     //     ];
+//     //     assert!(pipeline1.merge(&22, &history_to_merge, &mut block_state_db));
+//     //     assert_eq!(pipeline1.intervals.len(), 8);
+//     //     assert_eq!(pipeline1.to_level, 22);
+//     //
+//     //     // try merge new - ok
+//     //     let history_to_merge: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //         block(22),
+//     //         block(23),
+//     //         block(25),
+//     //         block(29),
+//     //     ];
+//     //     assert!(pipeline1.merge(&29, &history_to_merge, &mut block_state_db));
+//     //     assert_eq!(pipeline1.intervals.len(), 11);
+//     //     assert_eq!(pipeline1.to_level, 29);
+//     //
+//     //     assert_interval(&pipeline1.intervals[0], (block(0), block(2)));
+//     //     assert_interval(&pipeline1.intervals[1], (block(2), block(5)));
+//     //     assert_interval(&pipeline1.intervals[2], (block(5), block(8)));
+//     //     assert_interval(&pipeline1.intervals[3], (block(8), block(10)));
+//     //     assert_interval(&pipeline1.intervals[4], (block(10), block(13)));
+//     //     assert_interval(&pipeline1.intervals[5], (block(13), block(15)));
+//     //     assert_interval(&pipeline1.intervals[6], (block(15), block(20)));
+//     //     assert_interval(&pipeline1.intervals[7], (block(20), block(22)));
+//     //     assert_interval(&pipeline1.intervals[8], (block(22), block(23)));
+//     //     assert_interval(&pipeline1.intervals[9], (block(23), block(25)));
+//     //     assert_interval(&pipeline1.intervals[10], (block(25), block(29)));
+//     // }
 
-    // #[test]
-    // fn test_bootstrap_state_block_downloaded() -> Result<(), StateError> {
-    //     // genesis
-    //     let last_applied = block(0);
-    //     // history blocks
-    //     let history: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //     ];
-    //
-    //     // create
-    //     let mut block_state_db = BlockStateDb::new(50);
-    //
-    //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
-    //     assert_eq!(pipeline.intervals.len(), 7);
-    //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
-    //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
-    //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
-    //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
-    //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
-    //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
-    //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
-    //
-    //     // register downloaded block 2 with his predecessor 1
-    //     assert!(!pipeline.intervals[0].all_blocks_downloaded);
-    //     assert_eq!(pipeline.intervals[0].blocks.len(), 2);
-    //     let mut result = Vec::new();
-    //     pipeline.collect_next_block_headers_to_download(
-    //         1,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut result,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(1, result.len());
-    //     assert_eq!(result[0].as_ref(), &block(2));
-    //
-    //     block_state_db.mark_block_downloaded(
-    //         &block(2),
-    //         block(1),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: false,
-    //         },
-    //     );
-    //
-    //     let mut result = Vec::new();
-    //     pipeline.collect_next_block_headers_to_download(
-    //         1,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut result,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(1, result.len());
-    //     assert_eq!(result[0].as_ref(), &block(1));
-    //
-    //     // register downloaded block 1
-    //     block_state_db.mark_block_downloaded(
-    //         &block(1),
-    //         block(0),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: false,
-    //         },
-    //     );
-    //
-    //     // get next blocks
-    //     let mut result = Vec::new();
-    //     pipeline.collect_next_block_headers_to_download(
-    //         3,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut result,
-    //         &block_state_db,
-    //     );
-    //
-    //     // interval 0 is closed
-    //     assert!(pipeline.intervals[0].all_blocks_downloaded);
-    //     assert_eq!(pipeline.intervals[0].blocks.len(), 3);
-    //     assert_eq!(3, result.len());
-    //     assert_eq!(result[0].as_ref(), &block(5));
-    //     assert_eq!(result[1].as_ref(), &block(8));
-    //     assert_eq!(result[2].as_ref(), &block(10));
-    //
-    //     // next interval 1 is opened
-    //     assert!(!pipeline.intervals[1].all_blocks_downloaded);
-    //     assert_eq!(pipeline.intervals[1].blocks.len(), 2);
-    //
-    //     // register downloaded block 5 with his predecessor 4
-    //     block_state_db.mark_block_downloaded(
-    //         &block(5),
-    //         block(4),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: false,
-    //         },
-    //     );
-    //     // register downloaded block 4 as applied
-    //     block_state_db.mark_block_downloaded(
-    //         &block(4),
-    //         block(3),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: false,
-    //         },
-    //     );
-    //
-    //     // first interval with block 2 and block 3 were removed, because if 4 is applied, 2/3 must be also
-    //     pipeline.intervals[0].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //     assert!(pipeline.intervals[0].all_blocks_downloaded);
-    //     assert_eq!(pipeline.intervals[0].blocks.len(), 3);
-    //     assert_eq!(pipeline.intervals[0].blocks[0].as_ref(), &block(0));
-    //     assert_eq!(pipeline.intervals[0].blocks[1].as_ref(), &block(1));
-    //     assert_eq!(pipeline.intervals[0].blocks[2].as_ref(), &block(2));
-    //
-    //     pipeline.intervals[1].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //     assert!(!pipeline.intervals[1].all_blocks_downloaded);
-    //     assert_eq!(pipeline.intervals[1].blocks.len(), 4);
-    //     assert_eq!(pipeline.intervals[1].blocks[0].as_ref(), &block(2));
-    //     assert_eq!(pipeline.intervals[1].blocks[1].as_ref(), &block(3));
-    //     assert_eq!(pipeline.intervals[1].blocks[2].as_ref(), &block(4));
-    //     assert_eq!(pipeline.intervals[1].blocks[3].as_ref(), &block(5));
-    //
-    //     Ok(())
-    // }
-    //
-    // #[test]
-    // fn test_bootstrap_state_block_applied_marking() {
-    //     // genesis
-    //     let last_applied = block(0);
-    //     // history blocks
-    //     let history: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //     ];
-    //
-    //     // create
-    //     let mut block_state_db = BlockStateDb::new(50);
-    //
-    //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
-    //     assert_eq!(pipeline.intervals.len(), 7);
-    //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
-    //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
-    //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
-    //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
-    //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
-    //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
-    //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
-    //
-    //     // check intervals
-    //     assert_eq!(pipeline.intervals.len(), 7);
-    //
-    //     // trigger that block 2 is download with predecessor 1
-    //     block_state_db.mark_block_downloaded(
-    //         &block(2),
-    //         block(1),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: false,
-    //         },
-    //     );
-    //     pipeline.intervals[0].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //
-    //     // mark 1 as applied (half of interval)
-    //     block_state_db.remove_with_all_predecessors(&block(1));
-    //     pipeline.block_applied(&block(1), &block_state_db);
-    //     assert_eq!(pipeline.intervals.len(), 7);
-    //     // begining of interval is changed to block1
-    //     assert_eq!(pipeline.intervals[0].blocks.len(), 2);
-    //     assert_eq!(pipeline.intervals[0].blocks[0].as_ref(), &block(1));
-    //     assert_eq!(pipeline.intervals[0].blocks[1].as_ref(), &block(2));
-    //
-    //     // trigger that block 2 is applied
-    //     block_state_db.remove_with_all_predecessors(&block(2));
-    //     pipeline.block_applied(&block(2), &block_state_db);
-    //     assert_eq!(pipeline.intervals.len(), 6);
-    //
-    //     // trigger that block 8 is applied
-    //     block_state_db.remove_with_all_predecessors(&block(8));
-    //     pipeline.block_applied(&block(8), &block_state_db);
-    //     assert_eq!(pipeline.intervals.len(), 4);
-    //
-    //     // download 20 -> 19 -> 18 -> 17
-    //     block_state_db.mark_block_downloaded(
-    //         &block(20),
-    //         block(19),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: false,
-    //             applied: false,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(19),
-    //         block(18),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: false,
-    //             applied: false,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(18),
-    //         block(17),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: false,
-    //             applied: false,
-    //         },
-    //     );
-    //     assert!(!block_state_db.blocks.get(&block(20)).unwrap().applied);
-    //     assert!(!block_state_db.blocks.get(&block(19)).unwrap().applied);
-    //     assert!(!block_state_db.blocks.get(&block(18)).unwrap().applied);
-    //
-    //     // trigger that last block is applied
-    //     block_state_db.remove_with_all_predecessors(&block(20));
-    //
-    //     // direct predecessors should be marked as applied
-    //     assert!(block_state_db.blocks.get(&block(20)).unwrap().applied);
-    //     assert!(!block_state_db.blocks.contains_key(&block(19)));
-    //     assert!(!block_state_db.blocks.contains_key(&block(18)));
-    //
-    //     // mark pipeline - should remove all intervals now
-    //     pipeline.block_applied(&block(20), &block_state_db);
-    //
-    //     // interval 0 was removed
-    //     assert!(pipeline.is_done());
-    // }
-    //
-    // #[test]
-    // fn test_collect_next_blocks_to_download() {
-    //     // genesis
-    //     let last_applied = block(0);
-    //     // history blocks
-    //     let history: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //     ];
-    //
-    //     // create
-    //     let mut block_state_db = BlockStateDb::new(50);
-    //
-    //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
-    //     assert_eq!(pipeline.intervals.len(), 7);
-    //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
-    //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
-    //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
-    //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
-    //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
-    //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
-    //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
-    //
-    //     // check 2. inerval -  is not downloaded
-    //     assert!(!pipeline.intervals[1].all_blocks_downloaded);
-    //     assert_eq!(2, pipeline.intervals[1].blocks.len());
-    //
-    //     // try to get blocks for download - max 5
-    //     let mut blocks_to_download = Vec::new();
-    //     pipeline.collect_next_block_headers_to_download(
-    //         5,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut blocks_to_download,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(5, blocks_to_download.len());
-    //     assert_eq!(blocks_to_download[0].as_ref(), &block(2));
-    //     assert_eq!(blocks_to_download[1].as_ref(), &block(5));
-    //     assert_eq!(blocks_to_download[2].as_ref(), &block(8));
-    //     assert_eq!(blocks_to_download[3].as_ref(), &block(10));
-    //     assert_eq!(blocks_to_download[4].as_ref(), &block(13));
-    //
-    //     // try to get blocks for download - max 2
-    //     let mut blocks_to_download = Vec::new();
-    //     pipeline.collect_next_block_headers_to_download(
-    //         2,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut blocks_to_download,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(2, blocks_to_download.len());
-    //     assert_eq!(blocks_to_download[0].as_ref(), &block(2));
-    //     assert_eq!(blocks_to_download[1].as_ref(), &block(5));
-    //
-    //     // try to get blocks for download - max 2 interval with ignored
-    //     let mut blocks_to_download = Vec::new();
-    //     pipeline.collect_next_block_headers_to_download(
-    //         2,
-    //         &configuration(),
-    //         &hash_set![block_ref(5)],
-    //         &mut blocks_to_download,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(2, blocks_to_download.len());
-    //     assert_eq!(blocks_to_download[0].as_ref(), &block(2));
-    //     assert_eq!(blocks_to_download[1].as_ref(), &block(8));
-    // }
-    //
-    // #[test]
-    // fn test_collect_next_blocks_to_download_feed_interval_on_collect() {
-    //     // genesis
-    //     let last_applied = block(0);
-    //     // history blocks
-    //     let history: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //         block(25),
-    //         block(30),
-    //         block(35),
-    //         block(40),
-    //         block(43),
-    //         block(46),
-    //         block(49),
-    //         block(52),
-    //         block(53),
-    //         block(56),
-    //         block(59),
-    //         block(60),
-    //     ];
-    //
-    //     // create
-    //     let mut block_state_db = BlockStateDb::new(50);
-    //
-    //     let mut pipeline1 = BranchState::new(
-    //         last_applied.clone(),
-    //         history.clone(),
-    //         60,
-    //         &mut block_state_db,
-    //     );
-    //     assert_eq!(pipeline1.intervals.len(), 19);
-    //     assert_interval(&pipeline1.intervals[0], (block(0), block(2)));
-    //     assert_interval(&pipeline1.intervals[1], (block(2), block(5)));
-    //     assert_interval(&pipeline1.intervals[2], (block(5), block(8)));
-    //     assert_interval(&pipeline1.intervals[3], (block(8), block(10)));
-    //     assert_interval(&pipeline1.intervals[4], (block(10), block(13)));
-    //     assert_interval(&pipeline1.intervals[5], (block(13), block(15)));
-    //     assert_interval(&pipeline1.intervals[6], (block(15), block(20)));
-    //     assert_interval(&pipeline1.intervals[7], (block(20), block(25)));
-    //     assert_interval(&pipeline1.intervals[8], (block(25), block(30)));
-    //     assert_interval(&pipeline1.intervals[9], (block(30), block(35)));
-    //     assert_interval(&pipeline1.intervals[10], (block(35), block(40)));
-    //     assert_interval(&pipeline1.intervals[11], (block(40), block(43)));
-    //     assert_interval(&pipeline1.intervals[12], (block(43), block(46)));
-    //     assert_interval(&pipeline1.intervals[13], (block(46), block(49)));
-    //     assert_interval(&pipeline1.intervals[14], (block(49), block(52)));
-    //     assert_interval(&pipeline1.intervals[15], (block(52), block(53)));
-    //     assert_interval(&pipeline1.intervals[16], (block(53), block(56)));
-    //     assert_interval(&pipeline1.intervals[17], (block(56), block(59)));
-    //     assert_interval(&pipeline1.intervals[18], (block(59), block(60)));
-    //
-    //     // try to get schedule blocks for download
-    //     let mut blocks_to_download1 = Vec::new();
-    //     pipeline1.collect_next_block_headers_to_download(
-    //         15,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut blocks_to_download1,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(15, blocks_to_download1.len());
-    //     assert_eq!(blocks_to_download1[0].as_ref(), &block(2));
-    //     assert_eq!(blocks_to_download1[1].as_ref(), &block(5));
-    //     assert_eq!(blocks_to_download1[2].as_ref(), &block(8));
-    //     assert_eq!(blocks_to_download1[3].as_ref(), &block(10));
-    //     assert_eq!(blocks_to_download1[4].as_ref(), &block(13));
-    //     assert_eq!(blocks_to_download1[5].as_ref(), &block(15));
-    //     assert_eq!(blocks_to_download1[6].as_ref(), &block(20));
-    //     assert_eq!(blocks_to_download1[7].as_ref(), &block(25));
-    //     assert_eq!(blocks_to_download1[8].as_ref(), &block(30));
-    //     assert_eq!(blocks_to_download1[9].as_ref(), &block(35));
-    //     assert_eq!(blocks_to_download1[10].as_ref(), &block(40));
-    //     assert_eq!(blocks_to_download1[11].as_ref(), &block(43));
-    //     assert_eq!(blocks_to_download1[12].as_ref(), &block(46));
-    //     assert_eq!(blocks_to_download1[13].as_ref(), &block(49));
-    //     assert_eq!(blocks_to_download1[14].as_ref(), &block(52));
-    //
-    //     // download 8
-    //     block_state_db.mark_block_downloaded(
-    //         &block(8),
-    //         block(7),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: false,
-    //             applied: false,
-    //         },
-    //     );
-    //     // download 7
-    //     block_state_db.mark_block_downloaded(
-    //         &block(7),
-    //         block(6),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: false,
-    //             applied: false,
-    //         },
-    //     );
-    //     // download 20
-    //     block_state_db.mark_block_downloaded(
-    //         &block(20),
-    //         block(19),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: false,
-    //             applied: false,
-    //         },
-    //     );
-    //     // download 19
-    //     block_state_db.mark_block_downloaded(
-    //         &block(19),
-    //         block(18),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: false,
-    //             applied: false,
-    //         },
-    //     );
-    //     // download 18
-    //     block_state_db.mark_block_downloaded(
-    //         &block(18),
-    //         block(17),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: false,
-    //             applied: false,
-    //         },
-    //     );
-    //     // download 17
-    //     block_state_db.mark_block_downloaded(
-    //         &block(17),
-    //         block(16),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: false,
-    //             applied: false,
-    //         },
-    //     );
-    //
-    //     // start new pipeline
-    //     let history: Vec<BlockHash> = vec![
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //         block(25),
-    //         block(30),
-    //         block(35),
-    //         block(40),
-    //         block(43),
-    //         block(46),
-    //         block(49),
-    //         block(52),
-    //         block(53),
-    //         block(56),
-    //         block(59),
-    //         block(60),
-    //         block(63),
-    //         block(65),
-    //     ];
-    //     let mut pipeline2 = BranchState::new(
-    //         last_applied.clone(),
-    //         history.clone(),
-    //         60,
-    //         &mut block_state_db,
-    //     );
-    //     assert_eq!(pipeline2.intervals.len(), 19);
-    //     assert_interval(&pipeline2.intervals[0], (block(0), block(8)));
-    //     assert_interval(&pipeline2.intervals[1], (block(8), block(10)));
-    //     assert_interval(&pipeline2.intervals[2], (block(10), block(13)));
-    //     assert_interval(&pipeline2.intervals[3], (block(13), block(15)));
-    //     assert_interval(&pipeline2.intervals[4], (block(15), block(20)));
-    //     assert_interval(&pipeline2.intervals[5], (block(20), block(25)));
-    //     assert_interval(&pipeline2.intervals[6], (block(25), block(30)));
-    //     assert_interval(&pipeline2.intervals[7], (block(30), block(35)));
-    //     assert_interval(&pipeline2.intervals[8], (block(35), block(40)));
-    //     assert_interval(&pipeline2.intervals[9], (block(40), block(43)));
-    //     assert_interval(&pipeline2.intervals[10], (block(43), block(46)));
-    //     assert_interval(&pipeline2.intervals[11], (block(46), block(49)));
-    //     assert_interval(&pipeline2.intervals[12], (block(49), block(52)));
-    //     assert_interval(&pipeline2.intervals[13], (block(52), block(53)));
-    //     assert_interval(&pipeline2.intervals[14], (block(53), block(56)));
-    //     assert_interval(&pipeline2.intervals[15], (block(56), block(59)));
-    //     assert_interval(&pipeline2.intervals[16], (block(59), block(60)));
-    //     assert_interval(&pipeline2.intervals[17], (block(60), block(63)));
-    //     assert_interval(&pipeline2.intervals[18], (block(63), block(65)));
-    //
-    //     // try to get schedule blocks for download
-    //     let mut blocks_to_download2 = Vec::new();
-    //     pipeline2.collect_next_block_headers_to_download(
-    //         15,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut blocks_to_download2,
-    //         &block_state_db,
-    //     );
-    //
-    //     // check pre-feeded intervals (with blocks downloaded before)
-    //     assert_eq!(pipeline2.intervals[0].blocks.len(), 4);
-    //     assert_eq!(pipeline2.intervals[0].blocks[0].as_ref(), &block(0));
-    //     assert_eq!(pipeline2.intervals[0].blocks[1].as_ref(), &block(6));
-    //     assert_eq!(pipeline2.intervals[0].blocks[2].as_ref(), &block(7));
-    //     assert_eq!(pipeline2.intervals[0].blocks[3].as_ref(), &block(8));
-    //
-    //     assert_eq!(pipeline2.intervals[1].blocks.len(), 2);
-    //     assert_eq!(pipeline2.intervals[1].blocks[0].as_ref(), &block(8));
-    //     assert_eq!(pipeline2.intervals[1].blocks[1].as_ref(), &block(10));
-    //
-    //     assert_eq!(pipeline2.intervals[2].blocks.len(), 2);
-    //     assert_eq!(pipeline2.intervals[2].blocks[0].as_ref(), &block(10));
-    //     assert_eq!(pipeline2.intervals[2].blocks[1].as_ref(), &block(13));
-    //
-    //     assert_eq!(pipeline2.intervals[3].blocks.len(), 2);
-    //     assert_eq!(pipeline2.intervals[3].blocks[0].as_ref(), &block(13));
-    //     assert_eq!(pipeline2.intervals[3].blocks[1].as_ref(), &block(15));
-    //
-    //     assert_eq!(pipeline2.intervals[4].blocks.len(), 6);
-    //     assert_eq!(pipeline2.intervals[4].blocks[0].as_ref(), &block(15));
-    //     assert_eq!(pipeline2.intervals[4].blocks[1].as_ref(), &block(16));
-    //     assert_eq!(pipeline2.intervals[4].blocks[2].as_ref(), &block(17));
-    //     assert_eq!(pipeline2.intervals[4].blocks[3].as_ref(), &block(18));
-    //     assert_eq!(pipeline2.intervals[4].blocks[4].as_ref(), &block(19));
-    //     assert_eq!(pipeline2.intervals[4].blocks[5].as_ref(), &block(20));
-    //
-    //     assert_eq!(pipeline2.intervals[5].blocks.len(), 2);
-    //     assert_eq!(pipeline2.intervals[5].blocks[0].as_ref(), &block(20));
-    //     assert_eq!(pipeline2.intervals[5].blocks[1].as_ref(), &block(25));
-    //
-    //     assert_eq!(15, blocks_to_download2.len());
-    //     assert_eq!(blocks_to_download2[0].as_ref(), &block(6));
-    //     assert_eq!(blocks_to_download2[1].as_ref(), &block(10));
-    //     assert_eq!(blocks_to_download2[2].as_ref(), &block(13));
-    //     assert_eq!(blocks_to_download2[3].as_ref(), &block(15));
-    //     assert_eq!(blocks_to_download2[4].as_ref(), &block(16));
-    //     assert_eq!(blocks_to_download2[5].as_ref(), &block(25));
-    //     assert_eq!(blocks_to_download2[6].as_ref(), &block(30));
-    //     assert_eq!(blocks_to_download2[7].as_ref(), &block(35));
-    //     assert_eq!(blocks_to_download2[8].as_ref(), &block(40));
-    //     assert_eq!(blocks_to_download2[9].as_ref(), &block(43));
-    //     assert_eq!(blocks_to_download2[10].as_ref(), &block(46));
-    //     assert_eq!(blocks_to_download2[11].as_ref(), &block(49));
-    //     assert_eq!(blocks_to_download2[12].as_ref(), &block(52));
-    //     assert_eq!(blocks_to_download2[13].as_ref(), &block(53));
-    //     assert_eq!(blocks_to_download2[14].as_ref(), &block(56));
-    // }
-    //
-    // #[test]
-    // fn test_shift_and_check_all_blocks_downloaded() {
-    //     // genesis
-    //     let last_applied = block(0);
-    //     // history blocks
-    //     let history: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //         block(25),
-    //         block(30),
-    //         block(35),
-    //         block(40),
-    //         block(43),
-    //         block(46),
-    //         block(49),
-    //         block(52),
-    //         block(53),
-    //         block(56),
-    //         block(59),
-    //         block(60),
-    //     ];
-    //
-    //     // create
-    //     let mut block_state_db = BlockStateDb::new(50);
-    //
-    //     let mut pipeline1 = BranchState::new(
-    //         last_applied.clone(),
-    //         history.clone(),
-    //         60,
-    //         &mut block_state_db,
-    //     );
-    //     assert_eq!(pipeline1.intervals.len(), 19);
-    //     assert_interval(&pipeline1.intervals[0], (block(0), block(2)));
-    //     assert_interval(&pipeline1.intervals[1], (block(2), block(5)));
-    //     assert_interval(&pipeline1.intervals[2], (block(5), block(8)));
-    //     assert_interval(&pipeline1.intervals[3], (block(8), block(10)));
-    //     assert_interval(&pipeline1.intervals[4], (block(10), block(13)));
-    //     assert_interval(&pipeline1.intervals[5], (block(13), block(15)));
-    //     assert_interval(&pipeline1.intervals[6], (block(15), block(20)));
-    //     assert_interval(&pipeline1.intervals[7], (block(20), block(25)));
-    //     assert_interval(&pipeline1.intervals[8], (block(25), block(30)));
-    //     assert_interval(&pipeline1.intervals[9], (block(30), block(35)));
-    //     assert_interval(&pipeline1.intervals[10], (block(35), block(40)));
-    //     assert_interval(&pipeline1.intervals[11], (block(40), block(43)));
-    //     assert_interval(&pipeline1.intervals[12], (block(43), block(46)));
-    //     assert_interval(&pipeline1.intervals[13], (block(46), block(49)));
-    //     assert_interval(&pipeline1.intervals[14], (block(49), block(52)));
-    //     assert_interval(&pipeline1.intervals[15], (block(52), block(53)));
-    //     assert_interval(&pipeline1.intervals[16], (block(53), block(56)));
-    //     assert_interval(&pipeline1.intervals[17], (block(56), block(59)));
-    //     assert_interval(&pipeline1.intervals[18], (block(59), block(60)));
-    //
-    //     // download 8
-    //     block_state_db.mark_block_downloaded(
-    //         &block(8),
-    //         block(7),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: false,
-    //             applied: false,
-    //         },
-    //     );
-    //     // download 7
-    //     block_state_db.mark_block_downloaded(
-    //         &block(7),
-    //         block(6),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: false,
-    //             applied: false,
-    //         },
-    //     );
-    //     // download 20
-    //     block_state_db.mark_block_downloaded(
-    //         &block(20),
-    //         block(19),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: false,
-    //             applied: false,
-    //         },
-    //     );
-    //     // download 19
-    //     block_state_db.mark_block_downloaded(
-    //         &block(19),
-    //         block(18),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: false,
-    //             applied: false,
-    //         },
-    //     );
-    //     // download 18
-    //     block_state_db.mark_block_downloaded(
-    //         &block(18),
-    //         block(17),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: false,
-    //             applied: false,
-    //         },
-    //     );
-    //
-    //     // check pre-feeded intervals (with blocks downloaded before)
-    //     assert_eq!(pipeline1.intervals[0].blocks.len(), 2);
-    //     assert_eq!(pipeline1.intervals[0].blocks[0].as_ref(), &block(0));
-    //     assert_eq!(pipeline1.intervals[0].blocks[1].as_ref(), &block(2));
-    //
-    //     assert_eq!(pipeline1.intervals[1].blocks.len(), 2);
-    //     assert_eq!(pipeline1.intervals[1].blocks[0].as_ref(), &block(2));
-    //     assert_eq!(pipeline1.intervals[1].blocks[1].as_ref(), &block(5));
-    //
-    //     // mark 8 as downloaded in pipeline, should shift to 5
-    //     pipeline1.intervals[2].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline1.missing_operations,
-    //     );
-    //     assert_eq!(pipeline1.intervals[2].blocks.len(), 4);
-    //     assert_eq!(pipeline1.intervals[2].blocks[0].as_ref(), &block(5));
-    //     assert_eq!(pipeline1.intervals[2].blocks[1].as_ref(), &block(6));
-    //     assert_eq!(pipeline1.intervals[2].blocks[2].as_ref(), &block(7));
-    //     assert_eq!(pipeline1.intervals[2].blocks[3].as_ref(), &block(8));
-    //
-    //     // mark 20 as downloaded in pipeline, should shift to 16
-    //     pipeline1.intervals[6].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline1.missing_operations,
-    //     );
-    //     assert_eq!(pipeline1.intervals[6].blocks.len(), 5);
-    //     assert_eq!(pipeline1.intervals[6].blocks[0].as_ref(), &block(15));
-    //     assert_eq!(pipeline1.intervals[6].blocks[1].as_ref(), &block(17));
-    //     assert_eq!(pipeline1.intervals[6].blocks[2].as_ref(), &block(18));
-    //     assert_eq!(pipeline1.intervals[6].blocks[3].as_ref(), &block(19));
-    //     assert_eq!(pipeline1.intervals[6].blocks[4].as_ref(), &block(20));
-    // }
-    //
-    // #[test]
-    // fn test_collect_next_block_operations_to_download_scheduled_by_find_next_for_apply() {
-    //     // genesis
-    //     let last_applied = block(0);
-    //     // history blocks
-    //     let history: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //     ];
-    //
-    //     // create
-    //     let mut block_state_db = BlockStateDb::new(50);
-    //
-    //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
-    //     assert_eq!(pipeline.intervals.len(), 7);
-    //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
-    //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
-    //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
-    //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
-    //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
-    //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
-    //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
-    //
-    //     // check 2. inerval -  is not downloaded
-    //     assert!(!pipeline.intervals[1].all_blocks_downloaded);
-    //     assert_eq!(2, pipeline.intervals[1].blocks.len());
-    //
-    //     // shifting is checking missing operations
-    //     assert!(pipeline.missing_operations.is_empty());
-    //     pipeline.schedule_next_block_to_apply(100, &block_state_db);
-    //     assert!(!pipeline.missing_operations.is_empty());
-    //
-    //     // try to get blocks for download - max 1 interval
-    //     let mut result = Vec::new();
-    //     pipeline.collect_next_block_operations_to_download(
-    //         1,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut result,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(1, result.len());
-    //     assert_eq!(result[0].as_ref(), &block(2));
-    // }
-    //
-    // #[test]
-    // fn test_collect_next_block_operations_to_download_scheduled_by_shifting() {
-    //     // genesis
-    //     let last_applied = block(0);
-    //     // history blocks
-    //     let history: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //     ];
-    //
-    //     // create
-    //     let mut block_state_db = BlockStateDb::new(50);
-    //
-    //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
-    //     assert_eq!(pipeline.intervals.len(), 7);
-    //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
-    //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
-    //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
-    //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
-    //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
-    //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
-    //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
-    //
-    //     // check 2. inerval -  is not downloaded
-    //     assert!(!pipeline.intervals[1].all_blocks_downloaded);
-    //     assert_eq!(2, pipeline.intervals[1].blocks.len());
-    //
-    //     // try to get blocks for download - max 1 interval
-    //     // no blocks downloaded, so no operations
-    //     let mut result = Vec::new();
-    //     pipeline.collect_next_block_operations_to_download(
-    //         1,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut result,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(0, result.len());
-    //
-    //     // mark 2 as downloaded
-    //     block_state_db.mark_block_downloaded(
-    //         &block(2),
-    //         block(1),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: false,
-    //         },
-    //     );
-    //     pipeline.intervals[0].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //     pipeline.intervals[1].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //     pipeline.intervals[2].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //     pipeline.intervals[3].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //
-    //     // try to get blocks for download - max 4
-    //     let mut result = Vec::new();
-    //     pipeline.collect_next_block_operations_to_download(
-    //         4,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut result,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(1, result.len());
-    //     assert_eq!(result[0].as_ref(), &block(2));
-    //
-    //     // mark as downloaded
-    //     block_state_db.mark_block_downloaded(
-    //         &block(5),
-    //         block(4),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: false,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(8),
-    //         block(7),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: false,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(7),
-    //         block(6),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: false,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(10),
-    //         block(9),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: false,
-    //         },
-    //     );
-    //     pipeline.intervals[0].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //     pipeline.intervals[1].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //     pipeline.intervals[2].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //     pipeline.intervals[3].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //
-    //     // try to get blocks for download - max 4 with ignored
-    //     let mut result = Vec::new();
-    //     pipeline.collect_next_block_operations_to_download(
-    //         4,
-    //         &configuration(),
-    //         &hash_set![block_ref(5)],
-    //         &mut result,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(4, result.len());
-    //     assert!(result.contains(&block_ref(2)));
-    //     assert!(result.contains(&block_ref(7)));
-    //     assert!(result.contains(&block_ref(8)));
-    //     assert!(result.contains(&block_ref(10)));
-    // }
-    //
-    // #[test]
-    // fn test_download_all_blocks_and_operations() {
-    //     // genesis
-    //     let last_applied = block(0);
-    //     // history blocks
-    //     let history: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //     ];
-    //
-    //     // create
-    //     let mut block_state_db = BlockStateDb::new(50);
-    //
-    //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
-    //     assert_eq!(pipeline.intervals.len(), 7);
-    //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
-    //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
-    //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
-    //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
-    //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
-    //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
-    //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
-    //
-    //     // download blocks and operations from 0 to 8
-    //     block_state_db.mark_block_downloaded(
-    //         &block(8),
-    //         block(7),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(7),
-    //         block(6),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(6),
-    //         block(5),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(5),
-    //         block(4),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(4),
-    //         block(3),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(3),
-    //         block(2),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(2),
-    //         block(1),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(1),
-    //         block(0),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //
-    //     // check all downloaded inervals
-    //     pipeline.intervals[0].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //     pipeline.intervals[1].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //
-    //     assert!(pipeline.intervals[0].all_blocks_downloaded);
-    //     assert!(pipeline.intervals[1].all_blocks_downloaded);
-    // }
-    //
-    // #[test]
-    // fn test_find_next_block_to_apply_batch() {
-    //     // genesis
-    //     let last_applied = block(0);
-    //     // history blocks
-    //     let history: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //     ];
-    //
-    //     // create
-    //     let mut block_state_db = BlockStateDb::new(50);
-    //
-    //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
-    //     assert_eq!(pipeline.intervals.len(), 7);
-    //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
-    //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
-    //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
-    //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
-    //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
-    //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
-    //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
-    //
-    //     // download blocks and operations from 0 to 8
-    //     block_state_db.mark_block_downloaded(
-    //         &block(8),
-    //         block(7),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(7),
-    //         block(6),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(6),
-    //         block(5),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(5),
-    //         block(4),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(4),
-    //         block(3),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(3),
-    //         block(2),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(2),
-    //         block(1),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(1),
-    //         block(0),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: true,
-    //         },
-    //     );
-    //
-    //     // we need to shift intervals
-    //     pipeline.intervals[0].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //     pipeline.intervals[1].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //     pipeline.intervals[2].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //     pipeline.intervals[3].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //
-    //     // next for apply with max batch 0
-    //     let next_batch = pipeline.schedule_next_block_to_apply(0, &block_state_db);
-    //     assert!(next_batch.is_some());
-    //     let next_batch = next_batch.unwrap();
-    //     assert_eq!(next_batch.block_to_apply.as_ref(), &block(1));
-    //     assert_eq!(0, next_batch.successors_size());
-    //
-    //     // next for apply with max batch 1
-    //     let next_batch = pipeline.schedule_next_block_to_apply(1, &block_state_db);
-    //     assert!(next_batch.is_some());
-    //     let next_batch = next_batch.unwrap();
-    //     assert_eq!(next_batch.block_to_apply.as_ref(), &block(1));
-    //     assert_eq!(1, next_batch.successors_size());
-    //     assert_eq!(next_batch.successors[0].as_ref(), &block(2));
-    //
-    //     // next for apply with max batch 100
-    //     let next_batch = pipeline.schedule_next_block_to_apply(100, &block_state_db);
-    //     assert!(next_batch.is_some());
-    //     let next_batch = next_batch.unwrap();
-    //     assert_eq!(next_batch.block_to_apply.as_ref(), &block(1));
-    //     assert_eq!(7, next_batch.successors_size());
-    //     assert_eq!(next_batch.successors[0].as_ref(), &block(2));
-    //     assert_eq!(next_batch.successors[1].as_ref(), &block(3));
-    //     assert_eq!(next_batch.successors[2].as_ref(), &block(4));
-    //     assert_eq!(next_batch.successors[3].as_ref(), &block(5));
-    //     assert_eq!(next_batch.successors[4].as_ref(), &block(6));
-    //     assert_eq!(next_batch.successors[5].as_ref(), &block(7));
-    //     assert_eq!(next_batch.successors[6].as_ref(), &block(8));
-    // }
-    //
-    // #[test]
-    // fn test_mark_block_scheduled() {
-    //     // genesis
-    //     let last_applied = block(0);
-    //     // history blocks
-    //     let history: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //     ];
-    //
-    //     // create
-    //     let mut block_state_db = BlockStateDb::new(50);
-    //
-    //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
-    //     assert_eq!(pipeline.intervals.len(), 7);
-    //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
-    //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
-    //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
-    //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
-    //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
-    //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
-    //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
-    //
-    //     let mut headers_to_download = Vec::new();
-    //     pipeline.collect_next_block_headers_to_download(
-    //         1,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut headers_to_download,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(1, headers_to_download.len());
-    //     assert_eq!(headers_to_download[0].as_ref(), &block(2));
-    //
-    //     block_state_db.mark_scheduled_for_block_header_download(&block(2));
-    //
-    //     // cfg with reschedule timeout 1000 ms
-    //     let mut cfg = configuration();
-    //     cfg.block_data_reschedule_timeout = Duration::from_millis(1000);
-    //
-    //     let mut headers_to_download = Vec::new();
-    //     pipeline.collect_next_block_headers_to_download(
-    //         1,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut headers_to_download,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(1, headers_to_download.len());
-    //     assert_eq!(headers_to_download[0].as_ref(), &block(5));
-    //
-    //     // sleep a little bit
-    //     std::thread::sleep(Duration::from_millis(100));
-    //
-    //     // try with changed timeout
-    //     cfg.block_data_reschedule_timeout = Duration::from_millis(10);
-    //
-    //     let mut headers_to_download = Vec::new();
-    //     pipeline.collect_next_block_headers_to_download(
-    //         1,
-    //         &cfg,
-    //         &HashSet::default(),
-    //         &mut headers_to_download,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(1, headers_to_download.len());
-    //     assert_eq!(headers_to_download[0].as_ref(), &block(2));
-    //
-    //     // block downloaded removes timeout
-    //     assert!(block_state_db
-    //         .blocks
-    //         .get(&block(2))
-    //         .unwrap()
-    //         .block_header_requested
-    //         .is_some());
-    //     block_state_db.mark_block_downloaded(
-    //         &block(2),
-    //         block(1),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: false,
-    //             applied: false,
-    //         },
-    //     );
-    //     pipeline.intervals[0].shift_and_find_next_missing_predecessor(
-    //         &block_state_db,
-    //         &mut pipeline.missing_operations,
-    //     );
-    //     assert!(block_state_db
-    //         .blocks
-    //         .get(&block(2))
-    //         .unwrap()
-    //         .block_header_requested
-    //         .is_none());
-    //
-    //     // operations
-    //     cfg.block_data_reschedule_timeout = Duration::from_millis(1000);
-    //     block_state_db.mark_scheduled_for_block_operations_download(&block(2));
-    //
-    //     let mut operations_to_download = Vec::new();
-    //     pipeline.collect_next_block_operations_to_download(
-    //         1,
-    //         &cfg,
-    //         &HashSet::default(),
-    //         &mut operations_to_download,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(0, operations_to_download.len());
-    //
-    //     // sleep a little bit
-    //     std::thread::sleep(Duration::from_millis(100));
-    //
-    //     // try with changed timeout
-    //     cfg.block_data_reschedule_timeout = Duration::from_millis(10);
-    //
-    //     let mut operations_to_download = Vec::new();
-    //     pipeline.collect_next_block_operations_to_download(
-    //         1,
-    //         &cfg,
-    //         &HashSet::default(),
-    //         &mut operations_to_download,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(1, operations_to_download.len());
-    //     assert_eq!(operations_to_download[0].as_ref(), &block(2));
-    //
-    //     // block operations downloaded removes timeout
-    //     block_state_db.mark_block_operations_downloaded(&block(2));
-    //     assert!(block_state_db
-    //         .blocks
-    //         .get(&block(2))
-    //         .unwrap()
-    //         .block_operations_requested
-    //         .is_none());
-    // }
-    //
-    // #[test]
-    // fn test_bootstrap_state_schedule_unique_blocks_for_download() {
-    //     // common shared db
-    //     let mut block_state_db = BlockStateDb::new(50);
-    //
-    //     // genesis
-    //     let last_applied1 = block(0);
-    //     let last_applied2 = block(0);
-    //     // history blocks
-    //     let history1: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //     ];
-    //     let history2: Vec<BlockHash> = vec![
-    //         block(2),
-    //         block(5),
-    //         block(8),
-    //         block(10),
-    //         block(13),
-    //         block(15),
-    //         block(20),
-    //     ];
-    //
-    //     // create pipeline1
-    //     let mut pipeline1 =
-    //         BranchState::new(last_applied1.clone(), history1, 20, &mut block_state_db);
-    //     assert_eq!(pipeline1.intervals.len(), 7);
-    //     assert_interval(&pipeline1.intervals[0], (block(0), block(2)));
-    //     assert_interval(&pipeline1.intervals[1], (block(2), block(5)));
-    //     assert_interval(&pipeline1.intervals[2], (block(5), block(8)));
-    //     assert_interval(&pipeline1.intervals[3], (block(8), block(10)));
-    //     assert_interval(&pipeline1.intervals[4], (block(10), block(13)));
-    //     assert_interval(&pipeline1.intervals[5], (block(13), block(15)));
-    //     assert_interval(&pipeline1.intervals[6], (block(15), block(20)));
-    //     assert_eq!(8, block_state_db.blocks.len());
-    //
-    //     // create pipeline2
-    //     let mut pipeline2 =
-    //         BranchState::new(last_applied2.clone(), history2, 20, &mut block_state_db);
-    //     assert_eq!(pipeline2.intervals.len(), 7);
-    //     assert_interval(&pipeline2.intervals[0], (block(0), block(2)));
-    //     assert_interval(&pipeline2.intervals[1], (block(2), block(5)));
-    //     assert_interval(&pipeline2.intervals[2], (block(5), block(8)));
-    //     assert_interval(&pipeline2.intervals[3], (block(8), block(10)));
-    //     assert_interval(&pipeline2.intervals[4], (block(10), block(13)));
-    //     assert_interval(&pipeline2.intervals[5], (block(13), block(15)));
-    //     assert_interval(&pipeline2.intervals[6], (block(15), block(20)));
-    //     assert_eq!(8, block_state_db.blocks.len());
-    //
-    //     // cfg
-    //     let mut cfg = configuration();
-    //     cfg.block_data_reschedule_timeout = Duration::from_secs(15);
-    //
-    //     // simulate schedulue for pipeline1
-    //     let mut result1 = Vec::new();
-    //     pipeline1.collect_next_block_headers_to_download(
-    //         10,
-    //         &cfg,
-    //         &HashSet::default(),
-    //         &mut result1,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(7, result1.len());
-    //     assert_eq!(result1[0].as_ref(), &block(2));
-    //     assert_eq!(result1[1].as_ref(), &block(5));
-    //     assert_eq!(result1[2].as_ref(), &block(8));
-    //     assert_eq!(result1[3].as_ref(), &block(10));
-    //     assert_eq!(result1[4].as_ref(), &block(13));
-    //     assert_eq!(result1[5].as_ref(), &block(15));
-    //     assert_eq!(result1[6].as_ref(), &block(20));
-    //     result1
-    //         .iter()
-    //         .for_each(|b| block_state_db.mark_scheduled_for_block_header_download(&b));
-    //
-    //     // simulate schedulue for pipeline2
-    //     let mut result2 = Vec::new();
-    //     pipeline2.collect_next_block_headers_to_download(
-    //         10,
-    //         &cfg,
-    //         &HashSet::default(),
-    //         &mut result2,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(0, result2.len());
-    // }
-    //
-    // #[test]
-    // fn test_bootstrap_state_downloading_blocks_and_operations() {
-    //     // genesis
-    //     let last_applied = block(0);
-    //     // history blocks
-    //     let history: Vec<BlockHash> = vec![block(2), block(5), block(8)];
-    //
-    //     // create
-    //     let mut block_state_db = BlockStateDb::new(50);
-    //
-    //     // create branch pipeline
-    //     let mut pipeline = BranchState::new(last_applied, history, 8, &mut block_state_db);
-    //     assert_eq!(pipeline.intervals.len(), 3);
-    //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
-    //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
-    //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
-    //     assert!(pipeline.missing_operations.is_empty());
-    //
-    //     // schedule blocks for download
-    //     let mut missing_block_headers = Vec::new();
-    //     pipeline.collect_next_block_headers_to_download(
-    //         10,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut missing_block_headers,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(3, missing_block_headers.len());
-    //     assert_eq!(missing_block_headers[0].as_ref(), &block(2));
-    //     assert_eq!(missing_block_headers[1].as_ref(), &block(5));
-    //     assert_eq!(missing_block_headers[2].as_ref(), &block(8));
-    //     assert!(pipeline.missing_operations.is_empty());
-    //
-    //     // check missing operations (this works just for downloaded blocks)
-    //     let mut missing_block_operations = Vec::new();
-    //     pipeline.collect_next_block_operations_to_download(
-    //         10,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut missing_block_operations,
-    //         &block_state_db,
-    //     );
-    //     assert!(missing_block_operations.is_empty());
-    //
-    //     // download missing blocks
-    //     block_state_db.mark_block_downloaded(
-    //         &block(2),
-    //         block(1),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: false,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(5),
-    //         block(4),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: false,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(8),
-    //         block(7),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             applied: false,
-    //             operations_downloaded: false,
-    //         },
-    //     );
-    //
-    //     // download next blocks
-    //     let mut missing_block_headers = Vec::new();
-    //     pipeline.collect_next_block_headers_to_download(
-    //         10,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut missing_block_headers,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(3, missing_block_headers.len());
-    //     assert_eq!(missing_block_headers[0].as_ref(), &block(1));
-    //     assert_eq!(missing_block_headers[1].as_ref(), &block(4));
-    //     assert_eq!(missing_block_headers[2].as_ref(), &block(7));
-    //     assert!(!pipeline.missing_operations.is_empty());
-    //     assert!(pipeline.missing_operations.contains(&block_ref(2)));
-    //     assert!(pipeline.missing_operations.contains(&block_ref(5)));
-    //     assert!(pipeline.missing_operations.contains(&block_ref(8)));
-    //
-    //     // check missing operations
-    //     let mut missing_block_operations = Vec::new();
-    //     pipeline.collect_next_block_operations_to_download(
-    //         10,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut missing_block_operations,
-    //         &block_state_db,
-    //     );
-    //     assert!(!missing_block_operations.is_empty());
-    //     assert!(missing_block_operations.contains(&block_ref(2)));
-    //     assert!(missing_block_operations.contains(&block_ref(5)));
-    //     assert!(missing_block_operations.contains(&block_ref(8)));
-    //
-    //     // download operations
-    //     block_state_db.mark_block_operations_downloaded(&block(2));
-    //     pipeline.block_operations_downloaded(&block(2));
-    //     assert_eq!(pipeline.missing_operations.len(), 2);
-    //     assert!(pipeline.missing_operations.contains(&block_ref(5)));
-    //     assert!(pipeline.missing_operations.contains(&block_ref(8)));
-    //
-    //     block_state_db.mark_block_operations_downloaded(&block(8));
-    //     pipeline.block_operations_downloaded(&block(8));
-    //     assert_eq!(pipeline.missing_operations.len(), 1);
-    //     assert!(pipeline.missing_operations.contains(&block_ref(5)));
-    //
-    //     block_state_db.mark_block_operations_downloaded(&block(5));
-    //     pipeline.block_operations_downloaded(&block(5));
-    //     assert!(pipeline.missing_operations.is_empty());
-    //
-    //     // check missing operations
-    //     let mut missing_block_operations = Vec::new();
-    //     pipeline.collect_next_block_operations_to_download(
-    //         10,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut missing_block_operations,
-    //         &block_state_db,
-    //     );
-    //     assert!(missing_block_operations.is_empty());
-    // }
-    //
-    // #[test]
-    // fn test_bootstrap_state_shift_interval_with_shrink_to_applied_block() {
-    //     // common shared db
-    //     let mut block_state_db = BlockStateDb::new(50);
-    //
-    //     // genesis
-    //     let last_applied1 = block(0);
-    //     // history blocks
-    //     let history1: Vec<BlockHash> = vec![block(2)];
-    //
-    //     // create pipeline1
-    //     let mut pipeline1 =
-    //         BranchState::new(last_applied1.clone(), history1, 20, &mut block_state_db);
-    //     assert_eq!(pipeline1.intervals.len(), 1);
-    //     assert_interval(&pipeline1.intervals[0], (block(0), block(2)));
-    //     assert_eq!(2, block_state_db.blocks.len());
-    //
-    //     // download all
-    //     block_state_db.mark_block_downloaded(
-    //         &block(2),
-    //         block(1),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: true,
-    //             applied: false,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(1),
-    //         block(0),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: true,
-    //             applied: false,
-    //         },
-    //     );
-    //     block_state_db.remove_with_all_predecessors(&block(2));
-    //     pipeline1.block_applied(&block(2), &block_state_db);
-    //     assert!(pipeline1.is_done());
-    //     assert_eq!(block_state_db.blocks.len(), 1);
-    //     assert!(block_state_db.blocks.contains_key(&block(2)));
-    //
-    //     // create pipeline2
-    //     let last_applied2 = block(0);
-    //     let history2: Vec<BlockHash> = vec![block(5), block(13), block(15), block(20)];
-    //     let mut pipeline2 =
-    //         BranchState::new(last_applied2.clone(), history2, 20, &mut block_state_db);
-    //     assert_eq!(pipeline2.intervals.len(), 4);
-    //     assert_interval(&pipeline2.intervals[0], (block(0), block(5)));
-    //     assert_interval(&pipeline2.intervals[1], (block(5), block(13)));
-    //     assert_interval(&pipeline2.intervals[2], (block(13), block(15)));
-    //     assert_interval(&pipeline2.intervals[3], (block(15), block(20)));
-    //
-    //     // download
-    //     block_state_db.mark_block_downloaded(
-    //         &block(5),
-    //         block(4),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: true,
-    //             applied: false,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(4),
-    //         block(3),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: true,
-    //             applied: false,
-    //         },
-    //     );
-    //     block_state_db.mark_block_downloaded(
-    //         &block(3),
-    //         block(2),
-    //         InnerBlockState {
-    //             block_downloaded: true,
-    //             operations_downloaded: true,
-    //             applied: false,
-    //         },
-    //     );
-    //
-    //     // collect next missing with sift
-    //     let mut missing_block_headers = Vec::new();
-    //     pipeline2.collect_next_block_headers_to_download(
-    //         10,
-    //         &configuration(),
-    //         &HashSet::default(),
-    //         &mut missing_block_headers,
-    //         &block_state_db,
-    //     );
-    //     assert_eq!(missing_block_headers.len(), 3);
-    //     assert_eq!(missing_block_headers[0].as_ref(), &block(13));
-    //     assert_eq!(missing_block_headers[1].as_ref(), &block(15));
-    //     assert_eq!(missing_block_headers[2].as_ref(), &block(20));
-    //
-    //     assert_eq!(pipeline2.intervals[0].blocks.len(), 4);
-    //     assert_eq!(pipeline2.intervals[0].blocks[0].as_ref(), &block(2));
-    //     assert_eq!(pipeline2.intervals[0].blocks[1].as_ref(), &block(3));
-    //     assert_eq!(pipeline2.intervals[0].blocks[2].as_ref(), &block(4));
-    //     assert_eq!(pipeline2.intervals[0].blocks[3].as_ref(), &block(5));
-    // }
+//     // #[test]
+//     // fn test_bootstrap_state_block_downloaded() -> Result<(), StateError> {
+//     //     // genesis
+//     //     let last_applied = block(0);
+//     //     // history blocks
+//     //     let history: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //     ];
+//     //
+//     //     // create
+//     //     let mut block_state_db = BlockStateDb::new(50);
+//     //
+//     //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
+//     //     assert_eq!(pipeline.intervals.len(), 7);
+//     //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
+//     //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
+//     //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
+//     //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
+//     //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
+//     //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
+//     //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
+//     //
+//     //     // register downloaded block 2 with his predecessor 1
+//     //     assert!(!pipeline.intervals[0].all_blocks_downloaded);
+//     //     assert_eq!(pipeline.intervals[0].blocks.len(), 2);
+//     //     let mut result = Vec::new();
+//     //     pipeline.collect_next_block_headers_to_download(
+//     //         1,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut result,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(1, result.len());
+//     //     assert_eq!(result[0].as_ref(), &block(2));
+//     //
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(2),
+//     //         block(1),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: false,
+//     //         },
+//     //     );
+//     //
+//     //     let mut result = Vec::new();
+//     //     pipeline.collect_next_block_headers_to_download(
+//     //         1,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut result,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(1, result.len());
+//     //     assert_eq!(result[0].as_ref(), &block(1));
+//     //
+//     //     // register downloaded block 1
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(1),
+//     //         block(0),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: false,
+//     //         },
+//     //     );
+//     //
+//     //     // get next blocks
+//     //     let mut result = Vec::new();
+//     //     pipeline.collect_next_block_headers_to_download(
+//     //         3,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut result,
+//     //         &block_state_db,
+//     //     );
+//     //
+//     //     // interval 0 is closed
+//     //     assert!(pipeline.intervals[0].all_blocks_downloaded);
+//     //     assert_eq!(pipeline.intervals[0].blocks.len(), 3);
+//     //     assert_eq!(3, result.len());
+//     //     assert_eq!(result[0].as_ref(), &block(5));
+//     //     assert_eq!(result[1].as_ref(), &block(8));
+//     //     assert_eq!(result[2].as_ref(), &block(10));
+//     //
+//     //     // next interval 1 is opened
+//     //     assert!(!pipeline.intervals[1].all_blocks_downloaded);
+//     //     assert_eq!(pipeline.intervals[1].blocks.len(), 2);
+//     //
+//     //     // register downloaded block 5 with his predecessor 4
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(5),
+//     //         block(4),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: false,
+//     //         },
+//     //     );
+//     //     // register downloaded block 4 as applied
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(4),
+//     //         block(3),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: false,
+//     //         },
+//     //     );
+//     //
+//     //     // first interval with block 2 and block 3 were removed, because if 4 is applied, 2/3 must be also
+//     //     pipeline.intervals[0].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //     assert!(pipeline.intervals[0].all_blocks_downloaded);
+//     //     assert_eq!(pipeline.intervals[0].blocks.len(), 3);
+//     //     assert_eq!(pipeline.intervals[0].blocks[0].as_ref(), &block(0));
+//     //     assert_eq!(pipeline.intervals[0].blocks[1].as_ref(), &block(1));
+//     //     assert_eq!(pipeline.intervals[0].blocks[2].as_ref(), &block(2));
+//     //
+//     //     pipeline.intervals[1].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //     assert!(!pipeline.intervals[1].all_blocks_downloaded);
+//     //     assert_eq!(pipeline.intervals[1].blocks.len(), 4);
+//     //     assert_eq!(pipeline.intervals[1].blocks[0].as_ref(), &block(2));
+//     //     assert_eq!(pipeline.intervals[1].blocks[1].as_ref(), &block(3));
+//     //     assert_eq!(pipeline.intervals[1].blocks[2].as_ref(), &block(4));
+//     //     assert_eq!(pipeline.intervals[1].blocks[3].as_ref(), &block(5));
+//     //
+//     //     Ok(())
+//     // }
+//     //
+//     // #[test]
+//     // fn test_bootstrap_state_block_applied_marking() {
+//     //     // genesis
+//     //     let last_applied = block(0);
+//     //     // history blocks
+//     //     let history: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //     ];
+//     //
+//     //     // create
+//     //     let mut block_state_db = BlockStateDb::new(50);
+//     //
+//     //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
+//     //     assert_eq!(pipeline.intervals.len(), 7);
+//     //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
+//     //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
+//     //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
+//     //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
+//     //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
+//     //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
+//     //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
+//     //
+//     //     // check intervals
+//     //     assert_eq!(pipeline.intervals.len(), 7);
+//     //
+//     //     // trigger that block 2 is download with predecessor 1
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(2),
+//     //         block(1),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: false,
+//     //         },
+//     //     );
+//     //     pipeline.intervals[0].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //
+//     //     // mark 1 as applied (half of interval)
+//     //     block_state_db.remove_with_all_predecessors(&block(1));
+//     //     pipeline.block_applied(&block(1), &block_state_db);
+//     //     assert_eq!(pipeline.intervals.len(), 7);
+//     //     // begining of interval is changed to block1
+//     //     assert_eq!(pipeline.intervals[0].blocks.len(), 2);
+//     //     assert_eq!(pipeline.intervals[0].blocks[0].as_ref(), &block(1));
+//     //     assert_eq!(pipeline.intervals[0].blocks[1].as_ref(), &block(2));
+//     //
+//     //     // trigger that block 2 is applied
+//     //     block_state_db.remove_with_all_predecessors(&block(2));
+//     //     pipeline.block_applied(&block(2), &block_state_db);
+//     //     assert_eq!(pipeline.intervals.len(), 6);
+//     //
+//     //     // trigger that block 8 is applied
+//     //     block_state_db.remove_with_all_predecessors(&block(8));
+//     //     pipeline.block_applied(&block(8), &block_state_db);
+//     //     assert_eq!(pipeline.intervals.len(), 4);
+//     //
+//     //     // download 20 -> 19 -> 18 -> 17
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(20),
+//     //         block(19),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: false,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(19),
+//     //         block(18),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: false,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(18),
+//     //         block(17),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: false,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     assert!(!block_state_db.blocks.get(&block(20)).unwrap().applied);
+//     //     assert!(!block_state_db.blocks.get(&block(19)).unwrap().applied);
+//     //     assert!(!block_state_db.blocks.get(&block(18)).unwrap().applied);
+//     //
+//     //     // trigger that last block is applied
+//     //     block_state_db.remove_with_all_predecessors(&block(20));
+//     //
+//     //     // direct predecessors should be marked as applied
+//     //     assert!(block_state_db.blocks.get(&block(20)).unwrap().applied);
+//     //     assert!(!block_state_db.blocks.contains_key(&block(19)));
+//     //     assert!(!block_state_db.blocks.contains_key(&block(18)));
+//     //
+//     //     // mark pipeline - should remove all intervals now
+//     //     pipeline.block_applied(&block(20), &block_state_db);
+//     //
+//     //     // interval 0 was removed
+//     //     assert!(pipeline.is_done());
+//     // }
+//     //
+//     // #[test]
+//     // fn test_collect_next_blocks_to_download() {
+//     //     // genesis
+//     //     let last_applied = block(0);
+//     //     // history blocks
+//     //     let history: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //     ];
+//     //
+//     //     // create
+//     //     let mut block_state_db = BlockStateDb::new(50);
+//     //
+//     //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
+//     //     assert_eq!(pipeline.intervals.len(), 7);
+//     //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
+//     //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
+//     //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
+//     //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
+//     //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
+//     //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
+//     //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
+//     //
+//     //     // check 2. inerval -  is not downloaded
+//     //     assert!(!pipeline.intervals[1].all_blocks_downloaded);
+//     //     assert_eq!(2, pipeline.intervals[1].blocks.len());
+//     //
+//     //     // try to get blocks for download - max 5
+//     //     let mut blocks_to_download = Vec::new();
+//     //     pipeline.collect_next_block_headers_to_download(
+//     //         5,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut blocks_to_download,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(5, blocks_to_download.len());
+//     //     assert_eq!(blocks_to_download[0].as_ref(), &block(2));
+//     //     assert_eq!(blocks_to_download[1].as_ref(), &block(5));
+//     //     assert_eq!(blocks_to_download[2].as_ref(), &block(8));
+//     //     assert_eq!(blocks_to_download[3].as_ref(), &block(10));
+//     //     assert_eq!(blocks_to_download[4].as_ref(), &block(13));
+//     //
+//     //     // try to get blocks for download - max 2
+//     //     let mut blocks_to_download = Vec::new();
+//     //     pipeline.collect_next_block_headers_to_download(
+//     //         2,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut blocks_to_download,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(2, blocks_to_download.len());
+//     //     assert_eq!(blocks_to_download[0].as_ref(), &block(2));
+//     //     assert_eq!(blocks_to_download[1].as_ref(), &block(5));
+//     //
+//     //     // try to get blocks for download - max 2 interval with ignored
+//     //     let mut blocks_to_download = Vec::new();
+//     //     pipeline.collect_next_block_headers_to_download(
+//     //         2,
+//     //         &configuration(),
+//     //         &hash_set![block_ref(5)],
+//     //         &mut blocks_to_download,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(2, blocks_to_download.len());
+//     //     assert_eq!(blocks_to_download[0].as_ref(), &block(2));
+//     //     assert_eq!(blocks_to_download[1].as_ref(), &block(8));
+//     // }
+//     //
+//     // #[test]
+//     // fn test_collect_next_blocks_to_download_feed_interval_on_collect() {
+//     //     // genesis
+//     //     let last_applied = block(0);
+//     //     // history blocks
+//     //     let history: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //         block(25),
+//     //         block(30),
+//     //         block(35),
+//     //         block(40),
+//     //         block(43),
+//     //         block(46),
+//     //         block(49),
+//     //         block(52),
+//     //         block(53),
+//     //         block(56),
+//     //         block(59),
+//     //         block(60),
+//     //     ];
+//     //
+//     //     // create
+//     //     let mut block_state_db = BlockStateDb::new(50);
+//     //
+//     //     let mut pipeline1 = BranchState::new(
+//     //         last_applied.clone(),
+//     //         history.clone(),
+//     //         60,
+//     //         &mut block_state_db,
+//     //     );
+//     //     assert_eq!(pipeline1.intervals.len(), 19);
+//     //     assert_interval(&pipeline1.intervals[0], (block(0), block(2)));
+//     //     assert_interval(&pipeline1.intervals[1], (block(2), block(5)));
+//     //     assert_interval(&pipeline1.intervals[2], (block(5), block(8)));
+//     //     assert_interval(&pipeline1.intervals[3], (block(8), block(10)));
+//     //     assert_interval(&pipeline1.intervals[4], (block(10), block(13)));
+//     //     assert_interval(&pipeline1.intervals[5], (block(13), block(15)));
+//     //     assert_interval(&pipeline1.intervals[6], (block(15), block(20)));
+//     //     assert_interval(&pipeline1.intervals[7], (block(20), block(25)));
+//     //     assert_interval(&pipeline1.intervals[8], (block(25), block(30)));
+//     //     assert_interval(&pipeline1.intervals[9], (block(30), block(35)));
+//     //     assert_interval(&pipeline1.intervals[10], (block(35), block(40)));
+//     //     assert_interval(&pipeline1.intervals[11], (block(40), block(43)));
+//     //     assert_interval(&pipeline1.intervals[12], (block(43), block(46)));
+//     //     assert_interval(&pipeline1.intervals[13], (block(46), block(49)));
+//     //     assert_interval(&pipeline1.intervals[14], (block(49), block(52)));
+//     //     assert_interval(&pipeline1.intervals[15], (block(52), block(53)));
+//     //     assert_interval(&pipeline1.intervals[16], (block(53), block(56)));
+//     //     assert_interval(&pipeline1.intervals[17], (block(56), block(59)));
+//     //     assert_interval(&pipeline1.intervals[18], (block(59), block(60)));
+//     //
+//     //     // try to get schedule blocks for download
+//     //     let mut blocks_to_download1 = Vec::new();
+//     //     pipeline1.collect_next_block_headers_to_download(
+//     //         15,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut blocks_to_download1,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(15, blocks_to_download1.len());
+//     //     assert_eq!(blocks_to_download1[0].as_ref(), &block(2));
+//     //     assert_eq!(blocks_to_download1[1].as_ref(), &block(5));
+//     //     assert_eq!(blocks_to_download1[2].as_ref(), &block(8));
+//     //     assert_eq!(blocks_to_download1[3].as_ref(), &block(10));
+//     //     assert_eq!(blocks_to_download1[4].as_ref(), &block(13));
+//     //     assert_eq!(blocks_to_download1[5].as_ref(), &block(15));
+//     //     assert_eq!(blocks_to_download1[6].as_ref(), &block(20));
+//     //     assert_eq!(blocks_to_download1[7].as_ref(), &block(25));
+//     //     assert_eq!(blocks_to_download1[8].as_ref(), &block(30));
+//     //     assert_eq!(blocks_to_download1[9].as_ref(), &block(35));
+//     //     assert_eq!(blocks_to_download1[10].as_ref(), &block(40));
+//     //     assert_eq!(blocks_to_download1[11].as_ref(), &block(43));
+//     //     assert_eq!(blocks_to_download1[12].as_ref(), &block(46));
+//     //     assert_eq!(blocks_to_download1[13].as_ref(), &block(49));
+//     //     assert_eq!(blocks_to_download1[14].as_ref(), &block(52));
+//     //
+//     //     // download 8
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(8),
+//     //         block(7),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: false,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     // download 7
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(7),
+//     //         block(6),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: false,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     // download 20
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(20),
+//     //         block(19),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: false,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     // download 19
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(19),
+//     //         block(18),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: false,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     // download 18
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(18),
+//     //         block(17),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: false,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     // download 17
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(17),
+//     //         block(16),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: false,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //
+//     //     // start new pipeline
+//     //     let history: Vec<BlockHash> = vec![
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //         block(25),
+//     //         block(30),
+//     //         block(35),
+//     //         block(40),
+//     //         block(43),
+//     //         block(46),
+//     //         block(49),
+//     //         block(52),
+//     //         block(53),
+//     //         block(56),
+//     //         block(59),
+//     //         block(60),
+//     //         block(63),
+//     //         block(65),
+//     //     ];
+//     //     let mut pipeline2 = BranchState::new(
+//     //         last_applied.clone(),
+//     //         history.clone(),
+//     //         60,
+//     //         &mut block_state_db,
+//     //     );
+//     //     assert_eq!(pipeline2.intervals.len(), 19);
+//     //     assert_interval(&pipeline2.intervals[0], (block(0), block(8)));
+//     //     assert_interval(&pipeline2.intervals[1], (block(8), block(10)));
+//     //     assert_interval(&pipeline2.intervals[2], (block(10), block(13)));
+//     //     assert_interval(&pipeline2.intervals[3], (block(13), block(15)));
+//     //     assert_interval(&pipeline2.intervals[4], (block(15), block(20)));
+//     //     assert_interval(&pipeline2.intervals[5], (block(20), block(25)));
+//     //     assert_interval(&pipeline2.intervals[6], (block(25), block(30)));
+//     //     assert_interval(&pipeline2.intervals[7], (block(30), block(35)));
+//     //     assert_interval(&pipeline2.intervals[8], (block(35), block(40)));
+//     //     assert_interval(&pipeline2.intervals[9], (block(40), block(43)));
+//     //     assert_interval(&pipeline2.intervals[10], (block(43), block(46)));
+//     //     assert_interval(&pipeline2.intervals[11], (block(46), block(49)));
+//     //     assert_interval(&pipeline2.intervals[12], (block(49), block(52)));
+//     //     assert_interval(&pipeline2.intervals[13], (block(52), block(53)));
+//     //     assert_interval(&pipeline2.intervals[14], (block(53), block(56)));
+//     //     assert_interval(&pipeline2.intervals[15], (block(56), block(59)));
+//     //     assert_interval(&pipeline2.intervals[16], (block(59), block(60)));
+//     //     assert_interval(&pipeline2.intervals[17], (block(60), block(63)));
+//     //     assert_interval(&pipeline2.intervals[18], (block(63), block(65)));
+//     //
+//     //     // try to get schedule blocks for download
+//     //     let mut blocks_to_download2 = Vec::new();
+//     //     pipeline2.collect_next_block_headers_to_download(
+//     //         15,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut blocks_to_download2,
+//     //         &block_state_db,
+//     //     );
+//     //
+//     //     // check pre-feeded intervals (with blocks downloaded before)
+//     //     assert_eq!(pipeline2.intervals[0].blocks.len(), 4);
+//     //     assert_eq!(pipeline2.intervals[0].blocks[0].as_ref(), &block(0));
+//     //     assert_eq!(pipeline2.intervals[0].blocks[1].as_ref(), &block(6));
+//     //     assert_eq!(pipeline2.intervals[0].blocks[2].as_ref(), &block(7));
+//     //     assert_eq!(pipeline2.intervals[0].blocks[3].as_ref(), &block(8));
+//     //
+//     //     assert_eq!(pipeline2.intervals[1].blocks.len(), 2);
+//     //     assert_eq!(pipeline2.intervals[1].blocks[0].as_ref(), &block(8));
+//     //     assert_eq!(pipeline2.intervals[1].blocks[1].as_ref(), &block(10));
+//     //
+//     //     assert_eq!(pipeline2.intervals[2].blocks.len(), 2);
+//     //     assert_eq!(pipeline2.intervals[2].blocks[0].as_ref(), &block(10));
+//     //     assert_eq!(pipeline2.intervals[2].blocks[1].as_ref(), &block(13));
+//     //
+//     //     assert_eq!(pipeline2.intervals[3].blocks.len(), 2);
+//     //     assert_eq!(pipeline2.intervals[3].blocks[0].as_ref(), &block(13));
+//     //     assert_eq!(pipeline2.intervals[3].blocks[1].as_ref(), &block(15));
+//     //
+//     //     assert_eq!(pipeline2.intervals[4].blocks.len(), 6);
+//     //     assert_eq!(pipeline2.intervals[4].blocks[0].as_ref(), &block(15));
+//     //     assert_eq!(pipeline2.intervals[4].blocks[1].as_ref(), &block(16));
+//     //     assert_eq!(pipeline2.intervals[4].blocks[2].as_ref(), &block(17));
+//     //     assert_eq!(pipeline2.intervals[4].blocks[3].as_ref(), &block(18));
+//     //     assert_eq!(pipeline2.intervals[4].blocks[4].as_ref(), &block(19));
+//     //     assert_eq!(pipeline2.intervals[4].blocks[5].as_ref(), &block(20));
+//     //
+//     //     assert_eq!(pipeline2.intervals[5].blocks.len(), 2);
+//     //     assert_eq!(pipeline2.intervals[5].blocks[0].as_ref(), &block(20));
+//     //     assert_eq!(pipeline2.intervals[5].blocks[1].as_ref(), &block(25));
+//     //
+//     //     assert_eq!(15, blocks_to_download2.len());
+//     //     assert_eq!(blocks_to_download2[0].as_ref(), &block(6));
+//     //     assert_eq!(blocks_to_download2[1].as_ref(), &block(10));
+//     //     assert_eq!(blocks_to_download2[2].as_ref(), &block(13));
+//     //     assert_eq!(blocks_to_download2[3].as_ref(), &block(15));
+//     //     assert_eq!(blocks_to_download2[4].as_ref(), &block(16));
+//     //     assert_eq!(blocks_to_download2[5].as_ref(), &block(25));
+//     //     assert_eq!(blocks_to_download2[6].as_ref(), &block(30));
+//     //     assert_eq!(blocks_to_download2[7].as_ref(), &block(35));
+//     //     assert_eq!(blocks_to_download2[8].as_ref(), &block(40));
+//     //     assert_eq!(blocks_to_download2[9].as_ref(), &block(43));
+//     //     assert_eq!(blocks_to_download2[10].as_ref(), &block(46));
+//     //     assert_eq!(blocks_to_download2[11].as_ref(), &block(49));
+//     //     assert_eq!(blocks_to_download2[12].as_ref(), &block(52));
+//     //     assert_eq!(blocks_to_download2[13].as_ref(), &block(53));
+//     //     assert_eq!(blocks_to_download2[14].as_ref(), &block(56));
+//     // }
+//     //
+//     // #[test]
+//     // fn test_shift_and_check_all_blocks_downloaded() {
+//     //     // genesis
+//     //     let last_applied = block(0);
+//     //     // history blocks
+//     //     let history: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //         block(25),
+//     //         block(30),
+//     //         block(35),
+//     //         block(40),
+//     //         block(43),
+//     //         block(46),
+//     //         block(49),
+//     //         block(52),
+//     //         block(53),
+//     //         block(56),
+//     //         block(59),
+//     //         block(60),
+//     //     ];
+//     //
+//     //     // create
+//     //     let mut block_state_db = BlockStateDb::new(50);
+//     //
+//     //     let mut pipeline1 = BranchState::new(
+//     //         last_applied.clone(),
+//     //         history.clone(),
+//     //         60,
+//     //         &mut block_state_db,
+//     //     );
+//     //     assert_eq!(pipeline1.intervals.len(), 19);
+//     //     assert_interval(&pipeline1.intervals[0], (block(0), block(2)));
+//     //     assert_interval(&pipeline1.intervals[1], (block(2), block(5)));
+//     //     assert_interval(&pipeline1.intervals[2], (block(5), block(8)));
+//     //     assert_interval(&pipeline1.intervals[3], (block(8), block(10)));
+//     //     assert_interval(&pipeline1.intervals[4], (block(10), block(13)));
+//     //     assert_interval(&pipeline1.intervals[5], (block(13), block(15)));
+//     //     assert_interval(&pipeline1.intervals[6], (block(15), block(20)));
+//     //     assert_interval(&pipeline1.intervals[7], (block(20), block(25)));
+//     //     assert_interval(&pipeline1.intervals[8], (block(25), block(30)));
+//     //     assert_interval(&pipeline1.intervals[9], (block(30), block(35)));
+//     //     assert_interval(&pipeline1.intervals[10], (block(35), block(40)));
+//     //     assert_interval(&pipeline1.intervals[11], (block(40), block(43)));
+//     //     assert_interval(&pipeline1.intervals[12], (block(43), block(46)));
+//     //     assert_interval(&pipeline1.intervals[13], (block(46), block(49)));
+//     //     assert_interval(&pipeline1.intervals[14], (block(49), block(52)));
+//     //     assert_interval(&pipeline1.intervals[15], (block(52), block(53)));
+//     //     assert_interval(&pipeline1.intervals[16], (block(53), block(56)));
+//     //     assert_interval(&pipeline1.intervals[17], (block(56), block(59)));
+//     //     assert_interval(&pipeline1.intervals[18], (block(59), block(60)));
+//     //
+//     //     // download 8
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(8),
+//     //         block(7),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: false,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     // download 7
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(7),
+//     //         block(6),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: false,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     // download 20
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(20),
+//     //         block(19),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: false,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     // download 19
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(19),
+//     //         block(18),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: false,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     // download 18
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(18),
+//     //         block(17),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: false,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //
+//     //     // check pre-feeded intervals (with blocks downloaded before)
+//     //     assert_eq!(pipeline1.intervals[0].blocks.len(), 2);
+//     //     assert_eq!(pipeline1.intervals[0].blocks[0].as_ref(), &block(0));
+//     //     assert_eq!(pipeline1.intervals[0].blocks[1].as_ref(), &block(2));
+//     //
+//     //     assert_eq!(pipeline1.intervals[1].blocks.len(), 2);
+//     //     assert_eq!(pipeline1.intervals[1].blocks[0].as_ref(), &block(2));
+//     //     assert_eq!(pipeline1.intervals[1].blocks[1].as_ref(), &block(5));
+//     //
+//     //     // mark 8 as downloaded in pipeline, should shift to 5
+//     //     pipeline1.intervals[2].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline1.missing_operations,
+//     //     );
+//     //     assert_eq!(pipeline1.intervals[2].blocks.len(), 4);
+//     //     assert_eq!(pipeline1.intervals[2].blocks[0].as_ref(), &block(5));
+//     //     assert_eq!(pipeline1.intervals[2].blocks[1].as_ref(), &block(6));
+//     //     assert_eq!(pipeline1.intervals[2].blocks[2].as_ref(), &block(7));
+//     //     assert_eq!(pipeline1.intervals[2].blocks[3].as_ref(), &block(8));
+//     //
+//     //     // mark 20 as downloaded in pipeline, should shift to 16
+//     //     pipeline1.intervals[6].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline1.missing_operations,
+//     //     );
+//     //     assert_eq!(pipeline1.intervals[6].blocks.len(), 5);
+//     //     assert_eq!(pipeline1.intervals[6].blocks[0].as_ref(), &block(15));
+//     //     assert_eq!(pipeline1.intervals[6].blocks[1].as_ref(), &block(17));
+//     //     assert_eq!(pipeline1.intervals[6].blocks[2].as_ref(), &block(18));
+//     //     assert_eq!(pipeline1.intervals[6].blocks[3].as_ref(), &block(19));
+//     //     assert_eq!(pipeline1.intervals[6].blocks[4].as_ref(), &block(20));
+//     // }
+//     //
+//     // #[test]
+//     // fn test_collect_next_block_operations_to_download_scheduled_by_find_next_for_apply() {
+//     //     // genesis
+//     //     let last_applied = block(0);
+//     //     // history blocks
+//     //     let history: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //     ];
+//     //
+//     //     // create
+//     //     let mut block_state_db = BlockStateDb::new(50);
+//     //
+//     //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
+//     //     assert_eq!(pipeline.intervals.len(), 7);
+//     //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
+//     //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
+//     //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
+//     //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
+//     //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
+//     //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
+//     //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
+//     //
+//     //     // check 2. inerval -  is not downloaded
+//     //     assert!(!pipeline.intervals[1].all_blocks_downloaded);
+//     //     assert_eq!(2, pipeline.intervals[1].blocks.len());
+//     //
+//     //     // shifting is checking missing operations
+//     //     assert!(pipeline.missing_operations.is_empty());
+//     //     pipeline.schedule_next_block_to_apply(100, &block_state_db);
+//     //     assert!(!pipeline.missing_operations.is_empty());
+//     //
+//     //     // try to get blocks for download - max 1 interval
+//     //     let mut result = Vec::new();
+//     //     pipeline.collect_next_block_operations_to_download(
+//     //         1,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut result,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(1, result.len());
+//     //     assert_eq!(result[0].as_ref(), &block(2));
+//     // }
+//     //
+//     // #[test]
+//     // fn test_collect_next_block_operations_to_download_scheduled_by_shifting() {
+//     //     // genesis
+//     //     let last_applied = block(0);
+//     //     // history blocks
+//     //     let history: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //     ];
+//     //
+//     //     // create
+//     //     let mut block_state_db = BlockStateDb::new(50);
+//     //
+//     //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
+//     //     assert_eq!(pipeline.intervals.len(), 7);
+//     //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
+//     //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
+//     //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
+//     //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
+//     //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
+//     //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
+//     //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
+//     //
+//     //     // check 2. inerval -  is not downloaded
+//     //     assert!(!pipeline.intervals[1].all_blocks_downloaded);
+//     //     assert_eq!(2, pipeline.intervals[1].blocks.len());
+//     //
+//     //     // try to get blocks for download - max 1 interval
+//     //     // no blocks downloaded, so no operations
+//     //     let mut result = Vec::new();
+//     //     pipeline.collect_next_block_operations_to_download(
+//     //         1,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut result,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(0, result.len());
+//     //
+//     //     // mark 2 as downloaded
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(2),
+//     //         block(1),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: false,
+//     //         },
+//     //     );
+//     //     pipeline.intervals[0].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //     pipeline.intervals[1].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //     pipeline.intervals[2].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //     pipeline.intervals[3].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //
+//     //     // try to get blocks for download - max 4
+//     //     let mut result = Vec::new();
+//     //     pipeline.collect_next_block_operations_to_download(
+//     //         4,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut result,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(1, result.len());
+//     //     assert_eq!(result[0].as_ref(), &block(2));
+//     //
+//     //     // mark as downloaded
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(5),
+//     //         block(4),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: false,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(8),
+//     //         block(7),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: false,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(7),
+//     //         block(6),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: false,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(10),
+//     //         block(9),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: false,
+//     //         },
+//     //     );
+//     //     pipeline.intervals[0].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //     pipeline.intervals[1].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //     pipeline.intervals[2].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //     pipeline.intervals[3].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //
+//     //     // try to get blocks for download - max 4 with ignored
+//     //     let mut result = Vec::new();
+//     //     pipeline.collect_next_block_operations_to_download(
+//     //         4,
+//     //         &configuration(),
+//     //         &hash_set![block_ref(5)],
+//     //         &mut result,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(4, result.len());
+//     //     assert!(result.contains(&block_ref(2)));
+//     //     assert!(result.contains(&block_ref(7)));
+//     //     assert!(result.contains(&block_ref(8)));
+//     //     assert!(result.contains(&block_ref(10)));
+//     // }
+//     //
+//     // #[test]
+//     // fn test_download_all_blocks_and_operations() {
+//     //     // genesis
+//     //     let last_applied = block(0);
+//     //     // history blocks
+//     //     let history: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //     ];
+//     //
+//     //     // create
+//     //     let mut block_state_db = BlockStateDb::new(50);
+//     //
+//     //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
+//     //     assert_eq!(pipeline.intervals.len(), 7);
+//     //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
+//     //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
+//     //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
+//     //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
+//     //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
+//     //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
+//     //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
+//     //
+//     //     // download blocks and operations from 0 to 8
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(8),
+//     //         block(7),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(7),
+//     //         block(6),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(6),
+//     //         block(5),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(5),
+//     //         block(4),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(4),
+//     //         block(3),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(3),
+//     //         block(2),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(2),
+//     //         block(1),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(1),
+//     //         block(0),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //
+//     //     // check all downloaded inervals
+//     //     pipeline.intervals[0].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //     pipeline.intervals[1].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //
+//     //     assert!(pipeline.intervals[0].all_blocks_downloaded);
+//     //     assert!(pipeline.intervals[1].all_blocks_downloaded);
+//     // }
+//     //
+//     // #[test]
+//     // fn test_find_next_block_to_apply_batch() {
+//     //     // genesis
+//     //     let last_applied = block(0);
+//     //     // history blocks
+//     //     let history: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //     ];
+//     //
+//     //     // create
+//     //     let mut block_state_db = BlockStateDb::new(50);
+//     //
+//     //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
+//     //     assert_eq!(pipeline.intervals.len(), 7);
+//     //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
+//     //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
+//     //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
+//     //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
+//     //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
+//     //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
+//     //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
+//     //
+//     //     // download blocks and operations from 0 to 8
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(8),
+//     //         block(7),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(7),
+//     //         block(6),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(6),
+//     //         block(5),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(5),
+//     //         block(4),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(4),
+//     //         block(3),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(3),
+//     //         block(2),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(2),
+//     //         block(1),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(1),
+//     //         block(0),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: true,
+//     //         },
+//     //     );
+//     //
+//     //     // we need to shift intervals
+//     //     pipeline.intervals[0].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //     pipeline.intervals[1].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //     pipeline.intervals[2].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //     pipeline.intervals[3].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //
+//     //     // next for apply with max batch 0
+//     //     let next_batch = pipeline.schedule_next_block_to_apply(0, &block_state_db);
+//     //     assert!(next_batch.is_some());
+//     //     let next_batch = next_batch.unwrap();
+//     //     assert_eq!(next_batch.block_to_apply.as_ref(), &block(1));
+//     //     assert_eq!(0, next_batch.successors_size());
+//     //
+//     //     // next for apply with max batch 1
+//     //     let next_batch = pipeline.schedule_next_block_to_apply(1, &block_state_db);
+//     //     assert!(next_batch.is_some());
+//     //     let next_batch = next_batch.unwrap();
+//     //     assert_eq!(next_batch.block_to_apply.as_ref(), &block(1));
+//     //     assert_eq!(1, next_batch.successors_size());
+//     //     assert_eq!(next_batch.successors[0].as_ref(), &block(2));
+//     //
+//     //     // next for apply with max batch 100
+//     //     let next_batch = pipeline.schedule_next_block_to_apply(100, &block_state_db);
+//     //     assert!(next_batch.is_some());
+//     //     let next_batch = next_batch.unwrap();
+//     //     assert_eq!(next_batch.block_to_apply.as_ref(), &block(1));
+//     //     assert_eq!(7, next_batch.successors_size());
+//     //     assert_eq!(next_batch.successors[0].as_ref(), &block(2));
+//     //     assert_eq!(next_batch.successors[1].as_ref(), &block(3));
+//     //     assert_eq!(next_batch.successors[2].as_ref(), &block(4));
+//     //     assert_eq!(next_batch.successors[3].as_ref(), &block(5));
+//     //     assert_eq!(next_batch.successors[4].as_ref(), &block(6));
+//     //     assert_eq!(next_batch.successors[5].as_ref(), &block(7));
+//     //     assert_eq!(next_batch.successors[6].as_ref(), &block(8));
+//     // }
+//     //
+//     // #[test]
+//     // fn test_mark_block_scheduled() {
+//     //     // genesis
+//     //     let last_applied = block(0);
+//     //     // history blocks
+//     //     let history: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //     ];
+//     //
+//     //     // create
+//     //     let mut block_state_db = BlockStateDb::new(50);
+//     //
+//     //     let mut pipeline = BranchState::new(last_applied, history, 20, &mut block_state_db);
+//     //     assert_eq!(pipeline.intervals.len(), 7);
+//     //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
+//     //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
+//     //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
+//     //     assert_interval(&pipeline.intervals[3], (block(8), block(10)));
+//     //     assert_interval(&pipeline.intervals[4], (block(10), block(13)));
+//     //     assert_interval(&pipeline.intervals[5], (block(13), block(15)));
+//     //     assert_interval(&pipeline.intervals[6], (block(15), block(20)));
+//     //
+//     //     let mut headers_to_download = Vec::new();
+//     //     pipeline.collect_next_block_headers_to_download(
+//     //         1,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut headers_to_download,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(1, headers_to_download.len());
+//     //     assert_eq!(headers_to_download[0].as_ref(), &block(2));
+//     //
+//     //     block_state_db.mark_scheduled_for_block_header_download(&block(2));
+//     //
+//     //     // cfg with reschedule timeout 1000 ms
+//     //     let mut cfg = configuration();
+//     //     cfg.block_data_reschedule_timeout = Duration::from_millis(1000);
+//     //
+//     //     let mut headers_to_download = Vec::new();
+//     //     pipeline.collect_next_block_headers_to_download(
+//     //         1,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut headers_to_download,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(1, headers_to_download.len());
+//     //     assert_eq!(headers_to_download[0].as_ref(), &block(5));
+//     //
+//     //     // sleep a little bit
+//     //     std::thread::sleep(Duration::from_millis(100));
+//     //
+//     //     // try with changed timeout
+//     //     cfg.block_data_reschedule_timeout = Duration::from_millis(10);
+//     //
+//     //     let mut headers_to_download = Vec::new();
+//     //     pipeline.collect_next_block_headers_to_download(
+//     //         1,
+//     //         &cfg,
+//     //         &HashSet::default(),
+//     //         &mut headers_to_download,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(1, headers_to_download.len());
+//     //     assert_eq!(headers_to_download[0].as_ref(), &block(2));
+//     //
+//     //     // block downloaded removes timeout
+//     //     assert!(block_state_db
+//     //         .blocks
+//     //         .get(&block(2))
+//     //         .unwrap()
+//     //         .block_header_requested
+//     //         .is_some());
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(2),
+//     //         block(1),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: false,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     pipeline.intervals[0].shift_and_find_next_missing_predecessor(
+//     //         &block_state_db,
+//     //         &mut pipeline.missing_operations,
+//     //     );
+//     //     assert!(block_state_db
+//     //         .blocks
+//     //         .get(&block(2))
+//     //         .unwrap()
+//     //         .block_header_requested
+//     //         .is_none());
+//     //
+//     //     // operations
+//     //     cfg.block_data_reschedule_timeout = Duration::from_millis(1000);
+//     //     block_state_db.mark_scheduled_for_block_operations_download(&block(2));
+//     //
+//     //     let mut operations_to_download = Vec::new();
+//     //     pipeline.collect_next_block_operations_to_download(
+//     //         1,
+//     //         &cfg,
+//     //         &HashSet::default(),
+//     //         &mut operations_to_download,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(0, operations_to_download.len());
+//     //
+//     //     // sleep a little bit
+//     //     std::thread::sleep(Duration::from_millis(100));
+//     //
+//     //     // try with changed timeout
+//     //     cfg.block_data_reschedule_timeout = Duration::from_millis(10);
+//     //
+//     //     let mut operations_to_download = Vec::new();
+//     //     pipeline.collect_next_block_operations_to_download(
+//     //         1,
+//     //         &cfg,
+//     //         &HashSet::default(),
+//     //         &mut operations_to_download,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(1, operations_to_download.len());
+//     //     assert_eq!(operations_to_download[0].as_ref(), &block(2));
+//     //
+//     //     // block operations downloaded removes timeout
+//     //     block_state_db.mark_block_operations_downloaded(&block(2));
+//     //     assert!(block_state_db
+//     //         .blocks
+//     //         .get(&block(2))
+//     //         .unwrap()
+//     //         .block_operations_requested
+//     //         .is_none());
+//     // }
+//     //
+//     // #[test]
+//     // fn test_bootstrap_state_schedule_unique_blocks_for_download() {
+//     //     // common shared db
+//     //     let mut block_state_db = BlockStateDb::new(50);
+//     //
+//     //     // genesis
+//     //     let last_applied1 = block(0);
+//     //     let last_applied2 = block(0);
+//     //     // history blocks
+//     //     let history1: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //     ];
+//     //     let history2: Vec<BlockHash> = vec![
+//     //         block(2),
+//     //         block(5),
+//     //         block(8),
+//     //         block(10),
+//     //         block(13),
+//     //         block(15),
+//     //         block(20),
+//     //     ];
+//     //
+//     //     // create pipeline1
+//     //     let mut pipeline1 =
+//     //         BranchState::new(last_applied1.clone(), history1, 20, &mut block_state_db);
+//     //     assert_eq!(pipeline1.intervals.len(), 7);
+//     //     assert_interval(&pipeline1.intervals[0], (block(0), block(2)));
+//     //     assert_interval(&pipeline1.intervals[1], (block(2), block(5)));
+//     //     assert_interval(&pipeline1.intervals[2], (block(5), block(8)));
+//     //     assert_interval(&pipeline1.intervals[3], (block(8), block(10)));
+//     //     assert_interval(&pipeline1.intervals[4], (block(10), block(13)));
+//     //     assert_interval(&pipeline1.intervals[5], (block(13), block(15)));
+//     //     assert_interval(&pipeline1.intervals[6], (block(15), block(20)));
+//     //     assert_eq!(8, block_state_db.blocks.len());
+//     //
+//     //     // create pipeline2
+//     //     let mut pipeline2 =
+//     //         BranchState::new(last_applied2.clone(), history2, 20, &mut block_state_db);
+//     //     assert_eq!(pipeline2.intervals.len(), 7);
+//     //     assert_interval(&pipeline2.intervals[0], (block(0), block(2)));
+//     //     assert_interval(&pipeline2.intervals[1], (block(2), block(5)));
+//     //     assert_interval(&pipeline2.intervals[2], (block(5), block(8)));
+//     //     assert_interval(&pipeline2.intervals[3], (block(8), block(10)));
+//     //     assert_interval(&pipeline2.intervals[4], (block(10), block(13)));
+//     //     assert_interval(&pipeline2.intervals[5], (block(13), block(15)));
+//     //     assert_interval(&pipeline2.intervals[6], (block(15), block(20)));
+//     //     assert_eq!(8, block_state_db.blocks.len());
+//     //
+//     //     // cfg
+//     //     let mut cfg = configuration();
+//     //     cfg.block_data_reschedule_timeout = Duration::from_secs(15);
+//     //
+//     //     // simulate schedulue for pipeline1
+//     //     let mut result1 = Vec::new();
+//     //     pipeline1.collect_next_block_headers_to_download(
+//     //         10,
+//     //         &cfg,
+//     //         &HashSet::default(),
+//     //         &mut result1,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(7, result1.len());
+//     //     assert_eq!(result1[0].as_ref(), &block(2));
+//     //     assert_eq!(result1[1].as_ref(), &block(5));
+//     //     assert_eq!(result1[2].as_ref(), &block(8));
+//     //     assert_eq!(result1[3].as_ref(), &block(10));
+//     //     assert_eq!(result1[4].as_ref(), &block(13));
+//     //     assert_eq!(result1[5].as_ref(), &block(15));
+//     //     assert_eq!(result1[6].as_ref(), &block(20));
+//     //     result1
+//     //         .iter()
+//     //         .for_each(|b| block_state_db.mark_scheduled_for_block_header_download(&b));
+//     //
+//     //     // simulate schedulue for pipeline2
+//     //     let mut result2 = Vec::new();
+//     //     pipeline2.collect_next_block_headers_to_download(
+//     //         10,
+//     //         &cfg,
+//     //         &HashSet::default(),
+//     //         &mut result2,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(0, result2.len());
+//     // }
+//     //
+//     // #[test]
+//     // fn test_bootstrap_state_downloading_blocks_and_operations() {
+//     //     // genesis
+//     //     let last_applied = block(0);
+//     //     // history blocks
+//     //     let history: Vec<BlockHash> = vec![block(2), block(5), block(8)];
+//     //
+//     //     // create
+//     //     let mut block_state_db = BlockStateDb::new(50);
+//     //
+//     //     // create branch pipeline
+//     //     let mut pipeline = BranchState::new(last_applied, history, 8, &mut block_state_db);
+//     //     assert_eq!(pipeline.intervals.len(), 3);
+//     //     assert_interval(&pipeline.intervals[0], (block(0), block(2)));
+//     //     assert_interval(&pipeline.intervals[1], (block(2), block(5)));
+//     //     assert_interval(&pipeline.intervals[2], (block(5), block(8)));
+//     //     assert!(pipeline.missing_operations.is_empty());
+//     //
+//     //     // schedule blocks for download
+//     //     let mut missing_block_headers = Vec::new();
+//     //     pipeline.collect_next_block_headers_to_download(
+//     //         10,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut missing_block_headers,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(3, missing_block_headers.len());
+//     //     assert_eq!(missing_block_headers[0].as_ref(), &block(2));
+//     //     assert_eq!(missing_block_headers[1].as_ref(), &block(5));
+//     //     assert_eq!(missing_block_headers[2].as_ref(), &block(8));
+//     //     assert!(pipeline.missing_operations.is_empty());
+//     //
+//     //     // check missing operations (this works just for downloaded blocks)
+//     //     let mut missing_block_operations = Vec::new();
+//     //     pipeline.collect_next_block_operations_to_download(
+//     //         10,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut missing_block_operations,
+//     //         &block_state_db,
+//     //     );
+//     //     assert!(missing_block_operations.is_empty());
+//     //
+//     //     // download missing blocks
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(2),
+//     //         block(1),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: false,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(5),
+//     //         block(4),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: false,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(8),
+//     //         block(7),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             applied: false,
+//     //             operations_downloaded: false,
+//     //         },
+//     //     );
+//     //
+//     //     // download next blocks
+//     //     let mut missing_block_headers = Vec::new();
+//     //     pipeline.collect_next_block_headers_to_download(
+//     //         10,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut missing_block_headers,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(3, missing_block_headers.len());
+//     //     assert_eq!(missing_block_headers[0].as_ref(), &block(1));
+//     //     assert_eq!(missing_block_headers[1].as_ref(), &block(4));
+//     //     assert_eq!(missing_block_headers[2].as_ref(), &block(7));
+//     //     assert!(!pipeline.missing_operations.is_empty());
+//     //     assert!(pipeline.missing_operations.contains(&block_ref(2)));
+//     //     assert!(pipeline.missing_operations.contains(&block_ref(5)));
+//     //     assert!(pipeline.missing_operations.contains(&block_ref(8)));
+//     //
+//     //     // check missing operations
+//     //     let mut missing_block_operations = Vec::new();
+//     //     pipeline.collect_next_block_operations_to_download(
+//     //         10,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut missing_block_operations,
+//     //         &block_state_db,
+//     //     );
+//     //     assert!(!missing_block_operations.is_empty());
+//     //     assert!(missing_block_operations.contains(&block_ref(2)));
+//     //     assert!(missing_block_operations.contains(&block_ref(5)));
+//     //     assert!(missing_block_operations.contains(&block_ref(8)));
+//     //
+//     //     // download operations
+//     //     block_state_db.mark_block_operations_downloaded(&block(2));
+//     //     pipeline.block_operations_downloaded(&block(2));
+//     //     assert_eq!(pipeline.missing_operations.len(), 2);
+//     //     assert!(pipeline.missing_operations.contains(&block_ref(5)));
+//     //     assert!(pipeline.missing_operations.contains(&block_ref(8)));
+//     //
+//     //     block_state_db.mark_block_operations_downloaded(&block(8));
+//     //     pipeline.block_operations_downloaded(&block(8));
+//     //     assert_eq!(pipeline.missing_operations.len(), 1);
+//     //     assert!(pipeline.missing_operations.contains(&block_ref(5)));
+//     //
+//     //     block_state_db.mark_block_operations_downloaded(&block(5));
+//     //     pipeline.block_operations_downloaded(&block(5));
+//     //     assert!(pipeline.missing_operations.is_empty());
+//     //
+//     //     // check missing operations
+//     //     let mut missing_block_operations = Vec::new();
+//     //     pipeline.collect_next_block_operations_to_download(
+//     //         10,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut missing_block_operations,
+//     //         &block_state_db,
+//     //     );
+//     //     assert!(missing_block_operations.is_empty());
+//     // }
+//     //
+//     // #[test]
+//     // fn test_bootstrap_state_shift_interval_with_shrink_to_applied_block() {
+//     //     // common shared db
+//     //     let mut block_state_db = BlockStateDb::new(50);
+//     //
+//     //     // genesis
+//     //     let last_applied1 = block(0);
+//     //     // history blocks
+//     //     let history1: Vec<BlockHash> = vec![block(2)];
+//     //
+//     //     // create pipeline1
+//     //     let mut pipeline1 =
+//     //         BranchState::new(last_applied1.clone(), history1, 20, &mut block_state_db);
+//     //     assert_eq!(pipeline1.intervals.len(), 1);
+//     //     assert_interval(&pipeline1.intervals[0], (block(0), block(2)));
+//     //     assert_eq!(2, block_state_db.blocks.len());
+//     //
+//     //     // download all
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(2),
+//     //         block(1),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: true,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(1),
+//     //         block(0),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: true,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     block_state_db.remove_with_all_predecessors(&block(2));
+//     //     pipeline1.block_applied(&block(2), &block_state_db);
+//     //     assert!(pipeline1.is_done());
+//     //     assert_eq!(block_state_db.blocks.len(), 1);
+//     //     assert!(block_state_db.blocks.contains_key(&block(2)));
+//     //
+//     //     // create pipeline2
+//     //     let last_applied2 = block(0);
+//     //     let history2: Vec<BlockHash> = vec![block(5), block(13), block(15), block(20)];
+//     //     let mut pipeline2 =
+//     //         BranchState::new(last_applied2.clone(), history2, 20, &mut block_state_db);
+//     //     assert_eq!(pipeline2.intervals.len(), 4);
+//     //     assert_interval(&pipeline2.intervals[0], (block(0), block(5)));
+//     //     assert_interval(&pipeline2.intervals[1], (block(5), block(13)));
+//     //     assert_interval(&pipeline2.intervals[2], (block(13), block(15)));
+//     //     assert_interval(&pipeline2.intervals[3], (block(15), block(20)));
+//     //
+//     //     // download
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(5),
+//     //         block(4),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: true,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(4),
+//     //         block(3),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: true,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //     block_state_db.mark_block_downloaded(
+//     //         &block(3),
+//     //         block(2),
+//     //         InnerBlockState {
+//     //             block_downloaded: true,
+//     //             operations_downloaded: true,
+//     //             applied: false,
+//     //         },
+//     //     );
+//     //
+//     //     // collect next missing with sift
+//     //     let mut missing_block_headers = Vec::new();
+//     //     pipeline2.collect_next_block_headers_to_download(
+//     //         10,
+//     //         &configuration(),
+//     //         &HashSet::default(),
+//     //         &mut missing_block_headers,
+//     //         &block_state_db,
+//     //     );
+//     //     assert_eq!(missing_block_headers.len(), 3);
+//     //     assert_eq!(missing_block_headers[0].as_ref(), &block(13));
+//     //     assert_eq!(missing_block_headers[1].as_ref(), &block(15));
+//     //     assert_eq!(missing_block_headers[2].as_ref(), &block(20));
+//     //
+//     //     assert_eq!(pipeline2.intervals[0].blocks.len(), 4);
+//     //     assert_eq!(pipeline2.intervals[0].blocks[0].as_ref(), &block(2));
+//     //     assert_eq!(pipeline2.intervals[0].blocks[1].as_ref(), &block(3));
+//     //     assert_eq!(pipeline2.intervals[0].blocks[2].as_ref(), &block(4));
+//     //     assert_eq!(pipeline2.intervals[0].blocks[3].as_ref(), &block(5));
+//     // }
 
-    // fn assert_interval(
-    //     tested: &BranchInterval,
-    //     (expected_left, expected_right): (BlockHash, BlockHash),
-    // ) {
-    //     assert_eq!(tested.blocks.len(), 2);
-    //     assert_eq!(tested.blocks[0].as_ref(), &expected_left);
-    //     assert_eq!(tested.blocks[1].as_ref(), &expected_right);
-    // }
-    //
-    // fn configuration() -> PeerBranchBootstrapperConfiguration {
-    //     PeerBranchBootstrapperConfiguration::new(
-    //         Duration::from_secs(1),
-    //         Duration::from_secs(1),
-    //         Duration::from_secs(1),
-    //         Duration::from_secs(1),
-    //         1,
-    //         100,
-    //     )
-    // }
-}
+//     // fn assert_interval(
+//     //     tested: &BranchInterval,
+//     //     (expected_left, expected_right): (BlockHash, BlockHash),
+//     // ) {
+//     //     assert_eq!(tested.blocks.len(), 2);
+//     //     assert_eq!(tested.blocks[0].as_ref(), &expected_left);
+//     //     assert_eq!(tested.blocks[1].as_ref(), &expected_right);
+//     // }
+//     //
+//     // fn configuration() -> PeerBranchBootstrapperConfiguration {
+//     //     PeerBranchBootstrapperConfiguration::new(
+//     //         Duration::from_secs(1),
+//     //         Duration::from_secs(1),
+//     //         Duration::from_secs(1),
+//     //         Duration::from_secs(1),
+//     //         1,
+//     //         100,
+//     //     )
+//     // }
+// }

@@ -196,167 +196,167 @@ impl SynchronizationBootstrapState {
     }
 }
 
-#[cfg(test)]
-pub mod tests {
-    use std::time::Duration;
+// #[cfg(test)]
+// pub mod tests {
+//     use std::time::Duration;
 
-    use slog::Level;
+//     use slog::Level;
 
-    use networking::p2p::network_channel::NetworkChannel;
+//     use networking::p2p::network_channel::NetworkChannel;
 
-    use crate::state::peer_state::PeerState;
-    use crate::state::tests::prerequisites::{
-        create_logger, create_test_actor_system, create_test_tokio_runtime, test_peer,
-    };
+//     use crate::state::peer_state::PeerState;
+//     use crate::state::tests::prerequisites::{
+//         create_logger, create_test_actor_system, create_test_tokio_runtime, test_peer,
+//     };
 
-    use super::*;
+//     use super::*;
 
-    #[test]
-    fn test_resolve_is_bootstrapped_no_threshold() {
-        // prepare empty states
-        let bootstrap_status = false;
-        let bootstrap_state = SynchronizationBootstrapState::new(0, bootstrap_status);
+//     #[test]
+//     fn test_resolve_is_bootstrapped_no_threshold() {
+//         // prepare empty states
+//         let bootstrap_status = false;
+//         let bootstrap_state = SynchronizationBootstrapState::new(0, bootstrap_status);
 
-        // check
-        assert!(bootstrap_state.is_bootstrapped());
-    }
+//         // check
+//         assert!(bootstrap_state.is_bootstrapped());
+//     }
 
-    #[test]
-    fn test_resolve_is_bootstrapped() {
-        // prerequizities
-        let tokio_runtime = create_test_tokio_runtime();
-        let actor_system = create_test_actor_system(create_logger(Level::Debug));
-        let network_channel =
-            NetworkChannel::actor(&actor_system).expect("Failed to create network channel");
-        let mut peer_state1 =
-            test_peer(&actor_system, network_channel.clone(), &tokio_runtime, 7775);
-        let mut peer_state2 = test_peer(&actor_system, network_channel, &tokio_runtime, 7776);
+//     #[test]
+//     fn test_resolve_is_bootstrapped() {
+//         // prerequizities
+//         let tokio_runtime = create_test_tokio_runtime();
+//         let actor_system = create_test_actor_system(create_logger(Level::Debug));
+//         let network_channel =
+//             NetworkChannel::actor(&actor_system).expect("Failed to create network channel");
+//         let mut peer_state1 =
+//             test_peer(&actor_system, network_channel.clone(), &tokio_runtime, 7775);
+//         let mut peer_state2 = test_peer(&actor_system, network_channel, &tokio_runtime, 7776);
 
-        let done_peer = |to_level, peer_state: &PeerState| -> PeerBranchSynchronizationDone {
-            PeerBranchSynchronizationDone::new(peer_state.peer_id.clone(), to_level)
-        };
+//         let done_peer = |to_level, peer_state: &PeerState| -> PeerBranchSynchronizationDone {
+//             PeerBranchSynchronizationDone::new(peer_state.peer_id.clone(), to_level)
+//         };
 
-        // prepare empty states with threshold = 2
-        let bootstrap_status = false;
-        let mut bootstrap_state = SynchronizationBootstrapState::new(2, bootstrap_status);
+//         // prepare empty states with threshold = 2
+//         let bootstrap_status = false;
+//         let mut bootstrap_state = SynchronizationBootstrapState::new(2, bootstrap_status);
 
-        // check
-        assert!(!bootstrap_state.is_bootstrapped());
-        assert_eq!(0, bootstrap_state.num_of_bootstrapped_peers(100));
+//         // check
+//         assert!(!bootstrap_state.is_bootstrapped());
+//         assert_eq!(0, bootstrap_state.num_of_bootstrapped_peers(100));
 
-        // update with low level
-        bootstrap_state.update_by_peer_state(
-            &done_peer(10, &peer_state1),
-            &mut peer_state1,
-            100,
-            0,
-        );
-        bootstrap_state.update_by_peer_state(
-            &done_peer(15, &peer_state2),
-            &mut peer_state2,
-            100,
-            0,
-        );
-        assert_eq!(0, bootstrap_state.num_of_bootstrapped_peers(100));
-        assert!(!peer_state1.is_bootstrapped());
-        assert!(!peer_state2.is_bootstrapped());
-        assert!(!bootstrap_state.is_bootstrapped());
+//         // update with low level
+//         bootstrap_state.update_by_peer_state(
+//             &done_peer(10, &peer_state1),
+//             &mut peer_state1,
+//             100,
+//             0,
+//         );
+//         bootstrap_state.update_by_peer_state(
+//             &done_peer(15, &peer_state2),
+//             &mut peer_state2,
+//             100,
+//             0,
+//         );
+//         assert_eq!(0, bootstrap_state.num_of_bootstrapped_peers(100));
+//         assert!(!peer_state1.is_bootstrapped());
+//         assert!(!peer_state2.is_bootstrapped());
+//         assert!(!bootstrap_state.is_bootstrapped());
 
-        // update with one with higher level
-        bootstrap_state.update_by_peer_state(
-            &done_peer(99, &peer_state1),
-            &mut peer_state1,
-            100,
-            0,
-        );
-        bootstrap_state.update_by_peer_state(
-            &done_peer(15, &peer_state2),
-            &mut peer_state2,
-            100,
-            0,
-        );
-        assert_eq!(1, bootstrap_state.num_of_bootstrapped_peers(100));
-        assert!(peer_state1.is_bootstrapped());
-        assert!(!peer_state2.is_bootstrapped());
-        assert!(!bootstrap_state.is_bootstrapped());
+//         // update with one with higher level
+//         bootstrap_state.update_by_peer_state(
+//             &done_peer(99, &peer_state1),
+//             &mut peer_state1,
+//             100,
+//             0,
+//         );
+//         bootstrap_state.update_by_peer_state(
+//             &done_peer(15, &peer_state2),
+//             &mut peer_state2,
+//             100,
+//             0,
+//         );
+//         assert_eq!(1, bootstrap_state.num_of_bootstrapped_peers(100));
+//         assert!(peer_state1.is_bootstrapped());
+//         assert!(!peer_state2.is_bootstrapped());
+//         assert!(!bootstrap_state.is_bootstrapped());
 
-        // update the same one with one more higher level
-        bootstrap_state.update_by_peer_state(
-            &done_peer(99, &peer_state1),
-            &mut peer_state1,
-            100,
-            0,
-        );
-        bootstrap_state.update_by_peer_state(
-            &done_peer(15, &peer_state2),
-            &mut peer_state2,
-            100,
-            0,
-        );
-        assert_eq!(1, bootstrap_state.num_of_bootstrapped_peers(100));
-        assert!(peer_state1.is_bootstrapped());
-        assert!(!peer_state2.is_bootstrapped());
-        assert!(!bootstrap_state.is_bootstrapped());
+//         // update the same one with one more higher level
+//         bootstrap_state.update_by_peer_state(
+//             &done_peer(99, &peer_state1),
+//             &mut peer_state1,
+//             100,
+//             0,
+//         );
+//         bootstrap_state.update_by_peer_state(
+//             &done_peer(15, &peer_state2),
+//             &mut peer_state2,
+//             100,
+//             0,
+//         );
+//         assert_eq!(1, bootstrap_state.num_of_bootstrapped_peers(100));
+//         assert!(peer_state1.is_bootstrapped());
+//         assert!(!peer_state2.is_bootstrapped());
+//         assert!(!bootstrap_state.is_bootstrapped());
 
-        // update the other with higher (threshold is ok, but not local level)
-        bootstrap_state.update_by_peer_state(
-            &done_peer(99, &peer_state1),
-            &mut peer_state1,
-            100,
-            97,
-        );
-        bootstrap_state.update_by_peer_state(
-            &done_peer(99, &peer_state2),
-            &mut peer_state2,
-            100,
-            97,
-        );
-        assert_eq!(2, bootstrap_state.num_of_bootstrapped_peers(100));
-        assert!(peer_state1.is_bootstrapped());
-        assert!(peer_state2.is_bootstrapped());
-        assert!(!bootstrap_state.is_bootstrapped());
+//         // update the other with higher (threshold is ok, but not local level)
+//         bootstrap_state.update_by_peer_state(
+//             &done_peer(99, &peer_state1),
+//             &mut peer_state1,
+//             100,
+//             97,
+//         );
+//         bootstrap_state.update_by_peer_state(
+//             &done_peer(99, &peer_state2),
+//             &mut peer_state2,
+//             100,
+//             97,
+//         );
+//         assert_eq!(2, bootstrap_state.num_of_bootstrapped_peers(100));
+//         assert!(peer_state1.is_bootstrapped());
+//         assert!(peer_state2.is_bootstrapped());
+//         assert!(!bootstrap_state.is_bootstrapped());
 
-        // update by new local head
-        assert!(!bootstrap_state.update_by_new_local_head(100, 97));
-        assert_eq!(2, bootstrap_state.num_of_bootstrapped_peers(100));
-        assert!(peer_state1.is_bootstrapped());
-        assert!(peer_state2.is_bootstrapped());
-        assert!(!bootstrap_state.is_bootstrapped());
+//         // update by new local head
+//         assert!(!bootstrap_state.update_by_new_local_head(100, 97));
+//         assert_eq!(2, bootstrap_state.num_of_bootstrapped_peers(100));
+//         assert!(peer_state1.is_bootstrapped());
+//         assert!(peer_state2.is_bootstrapped());
+//         assert!(!bootstrap_state.is_bootstrapped());
 
-        assert!(bootstrap_state.update_by_new_local_head(100, 99));
-        assert_eq!(0, bootstrap_state.num_of_bootstrapped_peers(100));
-        assert!(peer_state1.is_bootstrapped());
-        assert!(peer_state2.is_bootstrapped());
-        assert!(bootstrap_state.is_bootstrapped());
+//         assert!(bootstrap_state.update_by_new_local_head(100, 99));
+//         assert_eq!(0, bootstrap_state.num_of_bootstrapped_peers(100));
+//         assert!(peer_state1.is_bootstrapped());
+//         assert!(peer_state2.is_bootstrapped());
+//         assert!(bootstrap_state.is_bootstrapped());
 
-        // shutdown actor system
-        let _ = tokio_runtime.block_on(async move {
-            tokio::time::timeout(Duration::from_secs(2), actor_system.shutdown()).await
-        });
-    }
+//         // shutdown actor system
+//         let _ = tokio_runtime.block_on(async move {
+//             tokio::time::timeout(Duration::from_secs(2), actor_system.shutdown()).await
+//         });
+//     }
 
-    #[test]
-    fn test_consider_as_bootstrapped() {
-        assert!(SynchronizationBootstrapState::consider_as_bootstrapped(
-            0, 0, 0,
-        ));
-        assert!(!SynchronizationBootstrapState::consider_as_bootstrapped(
-            0, 1, 1,
-        ));
-        assert!(!SynchronizationBootstrapState::consider_as_bootstrapped(
-            1, 0, 1,
-        ));
-        assert!(!SynchronizationBootstrapState::consider_as_bootstrapped(
-            97, 100, 98,
-        ));
-        assert!(SynchronizationBootstrapState::consider_as_bootstrapped(
-            98, 100, 98,
-        ));
-        assert!(SynchronizationBootstrapState::consider_as_bootstrapped(
-            99, 100, 98,
-        ));
-        assert!(SynchronizationBootstrapState::consider_as_bootstrapped(
-            100, 100, 98,
-        ));
-    }
-}
+//     #[test]
+//     fn test_consider_as_bootstrapped() {
+//         assert!(SynchronizationBootstrapState::consider_as_bootstrapped(
+//             0, 0, 0,
+//         ));
+//         assert!(!SynchronizationBootstrapState::consider_as_bootstrapped(
+//             0, 1, 1,
+//         ));
+//         assert!(!SynchronizationBootstrapState::consider_as_bootstrapped(
+//             1, 0, 1,
+//         ));
+//         assert!(!SynchronizationBootstrapState::consider_as_bootstrapped(
+//             97, 100, 98,
+//         ));
+//         assert!(SynchronizationBootstrapState::consider_as_bootstrapped(
+//             98, 100, 98,
+//         ));
+//         assert!(SynchronizationBootstrapState::consider_as_bootstrapped(
+//             99, 100, 98,
+//         ));
+//         assert!(SynchronizationBootstrapState::consider_as_bootstrapped(
+//             100, 100, 98,
+//         ));
+//     }
+// }

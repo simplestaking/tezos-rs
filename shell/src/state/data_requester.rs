@@ -502,384 +502,384 @@ pub fn tell_peer(
     }, None);
 }
 
-#[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-    use std::sync::Arc;
+// #[cfg(test)]
+// mod tests {
+//     use std::collections::HashSet;
+//     use std::sync::Arc;
 
-    use serial_test::serial;
-    use slog::Level;
+//     use serial_test::serial;
+//     use slog::Level;
 
-    use networking::p2p::network_channel::NetworkChannel;
-    use storage::tests_common::TmpStorage;
-    use storage::{
-        block_meta_storage, operations_meta_storage, BlockMetaStorage, OperationsMetaStorage,
-    };
-    use tezos_messages::p2p::encoding::prelude::OperationsForBlock;
+//     use networking::p2p::network_channel::NetworkChannel;
+//     use storage::tests_common::TmpStorage;
+//     use storage::{
+//         block_meta_storage, operations_meta_storage, BlockMetaStorage, OperationsMetaStorage,
+//     };
+//     use tezos_messages::p2p::encoding::prelude::OperationsForBlock;
 
-    use crate::shell_channel::ShellChannel;
-    use crate::state::data_requester::DataRequester;
-    use crate::state::tests::prerequisites::{
-        chain_feeder_mock, create_logger, create_test_actor_system, create_test_tokio_runtime,
-        test_peer,
-    };
-    use crate::state::tests::{block, block_ref};
-    use crate::state::ApplyBlockBatch;
-    use crate::state::StateError;
-    use crypto::hash::ChainId;
+//     use crate::shell_channel::ShellChannel;
+//     use crate::state::data_requester::DataRequester;
+//     use crate::state::tests::prerequisites::{
+//         chain_feeder_mock, create_logger, create_test_actor_system, create_test_tokio_runtime,
+//         test_peer,
+//     };
+//     use crate::state::tests::{block, block_ref};
+//     use crate::state::ApplyBlockBatch;
+//     use crate::state::StateError;
+//     use crypto::hash::ChainId;
 
-    macro_rules! assert_block_queue_contains {
-        ($expected:expr, $queues:expr, $block:expr) => {{
-            assert_eq!(
-                $expected,
-                $queues
-                    .queued_block_headers
-                    .lock()
-                    .unwrap()
-                    .contains_key($block)
-            );
-        }};
-    }
+//     macro_rules! assert_block_queue_contains {
+//         ($expected:expr, $queues:expr, $block:expr) => {{
+//             assert_eq!(
+//                 $expected,
+//                 $queues
+//                     .queued_block_headers
+//                     .lock()
+//                     .unwrap()
+//                     .contains_key($block)
+//             );
+//         }};
+//     }
 
-    macro_rules! assert_operations_queue_contains {
-        ($expected:expr, $queues:expr, $block:expr, $validation_passes:expr) => {{
-            assert_eq!(
-                $expected,
-                $queues
-                    .queued_block_operations
-                    .lock()
-                    .unwrap()
-                    .contains_key($block)
-            );
+//     macro_rules! assert_operations_queue_contains {
+//         ($expected:expr, $queues:expr, $block:expr, $validation_passes:expr) => {{
+//             assert_eq!(
+//                 $expected,
+//                 $queues
+//                     .queued_block_operations
+//                     .lock()
+//                     .unwrap()
+//                     .contains_key($block)
+//             );
 
-            match $queues.queued_block_operations.lock().unwrap().get($block) {
-                Some((missing_operations, _)) => assert_eq!(missing_operations, $validation_passes),
-                None => {
-                    if $expected {
-                        panic!("test failed");
-                    }
-                }
-            };
-        }};
-    }
+//             match $queues.queued_block_operations.lock().unwrap().get($block) {
+//                 Some((missing_operations, _)) => assert_eq!(missing_operations, $validation_passes),
+//                 None => {
+//                     if $expected {
+//                         panic!("test failed");
+//                     }
+//                 }
+//             };
+//         }};
+//     }
 
-    macro_rules! hash_set {
-        ( $( $x:expr ),* ) => {
-            {
-                let mut temp_set = HashSet::new();
-                $(
-                    temp_set.insert($x);
-                )*
-                temp_set
-            }
-        };
-    }
+//     macro_rules! hash_set {
+//         ( $( $x:expr ),* ) => {
+//             {
+//                 let mut temp_set = HashSet::new();
+//                 $(
+//                     temp_set.insert($x);
+//                 )*
+//                 temp_set
+//             }
+//         };
+//     }
 
-    #[test]
-    #[serial]
-    fn test_requester_fetch_and_receive_block() -> Result<(), failure::Error> {
-        // prerequizities
-        let log = create_logger(Level::Debug);
-        let tokio_runtime = create_test_tokio_runtime();
-        let actor_system = create_test_actor_system(log.clone());
-        let network_channel =
-            NetworkChannel::actor(&actor_system).expect("Failed to create network channel");
-        let shell_channel =
-            ShellChannel::actor(&actor_system).expect("Failed to create network channel");
-        let storage = TmpStorage::create_to_out_dir("__test_requester_fetch_and_receive_block")?;
-        let mut peer1 = test_peer(&actor_system, network_channel, &tokio_runtime, 7777);
-        let (chain_feeder_mock, _) =
-            chain_feeder_mock(&actor_system, "mocked_chain_feeder", shell_channel)?;
+//     #[test]
+//     #[serial]
+//     fn test_requester_fetch_and_receive_block() -> Result<(), failure::Error> {
+//         // prerequizities
+//         let log = create_logger(Level::Debug);
+//         let tokio_runtime = create_test_tokio_runtime();
+//         let actor_system = create_test_actor_system(log.clone());
+//         let network_channel =
+//             NetworkChannel::actor(&actor_system).expect("Failed to create network channel");
+//         let shell_channel =
+//             ShellChannel::actor(&actor_system).expect("Failed to create network channel");
+//         let storage = TmpStorage::create_to_out_dir("__test_requester_fetch_and_receive_block")?;
+//         let mut peer1 = test_peer(&actor_system, network_channel, &tokio_runtime, 7777);
+//         let (chain_feeder_mock, _) =
+//             chain_feeder_mock(&actor_system, "mocked_chain_feeder", shell_channel)?;
 
-        // requester instance
-        let data_requester = DataRequester::new(
-            network_channel.clone(),
-            BlockMetaStorage::new(storage.storage()),
-            OperationsMetaStorage::new(storage.storage()),
-            chain_feeder_mock,
-        );
+//         // requester instance
+//         let data_requester = DataRequester::new(
+//             network_channel.clone(),
+//             BlockMetaStorage::new(storage.storage()),
+//             OperationsMetaStorage::new(storage.storage()),
+//             chain_feeder_mock,
+//         );
 
-        // try schedule nothing
-        assert!(matches!(
-            data_requester.fetch_block_headers(vec![], &peer1.peer_id, &peer1.queues),
-            Ok(false)
-        ));
+//         // try schedule nothing
+//         assert!(matches!(
+//             data_requester.fetch_block_headers(vec![], &peer1.peer_id, &peer1.queues),
+//             Ok(false)
+//         ));
 
-        // try schedule block1
-        let block1 = block_ref(1);
-        assert!(matches!(
-            data_requester.fetch_block_headers(vec![block1.clone()], &peer1.peer_id, &peer1.queues),
-            Ok(true)
-        ));
+//         // try schedule block1
+//         let block1 = block_ref(1);
+//         assert!(matches!(
+//             data_requester.fetch_block_headers(vec![block1.clone()], &peer1.peer_id, &peer1.queues),
+//             Ok(true)
+//         ));
 
-        // scheduled just for the peer1
-        assert_block_queue_contains!(true, peer1.queues, &block1);
+//         // scheduled just for the peer1
+//         assert_block_queue_contains!(true, peer1.queues, &block1);
 
-        // try schedule block1 once more
-        assert!(matches!(
-            data_requester.fetch_block_headers(vec![block1.clone()], &peer1.peer_id, &peer1.queues),
-            Ok(false)
-        ));
+//         // try schedule block1 once more
+//         assert!(matches!(
+//             data_requester.fetch_block_headers(vec![block1.clone()], &peer1.peer_id, &peer1.queues),
+//             Ok(false)
+//         ));
 
-        // try receive be peer1 - hold lock
-        let scheduled = data_requester.block_header_received(&block1, &mut peer1, &log)?;
-        assert!(scheduled.is_some());
+//         // try receive be peer1 - hold lock
+//         let scheduled = data_requester.block_header_received(&block1, &mut peer1, &log)?;
+//         assert!(scheduled.is_some());
 
-        // block is still scheduled
-        assert_block_queue_contains!(true, peer1.queues, &block1);
+//         // block is still scheduled
+//         assert_block_queue_contains!(true, peer1.queues, &block1);
 
-        // try schedule block1 once more while holding the lock (should not succeed, because block1 was not removed from queues, becuase we still hold the lock)
-        assert!(matches!(
-            data_requester.fetch_block_headers(vec![block1.clone()], &peer1.peer_id, &peer1.queues),
-            Ok(false)
-        ));
+//         // try schedule block1 once more while holding the lock (should not succeed, because block1 was not removed from queues, becuase we still hold the lock)
+//         assert!(matches!(
+//             data_requester.fetch_block_headers(vec![block1.clone()], &peer1.peer_id, &peer1.queues),
+//             Ok(false)
+//         ));
 
-        // now drop/release lock
-        drop(scheduled);
+//         // now drop/release lock
+//         drop(scheduled);
 
-        // block is not scheduled now
-        assert_block_queue_contains!(false, peer1.queues, &block1);
+//         // block is not scheduled now
+//         assert_block_queue_contains!(false, peer1.queues, &block1);
 
-        // we can reschedule it once more now
-        assert!(matches!(
-            data_requester.fetch_block_headers(vec![block1], &peer1.peer_id, &peer1.queues),
-            Ok(true)
-        ));
+//         // we can reschedule it once more now
+//         assert!(matches!(
+//             data_requester.fetch_block_headers(vec![block1], &peer1.peer_id, &peer1.queues),
+//             Ok(true)
+//         ));
 
-        Ok(())
-    }
+//         Ok(())
+//     }
 
-    #[test]
-    #[serial]
-    fn test_requester_fetch_and_receive_block_operations() -> Result<(), failure::Error> {
-        // prerequizities
-        let log = create_logger(Level::Debug);
-        let tokio_runtime = create_test_tokio_runtime();
-        let actor_system = create_test_actor_system(log.clone());
-        let network_channel =
-            NetworkChannel::actor(&actor_system).expect("Failed to create network channel");
-        let shell_channel =
-            ShellChannel::actor(&actor_system).expect("Failed to create network channel");
-        let storage =
-            TmpStorage::create_to_out_dir("__test_requester_fetch_and_receive_block_operations")?;
-        let mut peer1 = test_peer(&actor_system, network_channel, &tokio_runtime, 7777);
-        let (chain_feeder_mock, _) =
-            chain_feeder_mock(&actor_system, "mocked_chain_feeder", shell_channel)?;
+//     #[test]
+//     #[serial]
+//     fn test_requester_fetch_and_receive_block_operations() -> Result<(), failure::Error> {
+//         // prerequizities
+//         let log = create_logger(Level::Debug);
+//         let tokio_runtime = create_test_tokio_runtime();
+//         let actor_system = create_test_actor_system(log.clone());
+//         let network_channel =
+//             NetworkChannel::actor(&actor_system).expect("Failed to create network channel");
+//         let shell_channel =
+//             ShellChannel::actor(&actor_system).expect("Failed to create network channel");
+//         let storage =
+//             TmpStorage::create_to_out_dir("__test_requester_fetch_and_receive_block_operations")?;
+//         let mut peer1 = test_peer(&actor_system, network_channel, &tokio_runtime, 7777);
+//         let (chain_feeder_mock, _) =
+//             chain_feeder_mock(&actor_system, "mocked_chain_feeder", shell_channel)?;
 
-        // requester instance
-        let data_requester = DataRequester::new(
-            network_channel.clone(),
-            BlockMetaStorage::new(storage.storage()),
-            OperationsMetaStorage::new(storage.storage()),
-            chain_feeder_mock,
-        );
+//         // requester instance
+//         let data_requester = DataRequester::new(
+//             network_channel.clone(),
+//             BlockMetaStorage::new(storage.storage()),
+//             OperationsMetaStorage::new(storage.storage()),
+//             chain_feeder_mock,
+//         );
 
-        // prepare missing operations in db for block with 4 validation_pass
-        let block1 = block_ref(1);
-        OperationsMetaStorage::new(storage.storage())
-            .put(&block1, &operations_meta_storage::Meta::new(4))?;
+//         // prepare missing operations in db for block with 4 validation_pass
+//         let block1 = block_ref(1);
+//         OperationsMetaStorage::new(storage.storage())
+//             .put(&block1, &operations_meta_storage::Meta::new(4))?;
 
-        // try schedule nothiing
-        assert!(matches!(
-            data_requester.fetch_block_operations(vec![], &peer1.peer_id, &peer1.queues, |_| ()),
-            Ok(false)
-        ));
+//         // try schedule nothiing
+//         assert!(matches!(
+//             data_requester.fetch_block_operations(vec![], &peer1.peer_id, &peer1.queues, |_| ()),
+//             Ok(false)
+//         ));
 
-        // try schedule block1
-        assert!(matches!(
-            data_requester.fetch_block_operations(
-                vec![block1.clone()],
-                &peer1.peer_id,
-                &peer1.queues,
-                |_| ()
-            ),
-            Ok(true)
-        ));
+//         // try schedule block1
+//         assert!(matches!(
+//             data_requester.fetch_block_operations(
+//                 vec![block1.clone()],
+//                 &peer1.peer_id,
+//                 &peer1.queues,
+//                 |_| ()
+//             ),
+//             Ok(true)
+//         ));
 
-        // scheduled just for the peer1
-        assert_operations_queue_contains!(true, peer1.queues, &block1, &hash_set![0, 1, 2, 3]);
+//         // scheduled just for the peer1
+//         assert_operations_queue_contains!(true, peer1.queues, &block1, &hash_set![0, 1, 2, 3]);
 
-        // try schedule block1 once more
-        assert!(matches!(
-            data_requester.fetch_block_operations(
-                vec![block1.clone()],
-                &peer1.peer_id,
-                &peer1.queues,
-                |_| ()
-            ),
-            Ok(false)
-        ));
+//         // try schedule block1 once more
+//         assert!(matches!(
+//             data_requester.fetch_block_operations(
+//                 vec![block1.clone()],
+//                 &peer1.peer_id,
+//                 &peer1.queues,
+//                 |_| ()
+//             ),
+//             Ok(false)
+//         ));
 
-        // try receive be peer1 - hold lock - validation pass 0
-        let scheduled = data_requester.block_operations_received(
-            &OperationsForBlock::new(block1.as_ref().clone(), 0),
-            &mut peer1,
-            &log,
-        )?;
-        assert!(scheduled.is_some());
+//         // try receive be peer1 - hold lock - validation pass 0
+//         let scheduled = data_requester.block_operations_received(
+//             &OperationsForBlock::new(block1.as_ref().clone(), 0),
+//             &mut peer1,
+//             &log,
+//         )?;
+//         assert!(scheduled.is_some());
 
-        // block is still scheduled
-        assert_operations_queue_contains!(true, peer1.queues, &block1, &hash_set![0, 1, 2, 3]);
+//         // block is still scheduled
+//         assert_operations_queue_contains!(true, peer1.queues, &block1, &hash_set![0, 1, 2, 3]);
 
-        // try schedule block1 once more while holding the lock (should not succeed, because block1 was not removed from queues, becuase we still hold the lock)
-        assert!(matches!(
-            data_requester.fetch_block_operations(
-                vec![block1.clone()],
-                &peer1.peer_id,
-                &peer1.queues,
-                |_| ()
-            ),
-            Ok(false)
-        ));
+//         // try schedule block1 once more while holding the lock (should not succeed, because block1 was not removed from queues, becuase we still hold the lock)
+//         assert!(matches!(
+//             data_requester.fetch_block_operations(
+//                 vec![block1.clone()],
+//                 &peer1.peer_id,
+//                 &peer1.queues,
+//                 |_| ()
+//             ),
+//             Ok(false)
+//         ));
 
-        // now drop/release lock
-        drop(scheduled);
+//         // now drop/release lock
+//         drop(scheduled);
 
-        // block is still scheduled but less validation passes
-        assert_operations_queue_contains!(true, peer1.queues, &block1, &hash_set![1, 2, 3]);
+//         // block is still scheduled but less validation passes
+//         assert_operations_queue_contains!(true, peer1.queues, &block1, &hash_set![1, 2, 3]);
 
-        // we can reschedule it once more now
-        assert!(matches!(
-            data_requester.fetch_block_operations(
-                vec![block1.clone()],
-                &peer1.peer_id,
-                &peer1.queues,
-                |_| ()
-            ),
-            Ok(false)
-        ));
+//         // we can reschedule it once more now
+//         assert!(matches!(
+//             data_requester.fetch_block_operations(
+//                 vec![block1.clone()],
+//                 &peer1.peer_id,
+//                 &peer1.queues,
+//                 |_| ()
+//             ),
+//             Ok(false)
+//         ));
 
-        // download all missing
-        assert!(data_requester
-            .block_operations_received(
-                &OperationsForBlock::new(block1.as_ref().clone(), 1),
-                &mut peer1,
-                &log,
-            )?
-            .is_some());
-        assert_operations_queue_contains!(true, peer1.queues, &block1, &hash_set![2, 3]);
+//         // download all missing
+//         assert!(data_requester
+//             .block_operations_received(
+//                 &OperationsForBlock::new(block1.as_ref().clone(), 1),
+//                 &mut peer1,
+//                 &log,
+//             )?
+//             .is_some());
+//         assert_operations_queue_contains!(true, peer1.queues, &block1, &hash_set![2, 3]);
 
-        assert!(data_requester
-            .block_operations_received(
-                &OperationsForBlock::new(block1.as_ref().clone(), 3),
-                &mut peer1,
-                &log,
-            )?
-            .is_some());
-        assert_operations_queue_contains!(true, peer1.queues, &block1, &hash_set![2]);
+//         assert!(data_requester
+//             .block_operations_received(
+//                 &OperationsForBlock::new(block1.as_ref().clone(), 3),
+//                 &mut peer1,
+//                 &log,
+//             )?
+//             .is_some());
+//         assert_operations_queue_contains!(true, peer1.queues, &block1, &hash_set![2]);
 
-        assert!(data_requester
-            .block_operations_received(
-                &OperationsForBlock::new(block1.as_ref().clone(), 2),
-                &mut peer1,
-                &log,
-            )?
-            .is_some());
-        assert_operations_queue_contains!(false, peer1.queues, &block1, &HashSet::default());
+//         assert!(data_requester
+//             .block_operations_received(
+//                 &OperationsForBlock::new(block1.as_ref().clone(), 2),
+//                 &mut peer1,
+//                 &log,
+//             )?
+//             .is_some());
+//         assert_operations_queue_contains!(false, peer1.queues, &block1, &HashSet::default());
 
-        // we can reschedule it once more now
-        assert!(matches!(
-            data_requester.fetch_block_operations(
-                vec![block1],
-                &peer1.peer_id,
-                &peer1.queues,
-                |_| ()
-            ),
-            Ok(true)
-        ));
+//         // we can reschedule it once more now
+//         assert!(matches!(
+//             data_requester.fetch_block_operations(
+//                 vec![block1],
+//                 &peer1.peer_id,
+//                 &peer1.queues,
+//                 |_| ()
+//             ),
+//             Ok(true)
+//         ));
 
-        Ok(())
-    }
+//         Ok(())
+//     }
 
-    #[test]
-    #[serial]
-    fn test_call_apply_block() -> Result<(), failure::Error> {
-        // prerequizities
-        let log = create_logger(Level::Debug);
-        let actor_system = create_test_actor_system(log.clone());
-        let shell_channel =
-            ShellChannel::actor(&actor_system).expect("Failed to create network channel");
-        let network_channel =
-            NetworkChannel::actor(&actor_system).expect("Failed to create network channel");
-        let storage = TmpStorage::create_to_out_dir("__test_try_schedule_apply_block_one")?;
-        let block_meta_storage = BlockMetaStorage::new(storage.storage());
-        let (chain_feeder_mock, _) =
-            chain_feeder_mock(&actor_system, "mocked_chain_feeder", shell_channel)?;
+//     #[test]
+//     #[serial]
+//     fn test_call_apply_block() -> Result<(), failure::Error> {
+//         // prerequizities
+//         let log = create_logger(Level::Debug);
+//         let actor_system = create_test_actor_system(log.clone());
+//         let shell_channel =
+//             ShellChannel::actor(&actor_system).expect("Failed to create network channel");
+//         let network_channel =
+//             NetworkChannel::actor(&actor_system).expect("Failed to create network channel");
+//         let storage = TmpStorage::create_to_out_dir("__test_try_schedule_apply_block_one")?;
+//         let block_meta_storage = BlockMetaStorage::new(storage.storage());
+//         let (chain_feeder_mock, _) =
+//             chain_feeder_mock(&actor_system, "mocked_chain_feeder", shell_channel)?;
 
-        // requester instance
-        let data_requester = DataRequester::new(
-            network_channel.clone(),
-            BlockMetaStorage::new(storage.storage()),
-            OperationsMetaStorage::new(storage.storage()),
-            chain_feeder_mock,
-        );
+//         // requester instance
+//         let data_requester = DataRequester::new(
+//             network_channel.clone(),
+//             BlockMetaStorage::new(storage.storage()),
+//             OperationsMetaStorage::new(storage.storage()),
+//             chain_feeder_mock,
+//         );
 
-        // prepare missing operations in db for block with 4 validation_pass
-        let block1 = block_ref(1);
-        let batch_with_block1 = ApplyBlockBatch::batch(block1.clone(), Vec::new());
-        let chain_id = Arc::new(ChainId::from_base58_check("NetXgtSLGNJvNye")?);
+//         // prepare missing operations in db for block with 4 validation_pass
+//         let block1 = block_ref(1);
+//         let batch_with_block1 = ApplyBlockBatch::batch(block1.clone(), Vec::new());
+//         let chain_id = Arc::new(ChainId::from_base58_check("NetXgtSLGNJvNye")?);
 
-        // try call apply - no metadata
-        assert!(matches!(
-            data_requester.call_apply_block(
-                chain_id.clone(),
-                batch_with_block1.clone(),
-                None,
-            ),
-            Err(StateError::ProcessingError {reason}) if reason.contains("No metadata found")
-        ));
+//         // try call apply - no metadata
+//         assert!(matches!(
+//             data_requester.call_apply_block(
+//                 chain_id.clone(),
+//                 batch_with_block1.clone(),
+//                 None,
+//             ),
+//             Err(StateError::ProcessingError {reason}) if reason.contains("No metadata found")
+//         ));
 
-        // save applied predecessor
-        let block0 = block(0);
-        block_meta_storage.put(
-            &block0,
-            &block_meta_storage::Meta::genesis_meta(&block0, chain_id.as_ref(), true),
-        )?;
-        // save block
-        block_meta_storage.put(
-            &block1,
-            &block_meta_storage::Meta::new(
-                false,
-                Some(block0.clone()),
-                1,
-                chain_id.as_ref().clone(),
-            ),
-        )?;
+//         // save applied predecessor
+//         let block0 = block(0);
+//         block_meta_storage.put(
+//             &block0,
+//             &block_meta_storage::Meta::genesis_meta(&block0, chain_id.as_ref(), true),
+//         )?;
+//         // save block
+//         block_meta_storage.put(
+//             &block1,
+//             &block_meta_storage::Meta::new(
+//                 false,
+//                 Some(block0.clone()),
+//                 1,
+//                 chain_id.as_ref().clone(),
+//             ),
+//         )?;
 
-        // try schedule, false, because missing operations
-        assert!(matches!(
-            data_requester.call_apply_block(
-                chain_id.clone(),
-                batch_with_block1.clone(),
-                None,
-            ),
-            Err(StateError::ProcessingError {reason}) if reason.contains("cannot be applied")
-        ));
+//         // try schedule, false, because missing operations
+//         assert!(matches!(
+//             data_requester.call_apply_block(
+//                 chain_id.clone(),
+//                 batch_with_block1.clone(),
+//                 None,
+//             ),
+//             Err(StateError::ProcessingError {reason}) if reason.contains("cannot be applied")
+//         ));
 
-        // save operations - validation_pass 0 - no operations missing
-        OperationsMetaStorage::new(storage.storage())
-            .put(&block1, &operations_meta_storage::Meta::new(0))?;
+//         // save operations - validation_pass 0 - no operations missing
+//         OperationsMetaStorage::new(storage.storage())
+//             .put(&block1, &operations_meta_storage::Meta::new(0))?;
 
-        // try schedule - ok
-        assert!(matches!(
-            data_requester.call_apply_block(chain_id.clone(), batch_with_block1.clone(), None),
-            Ok(())
-        ));
+//         // try schedule - ok
+//         assert!(matches!(
+//             data_requester.call_apply_block(chain_id.clone(), batch_with_block1.clone(), None),
+//             Ok(())
+//         ));
 
-        // try call - is already applied
-        block_meta_storage.put(
-            &block1,
-            &block_meta_storage::Meta::new(true, Some(block0), 1, chain_id.as_ref().clone()),
-        )?;
-        assert!(matches!(
-            data_requester.call_apply_block(
-                chain_id,
-                batch_with_block1,
-                None,
-            ),
-            Err(StateError::ProcessingError {reason}) if reason.contains("is already applied")
-        ));
+//         // try call - is already applied
+//         block_meta_storage.put(
+//             &block1,
+//             &block_meta_storage::Meta::new(true, Some(block0), 1, chain_id.as_ref().clone()),
+//         )?;
+//         assert!(matches!(
+//             data_requester.call_apply_block(
+//                 chain_id,
+//                 batch_with_block1,
+//                 None,
+//             ),
+//             Err(StateError::ProcessingError {reason}) if reason.contains("is already applied")
+//         ));
 
-        Ok(())
-    }
-}
+//         Ok(())
+//     }
+// }

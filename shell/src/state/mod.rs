@@ -195,197 +195,197 @@ impl From<&MissingOperations> for Vec<OperationsForBlock> {
     }
 }
 
-#[cfg(test)]
-pub mod tests {
-    use std::convert::TryInto;
-    use std::sync::Arc;
+// #[cfg(test)]
+// pub mod tests {
+//     use std::convert::TryInto;
+//     use std::sync::Arc;
 
-    use super::*;
+//     use super::*;
 
-    #[test]
-    fn test_batch() {
-        // create batch
-        let mut batch = ApplyBlockBatch::batch(block_ref(1), vec![block_ref(2)]);
-        batch.add_successor(block_ref(3));
-        batch.add_successor(block_ref(4));
-        assert_eq!(&block(1), batch.block_to_apply.as_ref());
-        assert_eq!(3, batch.successors_size());
-        assert_eq!(&block(2), batch.successors[0].as_ref());
-        assert_eq!(&block(3), batch.successors[1].as_ref());
-        assert_eq!(&block(4), batch.successors[2].as_ref());
+//     #[test]
+//     fn test_batch() {
+//         // create batch
+//         let mut batch = ApplyBlockBatch::batch(block_ref(1), vec![block_ref(2)]);
+//         batch.add_successor(block_ref(3));
+//         batch.add_successor(block_ref(4));
+//         assert_eq!(&block(1), batch.block_to_apply.as_ref());
+//         assert_eq!(3, batch.successors_size());
+//         assert_eq!(&block(2), batch.successors[0].as_ref());
+//         assert_eq!(&block(3), batch.successors[1].as_ref());
+//         assert_eq!(&block(4), batch.successors[2].as_ref());
 
-        // shift
-        let batch = batch.shift().expect("Expected new batch");
-        assert_eq!(&block(2), batch.block_to_apply.as_ref());
-        assert_eq!(2, batch.successors_size());
-        assert_eq!(&block(3), batch.successors[0].as_ref());
-        assert_eq!(&block(4), batch.successors[1].as_ref());
+//         // shift
+//         let batch = batch.shift().expect("Expected new batch");
+//         assert_eq!(&block(2), batch.block_to_apply.as_ref());
+//         assert_eq!(2, batch.successors_size());
+//         assert_eq!(&block(3), batch.successors[0].as_ref());
+//         assert_eq!(&block(4), batch.successors[1].as_ref());
 
-        // shift
-        let batch = batch.shift().expect("Expected new batch");
-        assert_eq!(&block(3), batch.block_to_apply.as_ref());
-        assert_eq!(1, batch.successors_size());
-        assert_eq!(&block(4), batch.successors[0].as_ref());
+//         // shift
+//         let batch = batch.shift().expect("Expected new batch");
+//         assert_eq!(&block(3), batch.block_to_apply.as_ref());
+//         assert_eq!(1, batch.successors_size());
+//         assert_eq!(&block(4), batch.successors[0].as_ref());
 
-        // shift
-        let batch = batch.shift().expect("Expected new batch");
-        assert_eq!(&block(4), batch.block_to_apply.as_ref());
-        assert_eq!(0, batch.successors_size());
+//         // shift
+//         let batch = batch.shift().expect("Expected new batch");
+//         assert_eq!(&block(4), batch.block_to_apply.as_ref());
+//         assert_eq!(0, batch.successors_size());
 
-        // shift
-        assert!(batch.shift().is_none());
-    }
+//         // shift
+//         assert!(batch.shift().is_none());
+//     }
 
-    pub(crate) fn block(d: u8) -> BlockHash {
-        [d; crypto::hash::HashType::BlockHash.size()]
-            .to_vec()
-            .try_into()
-            .expect("Failed to create BlockHash")
-    }
+//     pub(crate) fn block(d: u8) -> BlockHash {
+//         [d; crypto::hash::HashType::BlockHash.size()]
+//             .to_vec()
+//             .try_into()
+//             .expect("Failed to create BlockHash")
+//     }
 
-    pub(crate) fn block_ref(d: u8) -> Arc<BlockHash> {
-        Arc::new(block(d))
-    }
+//     pub(crate) fn block_ref(d: u8) -> Arc<BlockHash> {
+//         Arc::new(block(d))
+//     }
 
-    #[test]
-    fn test_retry() {
-        let mut data = MissingOperations {
-            history_order_priority: 1,
-            block_hash: block(5),
-            validation_passes: HashSet::new(),
-            retries: 5,
-        };
+//     #[test]
+//     fn test_retry() {
+//         let mut data = MissingOperations {
+//             history_order_priority: 1,
+//             block_hash: block(5),
+//             validation_passes: HashSet::new(),
+//             retries: 5,
+//         };
 
-        assert!(data.retry());
-        assert!(data.retry());
-        assert!(data.retry());
-        assert!(data.retry());
-        assert!(data.retry());
-        assert!(!data.retry());
-        assert!(!data.retry());
-    }
+//         assert!(data.retry());
+//         assert!(data.retry());
+//         assert!(data.retry());
+//         assert!(data.retry());
+//         assert!(data.retry());
+//         assert!(!data.retry());
+//         assert!(!data.retry());
+//     }
 
-    pub(crate) mod prerequisites {
-        use std::net::SocketAddr;
-        use std::sync::atomic::AtomicBool;
-        use std::sync::mpsc::{channel, Receiver};
-        use std::sync::{Arc, Mutex};
-        use std::thread;
+//     pub(crate) mod prerequisites {
+//         use std::net::SocketAddr;
+//         use std::sync::atomic::AtomicBool;
+//         use std::sync::mpsc::{channel, Receiver};
+//         use std::sync::{Arc, Mutex};
+//         use std::thread;
 
-        use futures::lock::Mutex as TokioMutex;
-        use riker::actors::*;
-        use slog::{Drain, Level, Logger};
+//         use futures::lock::Mutex as TokioMutex;
+//         use riker::actors::*;
+//         use slog::{Drain, Level, Logger};
 
-        use crypto::hash::CryptoboxPublicKeyHash;
-        use networking::p2p::network_channel::NetworkChannelRef;
-        use networking::p2p::peer::{BootstrapOutput, Peer};
-        use networking::PeerId;
-        use tezos_identity::Identity;
-        use tezos_messages::p2p::encoding::prelude::{MetadataMessage, NetworkVersion};
+//         use crypto::hash::CryptoboxPublicKeyHash;
+//         use networking::p2p::network_channel::NetworkChannelRef;
+//         use networking::p2p::peer::{BootstrapOutput, Peer};
+//         use networking::PeerId;
+//         use tezos_identity::Identity;
+//         use tezos_messages::p2p::encoding::prelude::{MetadataMessage, NetworkVersion};
 
-        use crate::chain_feeder;
-        use crate::shell_channel::ShellChannelRef;
-        use crate::state::peer_state::{DataQueuesLimits, PeerState};
+//         use crate::chain_feeder;
+//         use crate::shell_channel::ShellChannelRef;
+//         use crate::state::peer_state::{DataQueuesLimits, PeerState};
 
-        pub(crate) fn test_peer(
-            sys: &impl ActorRefFactory,
-            network_channel: NetworkChannelRef,
-            tokio_runtime: &tokio::runtime::Runtime,
-            port: u16,
-        ) -> PeerState {
-            let socket_address: SocketAddr = format!("127.0.0.1:{}", port)
-                .parse()
-                .expect("Expected valid ip:port address");
+//         pub(crate) fn test_peer(
+//             sys: &impl ActorRefFactory,
+//             network_channel: NetworkChannelRef,
+//             tokio_runtime: &tokio::runtime::Runtime,
+//             port: u16,
+//         ) -> PeerState {
+//             let socket_address: SocketAddr = format!("127.0.0.1:{}", port)
+//                 .parse()
+//                 .expect("Expected valid ip:port address");
 
-            let node_identity = Arc::new(Identity::generate(0f64).unwrap());
-            let public_key_hash: CryptoboxPublicKeyHash =
-                node_identity.public_key.public_key_hash().unwrap();
-            let peer_id_marker = public_key_hash.to_base58_check();
+//             let node_identity = Arc::new(Identity::generate(0f64).unwrap());
+//             let public_key_hash: CryptoboxPublicKeyHash =
+//                 node_identity.public_key.public_key_hash().unwrap();
+//             let peer_id_marker = public_key_hash.to_base58_check();
 
-            let metadata = MetadataMessage::new(false, false);
-            let version = NetworkVersion::new("".to_owned(), 0, 0);
-            let peer_ref = Peer::actor(
-                &peer_id_marker,
-                sys,
-                network_channel,
-                tokio_runtime.handle().clone(),
-                BootstrapOutput(
-                    Arc::new(TokioMutex::new(None)),
-                    Arc::new(TokioMutex::new(None)),
-                    public_key_hash.clone(),
-                    peer_id_marker.clone(),
-                    metadata.clone(),
-                    version,
-                    socket_address,
-                ),
-            )
-            .unwrap();
+//             let metadata = MetadataMessage::new(false, false);
+//             let version = NetworkVersion::new("".to_owned(), 0, 0);
+//             let peer_ref = Peer::actor(
+//                 &peer_id_marker,
+//                 sys,
+//                 network_channel,
+//                 tokio_runtime.handle().clone(),
+//                 BootstrapOutput(
+//                     Arc::new(TokioMutex::new(None)),
+//                     Arc::new(TokioMutex::new(None)),
+//                     public_key_hash.clone(),
+//                     peer_id_marker.clone(),
+//                     metadata.clone(),
+//                     version,
+//                     socket_address,
+//                 ),
+//             )
+//             .unwrap();
 
-            PeerState::new(
-                Arc::new(PeerId::new(
-                    peer_ref,
-                    public_key_hash,
-                    peer_id_marker,
-                    socket_address,
-                )),
-                &metadata,
-                DataQueuesLimits {
-                    max_queued_block_headers_count: 10,
-                    max_queued_block_operations_count: 15,
-                },
-            )
-        }
+//             PeerState::new(
+//                 Arc::new(PeerId::new(
+//                     peer_ref,
+//                     public_key_hash,
+//                     peer_id_marker,
+//                     socket_address,
+//                 )),
+//                 &metadata,
+//                 DataQueuesLimits {
+//                     max_queued_block_headers_count: 10,
+//                     max_queued_block_operations_count: 15,
+//                 },
+//             )
+//         }
 
-        pub(crate) fn create_test_actor_system(log: Logger) -> ActorSystem {
-            SystemBuilder::new()
-                .name("create_actor_system")
-                .log(log)
-                .create()
-                .expect("Failed to create test actor system")
-        }
+//         pub(crate) fn create_test_actor_system(log: Logger) -> ActorSystem {
+//             SystemBuilder::new()
+//                 .name("create_actor_system")
+//                 .log(log)
+//                 .create()
+//                 .expect("Failed to create test actor system")
+//         }
 
-        pub(crate) fn create_test_tokio_runtime() -> tokio::runtime::Runtime {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("Failed to create test tokio runtime")
-        }
+//         pub(crate) fn create_test_tokio_runtime() -> tokio::runtime::Runtime {
+//             tokio::runtime::Builder::new_current_thread()
+//                 .enable_all()
+//                 .build()
+//                 .expect("Failed to create test tokio runtime")
+//         }
 
-        pub(crate) fn create_logger(level: Level) -> Logger {
-            let drain = slog_async::Async::new(
-                slog_term::FullFormat::new(slog_term::TermDecorator::new().build())
-                    .build()
-                    .fuse(),
-            )
-            .build()
-            .filter_level(level)
-            .fuse();
+//         pub(crate) fn create_logger(level: Level) -> Logger {
+//             let drain = slog_async::Async::new(
+//                 slog_term::FullFormat::new(slog_term::TermDecorator::new().build())
+//                     .build()
+//                     .fuse(),
+//             )
+//             .build()
+//             .filter_level(level)
+//             .fuse();
 
-            Logger::root(drain, slog::o!())
-        }
+//             Logger::root(drain, slog::o!())
+//         }
 
-        pub(crate) fn chain_feeder_mock(
-            actor_system: &ActorSystem,
-            actor_name: &str,
-            shell_channel: ShellChannelRef,
-        ) -> Result<(chain_feeder::ChainFeederRef, Receiver<chain_feeder::Event>), failure::Error>
-        {
-            let (block_applier_event_sender, block_applier_event_receiver) = channel();
-            let block_applier_run = Arc::new(AtomicBool::new(true));
+//         pub(crate) fn chain_feeder_mock(
+//             actor_system: &ActorSystem,
+//             actor_name: &str,
+//             shell_channel: ShellChannelRef,
+//         ) -> Result<(chain_feeder::ChainFeederRef, Receiver<chain_feeder::Event>), failure::Error>
+//         {
+//             let (block_applier_event_sender, block_applier_event_receiver) = channel();
+//             let block_applier_run = Arc::new(AtomicBool::new(true));
 
-            actor_system
-                .actor_of_props::<chain_feeder::ChainFeeder>(
-                    actor_name,
-                    Props::new_args((
-                        shell_channel,
-                        Arc::new(Mutex::new(block_applier_event_sender)),
-                        block_applier_run,
-                        Arc::new(Mutex::new(Some(thread::spawn(|| Ok(()))))),
-                        2,
-                    )),
-                )
-                .map(|feeder| (feeder, block_applier_event_receiver))
-                .map_err(|e| e.into())
-        }
-    }
-}
+//             actor_system
+//                 .actor_of_props::<chain_feeder::ChainFeeder>(
+//                     actor_name,
+//                     Props::new_args((
+//                         shell_channel,
+//                         Arc::new(Mutex::new(block_applier_event_sender)),
+//                         block_applier_run,
+//                         Arc::new(Mutex::new(Some(thread::spawn(|| Ok(()))))),
+//                         2,
+//                     )),
+//                 )
+//                 .map(|feeder| (feeder, block_applier_event_receiver))
+//                 .map_err(|e| e.into())
+//         }
+//     }
+// }
