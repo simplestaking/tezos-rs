@@ -1,251 +1,251 @@
-use std::marker::PhantomData;
-use std::time::{Instant, Duration};
-use std::io::{self, Read, Write};
-use std::collections::{HashMap, HashSet};
-use slab::Slab;
-use mio::net::{TcpListener, TcpStream};
+// use std::marker::PhantomData;
+// use std::time::{Instant, Duration};
+// use std::io::{self, Read, Write};
+// use std::collections::{HashMap, HashSet};
+// use slab::Slab;
+// use mio::net::{TcpListener, TcpStream};
 
-use tezedge_state::*;
-use tezedge_state::proposer::*;
+// use tezedge_state::*;
+// use tezedge_state::proposer::*;
 
-type SimulatedPeer = Peer<SimulatedPeerStream>;
+// type SimulatedPeer = Peer<SimulatedPeerStream>;
 
-#[derive(Debug, Clone)]
-struct SimulatedPeerStream {}
+// #[derive(Debug, Clone)]
+// struct SimulatedPeerStream {}
 
-impl Read for SimulatedPeerStream {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        Ok(0)
-    }
-}
+// impl Read for SimulatedPeerStream {
+//     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+//         Ok(0)
+//     }
+// }
 
-impl Write for SimulatedPeerStream {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        Ok(0)
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
+// impl Write for SimulatedPeerStream {
+//     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+//         Ok(0)
+//     }
+//     fn flush(&mut self) -> io::Result<()> {
+//         Ok(())
+//     }
+// }
 
-type SimulatedEvent = Event<SimulatedNetworkEvent>;
+// type SimulatedEvent = Event<SimulatedNetworkEvent>;
 
-#[derive(Debug, Clone)]
-enum NetworkEventType {
-    IncomingConnect,
-}
+// #[derive(Debug, Clone)]
+// enum NetworkEventType {
+//     IncomingConnect,
+// }
 
-#[derive(Debug, Clone)]
-struct SimulatedNetworkEvent {
-    event_type: NetworkEventType,
-    time: Instant,
-    from: u64,
-    stream: SimulatedPeerStream,
-}
+// #[derive(Debug, Clone)]
+// struct SimulatedNetworkEvent {
+//     event_type: NetworkEventType,
+//     time: Instant,
+//     from: u64,
+//     stream: SimulatedPeerStream,
+// }
 
-impl NetworkEvent for SimulatedNetworkEvent {
-    #[inline(always)]
-    fn is_server_event(&self) -> bool {
-        matches!(self.event_type, NetworkEventType::IncomingConnect)
-    }
+// impl NetworkEvent for SimulatedNetworkEvent {
+//     #[inline(always)]
+//     fn is_server_event(&self) -> bool {
+//         matches!(self.event_type, NetworkEventType::IncomingConnect)
+//     }
 
-    #[inline(always)]
-    fn is_readable(&self) -> bool {
-        match self.event_type {
-            NetworkEventType::IncomingConnect => false,
-        }
-    }
+//     #[inline(always)]
+//     fn is_readable(&self) -> bool {
+//         match self.event_type {
+//             NetworkEventType::IncomingConnect => false,
+//         }
+//     }
 
-    #[inline(always)]
-    fn is_writable(&self) -> bool {
-        match self.event_type {
-            NetworkEventType::IncomingConnect => false,
-        }
-    }
+//     #[inline(always)]
+//     fn is_writable(&self) -> bool {
+//         match self.event_type {
+//             NetworkEventType::IncomingConnect => false,
+//         }
+//     }
 
-    #[inline(always)]
-    fn is_read_closed(&self) -> bool {
-        false
-    }
+//     #[inline(always)]
+//     fn is_read_closed(&self) -> bool {
+//         false
+//     }
 
-    #[inline(always)]
-    fn is_write_closed(&self) -> bool {
-        false
-    }
+//     #[inline(always)]
+//     fn is_write_closed(&self) -> bool {
+//         false
+//     }
 
-    #[inline(always)]
-    fn time(&self) -> Instant {
-        self.time
-    }
-}
+//     #[inline(always)]
+//     fn time(&self) -> Instant {
+//         self.time
+//     }
+// }
 
-#[derive(Debug, Clone)]
-struct SimulatedEvents {
-    initial_time: Instant,
-    range: std::ops::Range<usize>,
-    limit: usize,
-}
+// #[derive(Debug, Clone)]
+// struct SimulatedEvents {
+//     initial_time: Instant,
+//     range: std::ops::Range<usize>,
+//     limit: usize,
+// }
 
-impl SimulatedEvents {
-    fn new(range: std::ops::Range<usize>) -> Self {
-        Self {
-            range,
-            initial_time: Instant::now(),
-            limit: 0,
-        }
-    }
-}
+// impl SimulatedEvents {
+//     fn new(range: std::ops::Range<usize>) -> Self {
+//         Self {
+//             range,
+//             initial_time: Instant::now(),
+//             limit: 0,
+//         }
+//     }
+// }
 
-impl Events for SimulatedEvents {
-    fn set_limit(&mut self, limit: usize) {
-        self.limit = limit;
-    }
-}
+// impl Events for SimulatedEvents {
+//     fn set_limit(&mut self, limit: usize) {
+//         self.limit = limit;
+//     }
+// }
 
-struct SimulatedEventsIter {
-    initial_time: Instant,
-    index: usize,
-    limit: usize,
-}
+// struct SimulatedEventsIter {
+//     initial_time: Instant,
+//     index: usize,
+//     limit: usize,
+// }
 
-impl Iterator for SimulatedEventsIter
-{
-    type Item = SimulatedEvent;
+// impl Iterator for SimulatedEventsIter
+// {
+//     type Item = SimulatedEvent;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index == self.limit {
-            None
-        } else {
-            self.index += 1;
-            Some(Event::Network(SimulatedNetworkEvent {
-                event_type: NetworkEventType::IncomingConnect,
-                time: self.initial_time + Duration::from_secs(self.index as u64),
-                from: self.index as u64,
-                stream: SimulatedPeerStream {},
-            }))
-        }
-    }
-}
+//     fn next(&mut self) -> Option<Self::Item> {
+//         if self.index == self.limit {
+//             None
+//         } else {
+//             self.index += 1;
+//             Some(Event::Network(SimulatedNetworkEvent {
+//                 event_type: NetworkEventType::IncomingConnect,
+//                 time: self.initial_time + Duration::from_secs(self.index as u64),
+//                 from: self.index as u64,
+//                 stream: SimulatedPeerStream {},
+//             }))
+//         }
+//     }
+// }
 
-impl<'a> IntoIterator for &'a SimulatedEvents {
-    type Item = SimulatedEvent;
-    type IntoIter = SimulatedEventsIter;
+// impl<'a> IntoIterator for &'a SimulatedEvents {
+//     type Item = SimulatedEvent;
+//     type IntoIter = SimulatedEventsIter;
 
-    fn into_iter(self) -> Self::IntoIter {
-        SimulatedEventsIter {
-            initial_time: self.initial_time,
-            index: self.range.start,
-            limit: self.range.end,
-        }
-    }
-}
+//     fn into_iter(self) -> Self::IntoIter {
+//         SimulatedEventsIter {
+//             initial_time: self.initial_time,
+//             index: self.range.start,
+//             limit: self.range.end,
+//         }
+//     }
+// }
 
 
-struct SimulatedManager {
-    peer_count: usize,
-    last_peer_index: usize,
-    listener_enabled: bool,
+// struct SimulatedManager {
+//     peer_count: usize,
+//     last_peer_index: usize,
+//     listener_enabled: bool,
 
-    connected_peers: HashMap<PeerAddress, SimulatedPeer>,
-}
+//     connected_peers: HashMap<PeerAddress, SimulatedPeer>,
+// }
 
-impl SimulatedManager {
-    pub fn new(peer_count: usize) -> Self {
-        Self {
-            peer_count,
-            last_peer_index: 0,
-            listener_enabled: false,
+// impl SimulatedManager {
+//     pub fn new(peer_count: usize) -> Self {
+//         Self {
+//             peer_count,
+//             last_peer_index: 0,
+//             listener_enabled: false,
 
-            connected_peers: HashMap::new(),
-        }
-    }
+//             connected_peers: HashMap::new(),
+//         }
+//     }
 
-    pub fn is_finished(&self) -> bool {
-        self.last_peer_index >= self.peer_count
-    }
-}
+//     pub fn is_finished(&self) -> bool {
+//         self.last_peer_index >= self.peer_count
+//     }
+// }
 
-impl Manager for SimulatedManager {
-    type Stream = SimulatedPeerStream;
-    type NetworkEvent = SimulatedNetworkEvent;
-    type Events = SimulatedEvents;
+// impl Manager for SimulatedManager {
+//     type Stream = SimulatedPeerStream;
+//     type NetworkEvent = SimulatedNetworkEvent;
+//     type Events = SimulatedEvents;
 
-    fn start_listening_to_server_events(&mut self) {
-        self.listener_enabled = true;
-    }
+//     fn start_listening_to_server_events(&mut self) {
+//         self.listener_enabled = true;
+//     }
 
-    fn stop_listening_to_server_events(&mut self) {
-        self.listener_enabled = false;
-    }
+//     fn stop_listening_to_server_events(&mut self) {
+//         self.listener_enabled = false;
+//     }
 
-    fn accept_connection(&mut self, event: &Self::NetworkEvent) -> Option<&mut Peer<Self::Stream>> {
-        let address = PeerAddress::ipv4_from_index(event.from);
-        self.connected_peers.insert(
-            address.clone(),
-            SimulatedPeer::new(address.clone(), SimulatedPeerStream {}),
-        );
+//     fn accept_connection(&mut self, event: &Self::NetworkEvent) -> Option<&mut Peer<Self::Stream>> {
+//         let address = PeerAddress::ipv4_from_index(event.from);
+//         self.connected_peers.insert(
+//             address.clone(),
+//             SimulatedPeer::new(address.clone(), SimulatedPeerStream {}),
+//         );
 
-        self.connected_peers.get_mut(&address)
-    }
+//         self.connected_peers.get_mut(&address)
+//     }
 
-    fn wait_for_events(&mut self, events: &mut Self::Events, _: Option<Duration>) {
-        let end = self.peer_count.min(self.last_peer_index + events.limit);
-        events.range = self.last_peer_index..end;
-        self.last_peer_index = end;
+//     fn wait_for_events(&mut self, events: &mut Self::Events, _: Option<Duration>) {
+//         let end = self.peer_count.min(self.last_peer_index + events.limit);
+//         events.range = self.last_peer_index..end;
+//         self.last_peer_index = end;
 
-        eprintln!("peers attempting connection: {:?}\n", events.range);
-    }
+//         eprintln!("peers attempting connection: {:?}\n", events.range);
+//     }
 
-    fn get_peer_for_event_mut(&mut self, event: &Self::NetworkEvent) -> Option<&mut SimulatedPeer> {
-        self.connected_peers.get_mut(&PeerAddress::ipv4_from_index(event.from))
-    }
+//     fn get_peer_for_event_mut(&mut self, event: &Self::NetworkEvent) -> Option<&mut SimulatedPeer> {
+//         self.connected_peers.get_mut(&PeerAddress::ipv4_from_index(event.from))
+//     }
 
-    fn get_peer_or_connect_mut(&mut self, address: &PeerAddress) -> io::Result<&mut SimulatedPeer> {
-        Ok(self.connected_peers.entry(address.clone())
-            .or_insert(SimulatedPeer::new(address.clone(), SimulatedPeerStream {})))
-    }
+//     fn get_peer_or_connect_mut(&mut self, address: &PeerAddress) -> io::Result<&mut SimulatedPeer> {
+//         Ok(self.connected_peers.entry(address.clone())
+//             .or_insert(SimulatedPeer::new(address.clone(), SimulatedPeerStream {})))
+//     }
 
-    fn disconnect_peer(&mut self, peer: &PeerAddress) {
-        self.connected_peers.remove(peer);
-    }
-}
+//     fn disconnect_peer(&mut self, peer: &PeerAddress) {
+//         self.connected_peers.remove(peer);
+//     }
+// }
 
-#[test]
-fn simulate_many_incoming_connections() {
-    let config = TezedgeConfig {
-        port: 100,
-        disable_mempool: true,
-        private_node: true,
-        min_connected_peers: 500,
-        max_connected_peers: 1000,
-        max_pending_peers: 1000,
-        max_potential_peers: 100000,
-        periodic_react_interval: Duration::from_millis(250),
-        peer_blacklist_duration: Duration::from_secs(30 * 60),
-        peer_timeout: Duration::from_secs(8),
-    };
+// #[test]
+// fn simulate_many_incoming_connections() {
+//     let config = TezedgeConfig {
+//         port: 100,
+//         disable_mempool: true,
+//         private_node: true,
+//         min_connected_peers: 500,
+//         max_connected_peers: 1000,
+//         max_pending_peers: 1000,
+//         max_potential_peers: 100000,
+//         periodic_react_interval: Duration::from_millis(250),
+//         peer_blacklist_duration: Duration::from_secs(30 * 60),
+//         peer_timeout: Duration::from_secs(8),
+//     };
 
-    let mut proposer = TezedgeProposer::new(
-        TezedgeProposerConfig {
-            wait_for_events_timeout: Some(Duration::from_millis(250)),
-            events_limit: 1024,
-        },
-        tezedge_state::sample_tezedge_state::build(Instant::now(), config.clone()),
-        // capacity is changed by events_limit.
-        SimulatedEvents::new(0..0),
-        SimulatedManager::new(100000),
-    );
+//     let mut proposer = TezedgeProposer::new(
+//         TezedgeProposerConfig {
+//             wait_for_events_timeout: Some(Duration::from_millis(250)),
+//             events_limit: 1024,
+//         },
+//         tezedge_state::sample_tezedge_state::build(Instant::now(), config.clone()),
+//         // capacity is changed by events_limit.
+//         SimulatedEvents::new(0..0),
+//         SimulatedManager::new(100000),
+//     );
 
-    println!("starting loop");
-    while !proposer.manager.is_finished() {
-        proposer.make_progress_owned();
-        let stats = proposer.state.stats();
-        assert!(stats.potential_peers_len <= config.max_potential_peers as usize);
-        assert!(stats.pending_peers_len <= config.max_pending_peers as usize);
-        assert!(stats.connected_peers_len <= config.max_connected_peers as usize);
+//     println!("starting loop");
+//     while !proposer.manager.is_finished() {
+//         proposer.make_progress_owned();
+//         let stats = proposer.state.stats();
+//         assert!(stats.potential_peers_len <= config.max_potential_peers as usize);
+//         assert!(stats.pending_peers_len <= config.max_pending_peers as usize);
+//         assert!(stats.connected_peers_len <= config.max_connected_peers as usize);
 
-        assert!(proposer.manager.connected_peers.len() <= config.max_pending_peers as usize);
-    }
+//         assert!(proposer.manager.connected_peers.len() <= config.max_pending_peers as usize);
+//     }
 
-    dbg!(proposer.state.stats());
-}
+//     dbg!(proposer.state.stats());
+// }
