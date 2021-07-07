@@ -307,7 +307,7 @@ impl<E: Effects> TezedgeState<E> {
         }
 
         // TODO: put public key in state instead of having unwrap here.
-        let public_key_hash = PublicKey::from_bytes(&result.conn_msg.public_key).unwrap().public_key_hash().unwrap();
+        let public_key_hash = PublicKey::from_bytes(&result.public_key).unwrap().public_key_hash().unwrap();
 
         let connected_peer = self.connected_peers
             .set_peer_connected(at, peer_address, result);

@@ -27,8 +27,6 @@ pub struct ConnectedPeer {
     // #[get = "pub"]
     pub public_key: Vec<u8>,
 
-    pub proof_of_work_stamp: Vec<u8>,
-
     // #[get = "pub"]
     pub crypto: PeerCrypto,
 
@@ -180,13 +178,14 @@ impl ConnectedPeers {
         self.peers.entry(peer_address).or_insert_with(|| ConnectedPeer {
             connected_since: at,
             address: peer_address,
-            port: result.conn_msg.port,
-            version: result.conn_msg.version,
-            public_key: result.conn_msg.public_key,
-            proof_of_work_stamp: result.conn_msg.proof_of_work_stamp,
+
+            port: result.port,
+            version: result.compatible_version,
+            public_key: result.public_key,
             crypto: result.crypto,
-            disable_mempool: result.meta_msg.disable_mempool(),
-            private_node: result.meta_msg.private_node(),
+            disable_mempool: result.disable_mempool,
+            private_node: result.private_node,
+
             read_buf: MessageReadBuffer::new(),
             cur_send_message: None,
             send_message_queue: VecDeque::new(),
