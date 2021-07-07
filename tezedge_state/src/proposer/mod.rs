@@ -20,6 +20,7 @@ use crate::proposals::{
     PeerWritableProposal,
     SendPeerMessageProposal,
     PeerDisconnectProposal,
+    PeerDisconnectedProposal,
     PeerBlacklistProposal,
     PendingRequestProposal, PendingRequestMsg,
 };
@@ -233,7 +234,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
         peer: &mut Peer<S>,
     ) {
         if event.is_read_closed() || event.is_write_closed() {
-            state.accept(PeerDisconnectProposal {
+            state.accept(PeerDisconnectedProposal {
                 at: event.time(),
                 peer: peer.address().clone(),
             });

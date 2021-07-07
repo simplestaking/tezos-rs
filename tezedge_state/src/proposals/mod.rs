@@ -30,6 +30,9 @@ pub use peer_handshake_message::{PeerHandshakeMessage, PeerHandshakeMessageError
 mod peer_disconnect_proposal;
 pub use peer_disconnect_proposal::*;
 
+mod peer_disconnected_proposal;
+pub use peer_disconnected_proposal::*;
+
 mod peer_blacklist_proposal;
 pub use peer_blacklist_proposal::*;
 

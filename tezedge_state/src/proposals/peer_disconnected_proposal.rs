@@ -3,14 +3,14 @@ use tla_sm::Proposal;
 
 use crate::PeerAddress;
 
-/// Disconnect the peer.
+/// Peer has disconnected.
 #[derive(Debug, Clone)]
-pub struct PeerDisconnectProposal {
+pub struct PeerDisconnectedProposal {
     pub at: Instant,
     pub peer: PeerAddress,
 }
 
-impl Proposal for PeerDisconnectProposal {
+impl Proposal for PeerDisconnectedProposal {
     fn time(&self) -> Instant {
         self.at
     }
