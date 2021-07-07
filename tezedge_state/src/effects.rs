@@ -34,6 +34,10 @@ impl Effects for DefaultEffects {
         choice_len: usize,
     ) -> Vec<PeerListenerAddress>
     {
+        if choice_len == 0 {
+            return vec![];
+        }
+
         if choice_len >= potential_peers.len() {
             potential_peers.iter().cloned().collect()
         } else {
