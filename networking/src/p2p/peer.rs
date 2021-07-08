@@ -1,11 +1,11 @@
 // Copyright (c) SimpleStaking, Viable Systems and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
-use std::fmt;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use std::{cmp, fmt};
 
 use failure::{Error, Fail};
 use futures::lock::Mutex;
@@ -288,14 +288,16 @@ lazy_static::lazy_static! {
 
 struct ThrottleQuota {
     quotas: [(isize, isize); THROTTLING_QUOTA_NUM],
+    quota_disabled: bool,
     log: Logger,
 }
 
 impl ThrottleQuota {
     fn new(log: Logger) -> Self {
         Self {
-            log,
             quotas: THROTTLING_QUOTA_MAX.clone(),
+            quota_disabled: *THROTTLING_QUOTA_DISABLE,
+            log,
         }
     }
 
@@ -331,53 +333,55 @@ impl ThrottleQuota {
         }
     }
 
-    fn can_send(&mut self, msg: &PeerMessageResponse) -> bool {
+    fn can_send(&mut self, msg: &PeerMessageResponse) -> Result<isize, isize> {
         let index = Self::msg_index(msg);
         self.quotas[index].0 -= 1;
         if self.quotas[index].0 >= 0 {
-            if self.quotas[index].1 < THROTTLING_QUOTA_MAX[index].1 {
-                self.quotas[index].1 += 1;
-            }
-            true
+            self.quotas[index].1 =
+                cmp::min(self.quotas[index].1 + 1, THROTTLING_QUOTA_MAX[index].1);
+            Ok(self.quotas[index].0)
+        } else if self.quota_disabled {
+            Ok(self.quotas[index].0)
         } else {
-            *THROTTLING_QUOTA_DISABLE
+            Err(self.quotas[index].0)
         }
     }
 
-    fn can_receive(&mut self, msg: &PeerMessageResponse) -> bool {
+    fn can_receive(&mut self, msg: &PeerMessageResponse) -> Result<isize, isize> {
         let index = Self::msg_index(msg);
         self.quotas[index].1 -= 1;
         if self.quotas[index].1 >= 0 {
-            if self.quotas[index].0 < THROTTLING_QUOTA_MAX[index].0 {
-                self.quotas[index].0 += 1;
-            }
-            true
+            self.quotas[index].0 =
+                cmp::min(self.quotas[index].0 + 1, THROTTLING_QUOTA_MAX[index].0);
+            Ok(self.quotas[index].1)
+        } else if self.quota_disabled {
+            Ok(self.quotas[index].1)
         } else {
-            *THROTTLING_QUOTA_DISABLE
+            Err(self.quotas[index].1)
         }
     }
 
     fn reset_all(&mut self) {
         for index in 0..THROTTLING_QUOTA_NUM {
             let (tx_max, rx_max) = THROTTLING_QUOTA_MAX[index];
-            if self.quotas[index].0 < tx_max {
-                trace!(
+            if self.quotas[index].0 < 0 {
+                debug!(
                     self.log,
-                    "Increasing tx quota {} for {}",
-                    self.quotas[index].0,
-                    Self::index_to_str(index)
+                    "Tx quota is exceeded";
+                    "msg_kind" => Self::index_to_str(index),
+                    "amount" => -self.quotas[index].0
                 );
-                self.quotas[index].0 = tx_max;
             }
-            if self.quotas[index].1 < rx_max {
-                trace!(
+            if self.quotas[index].1 < 0 {
+                debug!(
                     self.log,
-                    "Increasing rx quota {} for {}",
-                    self.quotas[index].1,
-                    Self::index_to_str(index)
+                    "Rx quota is exceeded";
+                    "msg_kind" => Self::index_to_str(index),
+                    "amount" => -self.quotas[index].1
                 );
-                self.quotas[index].1 = rx_max;
             }
+            self.quotas[index].0 = tx_max;
+            self.quotas[index].1 = rx_max;
         }
     }
 }
@@ -531,8 +535,11 @@ impl Receive<SendMessage> for Peer {
     fn receive(&mut self, ctx: &Context<Self::Msg>, msg: SendMessage, _sender: Sender) {
         match self.throttle_quota.lock() {
             Ok(ref mut quota) => {
-                if !quota.can_send(msg.message.as_ref()) {
-                    warn!(ctx.system.log(), "Cannot send message because of send quota is exceeded"; "msg" => format!("{:?}", msg.message.as_ref()), "peer_uri" => ctx.myself().uri().to_string());
+                if let Err(quota) = quota.can_send(msg.message.as_ref()) {
+                    if quota == -1 {
+                        warn!(ctx.system.log(), "Cannot send message because of send quota is exceeded";
+                              "msg" => format!("{:?}", msg.message.as_ref()), "peer_uri" => ctx.myself().uri().to_string());
+                    }
                     return;
                 }
             }
@@ -812,7 +819,12 @@ async fn begin_process_incoming(
             Ok(res) => match res {
                 Ok(msg) => match throttle_quota.lock() {
                     Ok(ref mut quota) => {
-                        if quota.can_receive(&msg) {
+                        if let Err(quota) = quota.can_receive(&msg) {
+                            if quota == -1 {
+                                warn!(log, "Message is dropped because its receive quota is exceeded";
+                                      "msg" => format!("{:?}", msg), "peer_uri" => myself.uri().to_string());
+                            }
+                        } else {
                             let should_broadcast_message = net.rx_run.load(Ordering::Acquire);
                             if should_broadcast_message {
                                 trace!(log, "Message parsed successfully"; "msg" => format!("{:?}", &msg));
@@ -828,8 +840,6 @@ async fn begin_process_incoming(
                                     None,
                                 );
                             }
-                        } else {
-                            warn!(log, "Message is dropped because its receive quota is exceeded"; "msg" => format!("{:?}", msg), "peer_uri" => myself.uri().to_string());
                         }
                     }
                     Err(_) => error!(log, "Failed to obtain a lock for throttle quota"),
@@ -875,6 +885,7 @@ async fn begin_process_incoming(
 #[cfg(test)]
 mod tests {
     use std::{
+        cell::RefCell,
         sync::{
             atomic::{AtomicUsize, Ordering},
             Arc,
@@ -888,7 +899,7 @@ mod tests {
         actor::ActorRefFactory,
         actors::{ActorSystem, SystemBuilder, Tell},
     };
-    use slog::{Drain, Level, Logger};
+    use slog::{Drain, Level, Logger, KV};
     use tezos_identity::Identity;
     use tezos_messages::p2p::encoding::{
         metadata::MetadataMessage,
@@ -898,16 +909,39 @@ mod tests {
     };
     use tokio::runtime::Handle;
 
-    use crate::p2p::{network_channel::{NetworkChannel, NetworkChannelRef}, peer::ThrottleQuota};
+    use crate::p2p::{
+        network_channel::{NetworkChannel, NetworkChannelRef},
+        peer::ThrottleQuota,
+    };
 
     use super::{BootstrapOutput, Peer, PeerRef, SendMessage};
 
-    fn create_logger(warns: Arc<AtomicUsize>, level: Level) -> Logger {
+    fn create_logger(warns: Arc<AtomicUsize>, exceeded: Arc<AtomicUsize>, level: Level) -> Logger {
         let drain = slog_term::FullFormat::new(slog_term::TermDecorator::new().build())
             .build()
             .fuse();
 
-        struct MyDrain(Arc<AtomicUsize>);
+        struct MySer(Arc<AtomicUsize>);
+
+        impl slog::Serializer for MySer {
+            fn emit_arguments(
+                &mut self,
+                key: slog::Key,
+                val: &core::fmt::Arguments,
+            ) -> slog::Result {
+                if key == "amount" {
+                    self.0
+                        .store(val.to_string().parse().unwrap(), Ordering::Relaxed);
+                }
+                Ok(())
+            }
+        }
+
+        struct MyDrain {
+            warns: Arc<AtomicUsize>,
+            ser: RefCell<MySer>,
+        }
+
         impl Drain for MyDrain {
             type Ok = ();
             type Err = slog::Never;
@@ -918,16 +952,32 @@ mod tests {
                 _values: &slog::OwnedKVList,
             ) -> std::result::Result<Self::Ok, Self::Err> {
                 if record.level() == Level::Warning {
-                    self.0.fetch_add(1, Ordering::Relaxed);
+                    self.warns.fetch_add(1, Ordering::Relaxed);
+                } else if record.level() == Level::Debug
+                    && record.msg().to_string() == String::from("Tx quota is exceeded")
+                {
+                    record
+                        .kv()
+                        .serialize(record, &mut *self.ser.borrow_mut())
+                        .unwrap();
                 }
                 Ok(())
             }
         }
 
-        let drain = slog_async::Async::new(slog::Duplicate::new(MyDrain(warns), drain).fuse())
-            .build()
-            .filter_level(level)
-            .fuse();
+        let drain = slog_async::Async::new(
+            slog::Duplicate::new(
+                MyDrain {
+                    warns,
+                    ser: RefCell::new(MySer(exceeded)),
+                },
+                drain,
+            )
+            .fuse(),
+        )
+        .build()
+        .filter_level(level)
+        .fuse();
 
         Logger::root(drain, slog::o!())
     }
@@ -985,7 +1035,12 @@ mod tests {
     #[ignore]
     fn test_quota_exceeded() {
         let received_messages = Arc::new(AtomicUsize::new(0));
-        let log = create_logger(received_messages.clone(), Level::Debug);
+        let quota_exceeded = Arc::new(AtomicUsize::new(0));
+        let log = create_logger(
+            received_messages.clone(),
+            quota_exceeded.clone(),
+            Level::Debug,
+        );
         let actor_system = create_test_actor_system(log.clone());
         let runtime = create_test_tokio_runtime();
         let network_channel =
@@ -1003,18 +1058,25 @@ mod tests {
         }
         std::thread::sleep(Duration::from_millis(50));
 
-        // 11 warnings on dropped messages
-        assert_eq!(received_messages.load(Ordering::Relaxed), 11);
+        // Only a single warning on dropped messages
+        assert_eq!(received_messages.load(Ordering::Relaxed), 1);
 
         std::thread::sleep(Duration::from_millis(*super::THROTTLING_QUOTA_RESET_MS));
-        received_messages.store(0, Ordering::Release);
+
+        // Quota is exceeded by 11
+        assert_eq!(quota_exceeded.load(Ordering::Relaxed), 11);
 
         for _ in 0..super::THROTTLING_QUOTA_MAX[idx].0 + 10 {
             peer.tell(SendMessage::new(Arc::new(msg.clone())), None);
         }
         std::thread::sleep(Duration::from_millis(50));
 
-        // 10 warnings on dropped messages
-        assert_eq!(received_messages.load(Ordering::Relaxed), 10);
+        // One more warning on dropped messages
+        assert_eq!(received_messages.load(Ordering::Relaxed), 2);
+
+        std::thread::sleep(Duration::from_millis(*super::THROTTLING_QUOTA_RESET_MS));
+
+        // Quota is exceeded by 11
+        assert_eq!(quota_exceeded.load(Ordering::Relaxed), 10);
     }
 }
