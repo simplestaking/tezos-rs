@@ -261,7 +261,7 @@ lazy_static::lazy_static! {
             (10, 10), // CurrentBranch
             (10, 10), // Deactivate
             (10, 10), // GetCurrentHead
-            (10, 100), // CurrentHead
+            (500, 500), // CurrentHead
             (5000, 5000), // GetBlockHeaders
             (5000, 5000), // BlockHeader
             (10, 10), // GetOperations
