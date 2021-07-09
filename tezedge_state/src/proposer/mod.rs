@@ -1,7 +1,6 @@
-use std::collections::VecDeque;
 use std::time::{Instant, Duration};
 use std::io::{self, Read, Write};
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
 use bytes::Buf;
 
 use crypto::hash::CryptoboxPublicKeyHash;
@@ -12,7 +11,7 @@ use tezos_messages::p2p::binary_message::{BinaryMessage, BinaryChunk, BinaryChun
 use tezos_messages::p2p::encoding::prelude::{
     ConnectionMessage, MetadataMessage, AckMessage, NetworkVersion,
 };
-use crate::{TezedgeStateWrapper, TezedgeState, TezedgeRequest, PeerCrypto, PeerAddress};
+use crate::{Effects, PeerAddress, PeerCrypto, TezedgeRequest, TezedgeState, TezedgeStateWrapper};
 use crate::proposals::{
     TickProposal,
     NewPeerConnectProposal,
@@ -27,7 +26,7 @@ use crate::proposals::{
 
 pub mod mio_manager;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Notification {
     PeerDisconnected { peer: PeerAddress },
     PeerBlacklisted { peer: PeerAddress },
@@ -52,6 +51,23 @@ impl<NetE> Event<NetE> {
             Self::Tick(e) => EventRef::Tick(*e),
             Self::Network(e) => EventRef::Network(e),
         }
+    }
+}
+
+impl<NetE: NetworkEvent> Event<NetE> {
+    pub fn time(&self) -> Instant {
+        match self {
+            Self::Tick(t) => t.clone(),
+            Self::Network(e) => e.time(),
+        }
+    }
+}
+
+impl<NetE> From<NetE> for Event<NetE>
+    where NetE: NetworkEvent,
+{
+    fn from(event: NetE) -> Self {
+        Self::Network(event)
     }
 }
 
@@ -93,6 +109,24 @@ impl<S> Peer<S> {
     }
 }
 
+impl<S: Clone> Clone for Peer<S> {
+    fn clone(&self) -> Self {
+        Self {
+            address: self.address.clone(),
+            stream: self.stream.clone(),
+        }
+    }
+}
+
+impl<S: Debug> Debug for Peer<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Peer")
+            .field("address", &self.address)
+            .field("stream", &self.stream)
+            .finish()
+    }
+}
+
 pub trait Manager {
     type Stream: Read + Write;
     type NetworkEvent: NetworkEvent;
@@ -112,21 +146,23 @@ pub trait Manager {
     fn disconnect_peer(&mut self, peer: &PeerAddress);
 }
 
+#[derive(Clone)]
 pub struct TezedgeProposerConfig {
     pub wait_for_events_timeout: Option<Duration>,
     pub events_limit: usize,
 }
 
-pub struct TezedgeProposer<Es, M> {
+#[derive(Clone)]
+pub struct TezedgeProposer<Es, Efs, M> {
     config: TezedgeProposerConfig,
     requests: Vec<TezedgeRequest>,
     notifications: Vec<Notification>,
-    pub state: TezedgeStateWrapper,
+    pub state: TezedgeStateWrapper<Efs>,
     pub events: Es,
     pub manager: M,
 }
 
-impl<Es, M> TezedgeProposer<Es, M>
+impl<Es, Efs, M> TezedgeProposer<Es, Efs, M>
     where Es: Events,
 {
     pub fn new<S>(
@@ -135,7 +171,7 @@ impl<Es, M> TezedgeProposer<Es, M>
         mut events: Es,
         manager: M,
     ) -> Self
-        where S: Into<TezedgeStateWrapper>,
+        where S: Into<TezedgeStateWrapper<Efs>>,
     {
         events.set_limit(config.events_limit);
         Self {
@@ -149,16 +185,17 @@ impl<Es, M> TezedgeProposer<Es, M>
     }
 }
 
-impl<S, NetE, Es, M> TezedgeProposer<Es, M>
+impl<S, NetE, Es, Efs, M> TezedgeProposer<Es, Efs, M>
     where S: Read + Write,
           NetE: NetworkEvent + Debug,
+          Efs: Effects,
           M: Manager<Stream = S, NetworkEvent = NetE, Events = Es>,
 {
     fn handle_event(
         event: Event<NetE>,
         requests: &mut Vec<TezedgeRequest>,
         notifications: &mut Vec<Notification>,
-        state: &mut TezedgeStateWrapper,
+        state: &mut TezedgeStateWrapper<Efs>,
         manager: &mut M,
     ) {
         match event {
@@ -175,7 +212,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
         event: EventRef<'a, NetE>,
         requests: &mut Vec<TezedgeRequest>,
         notifications: &mut Vec<Notification>,
-        state: &mut TezedgeStateWrapper,
+        state: &mut TezedgeStateWrapper<Efs>,
         manager: &mut M,
     ) {
         match event {
@@ -192,7 +229,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
         event: &NetE,
         requests: &mut Vec<TezedgeRequest>,
         notifications: &mut Vec<Notification>,
-        state: &mut TezedgeStateWrapper,
+        state: &mut TezedgeStateWrapper<Efs>,
         manager: &mut M,
     ) {
         if event.is_server_event() {
@@ -230,7 +267,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
 
     fn handle_readiness_event(
         event: &NetE,
-        state: &mut TezedgeStateWrapper,
+        state: &mut TezedgeStateWrapper<Efs>,
         peer: &mut Peer<S>,
     ) {
         if event.is_read_closed() || event.is_write_closed() {
@@ -261,7 +298,7 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
     fn execute_requests(
         requests: &mut Vec<TezedgeRequest>,
         notifications: &mut Vec<Notification>,
-        state: &mut TezedgeStateWrapper,
+        state: &mut TezedgeStateWrapper<Efs>,
         manager: &mut M,
     ) {
         state.get_requests(requests);
@@ -439,7 +476,85 @@ impl<S, NetE, Es, M> TezedgeProposer<Es, M>
         }
     }
 
+    #[cfg(feature = "blocking")]
+    pub fn blocking_send(
+        &mut self,
+        at: Instant,
+        addr: PeerAddress,
+        message: PeerMessage,
+    ) -> io::Result<()>
+    {
+        let peer = match self.manager.get_peer(&addr) {
+            Some(peer) => peer,
+            None => return Err(io::Error::new(io::ErrorKind::NotFound, "peer not found!")),
+        };
+
+        self.state.accept(SendPeerMessageProposal {
+            at,
+            peer: addr,
+            message,
+        });
+        let mut send_buf = WriteOnlyBuffer::new();
+        self.state.accept(PeerWritableProposal {
+            at,
+            peer: addr,
+            stream: &mut send_buf,
+        });
+
+        let send_buf = send_buf.take();
+        let mut buf = &send_buf[..];
+
+        while buf.len() > 0 {
+            match peer.stream.write(buf) {
+                Ok(len) => buf = &buf[len..],
+                Err(err) => {
+                    match err.kind() {
+                        io::ErrorKind::WouldBlock => std::thread::yield_now(),
+                        _ => return Err(err),
+                    };
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn take_notifications<'a>(&'a mut self) -> std::vec::Drain<'a, Notification> {
         self.notifications.drain(..)
+    }
+}
+
+#[cfg(feature = "blocking")]
+struct WriteOnlyBuffer {
+    buf: Vec<u8>,
+}
+
+#[cfg(feature = "blocking")]
+impl WriteOnlyBuffer {
+    fn new() -> Self {
+        Self { buf: vec![] }
+    }
+
+    fn take(self) -> Vec<u8> {
+        self.buf
+    }
+}
+
+#[cfg(feature = "blocking")]
+impl Write for WriteOnlyBuffer {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.buf.extend(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "blocking")]
+impl Read for WriteOnlyBuffer {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        Err(io::Error::new(io::ErrorKind::WouldBlock, "write only buffer!"))
     }
 }

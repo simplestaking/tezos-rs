@@ -128,6 +128,10 @@ impl<E> TezedgeState<E> {
         }
     }
 
+    pub fn config(&self) -> &TezedgeConfig {
+        &self.config
+    }
+
     pub fn newest_time_seen(&self) -> Instant {
         self.newest_time_seen
     }

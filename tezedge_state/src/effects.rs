@@ -20,7 +20,7 @@ pub trait Effects {
     ) -> Vec<PeerListenerAddress>;
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct DefaultEffects;
 
 impl Effects for DefaultEffects {

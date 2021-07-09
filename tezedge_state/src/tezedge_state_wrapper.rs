@@ -4,9 +4,9 @@ use std::time::Instant;
 use tla_sm::GetRequests;
 use tla_sm::{Acceptor, Proposal};
 
-use crate::{PeerAddress, TezedgeState, TezedgeStats, TezedgeRequest, DefaultEffects};
+use crate::{PeerAddress, TezedgeState, TezedgeConfig, TezedgeStats, TezedgeRequest, DefaultEffects};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TezedgeStateWrapper<E = DefaultEffects>(TezedgeState<E>);
 
 impl<E> TezedgeStateWrapper<E> {
@@ -18,6 +18,10 @@ impl<E> TezedgeStateWrapper<E> {
     #[inline]
     pub fn is_peer_connected(&mut self, peer: &PeerAddress) -> bool {
         self.0.is_peer_connected(peer)
+    }
+
+    pub fn config(&self) -> &TezedgeConfig {
+        &self.0.config
     }
 
     pub fn stats(&self) -> TezedgeStats {
