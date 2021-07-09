@@ -52,11 +52,31 @@ impl Effects for DefaultEffects {
     ) -> Vec<PeerListenerAddress>
     {
         let mut rng = rand::thread_rng();
-        let len = rng.gen_range(1, 80.min(potential_peers.len()));
+        let len = rng.gen_range(1, 80.min(potential_peers.len()).max(2));
         if len >= potential_peers.len() {
             potential_peers.iter().cloned().collect()
         } else {
             potential_peers.iter().cloned().choose_multiple(&mut rng, len)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_choose_potential_peers_panics() {
+        for n in 0..100 {
+            let mut p = HashSet::new();
+            for i in 0..n {
+                p.insert(PeerAddress::ipv4_from_index(i).as_listener_address());
+            }
+            let mut effects = DefaultEffects::default();
+            for choice_len in 0..100 {
+                effects.choose_peers_to_connect_to(&p, choice_len);
+                effects.choose_potential_peers_for_nack(&p);
+            }
         }
     }
 }

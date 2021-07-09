@@ -27,6 +27,12 @@ impl PeerAddress {
         self.0.set_port(new_port)
     }
 
+    /// Caller must make sure that the set port is the port that the
+    /// remote peer is listening on.
+    pub fn as_listener_address(&self) -> PeerListenerAddress {
+        PeerListenerAddress(self.0)
+    }
+
     /// For testing purposes.
     ///
     /// Get unique ipv4 address based on index.
