@@ -1,0 +1,34 @@
+[package]
+name = "node-monitoring"
+version = "1.6.0"
+authors = ["Adrian Nagy <adrian.nagy@viablesystems.io>"]
+edition = "2018"
+default-run = "node-monitoring"
+
+[dependencies]
+async-trait = "0.1"
+clap = "2.33"
+chrono = "0.4"
+failure = "0.1"
+fs2 = "0.4"
+fs_extra = "1.2"
+itertools = "0.10"
+getset = "0.1"
+merge = "0.1"
+http = "0.2.2"
+percentage = "0.1"
+reqwest = { version = "0.11", features = ["json"] }
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = "1.0"
+shiplift = { git = "https://github.com/tezedge/shiplift.git", branch = "master" }
+slog = { version = "2.5", features = ["nested-values"] }
+slog-async = "2.5"
+slog-term = "2.6"
+sysinfo = "0.19"
+tokio = { version = "1.2", features = ["full"] }
+wait-timeout = "0.2"
+warp = "0.3"
+procfs = "0.9"
+# TODO: TE-499 remove shell dependency, and move stats/memory somewhere
+shell = { path = "../../shell" }
+zip = "0.5"

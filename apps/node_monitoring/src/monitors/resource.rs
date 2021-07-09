@@ -15,14 +15,28 @@ use sysinfo::{System, SystemExt};
 
 use shell::stats::memory::ProcessMemoryStats;
 
-use crate::constants::{MEASUREMENTS_MAX_CAPACITY, OCAML_PORT, TEZEDGE_PORT};
+use crate::constants::{MEASUREMENTS_MAX_CAPACITY, OCAML_PORT};
 use crate::display_info::{NodeInfo, OcamlDiskData, TezedgeDiskData};
-use crate::monitors::Alerts;
-use crate::node::OcamlNode;
-use crate::node::{Node, TezedgeNode};
+use crate::monitors::alerts::Alerts;
+use crate::node::{Node, TezedgeNode, OcamlNode};
 use crate::slack::SlackServer;
 
-pub type ResourceUtilizationStorage = Arc<RwLock<VecDeque<ResourceUtilization>>>;
+pub struct ResourceUtilizationStorage {
+    node_rpc_port: u16,
+    pid: i32,
+    storage: Arc<RwLock<VecDeque<ResourceUtilization>>>,
+}
+
+impl ResourceUtilizationStorage {
+    pub fn new(node_rpc_port: u16, pid: i32, storage: Arc<RwLock<VecDeque<ResourceUtilization>>>) -> Self {
+        Self {
+            node_rpc_port,
+            pid,
+            storage,
+        }
+    }
+}
+
 pub type ResourceUtilizationStorageMap = HashMap<&'static str, ResourceUtilizationStorage>;
 
 pub struct ResourceMonitor {
@@ -217,14 +231,20 @@ impl ResourceMonitor {
         system.refresh_all();
 
         for (node_tag, resource_storage) in resource_utilization {
+            let ResourceUtilizationStorage {
+                storage,
+                node_rpc_port,
+                pid
+            } = resource_storage;
+
             let node_resource_measurement = if node_tag == &"tezedge" {
-                let current_head_info = TezedgeNode::collect_head_data(TEZEDGE_PORT).await?;
-                let tezedge_node = TezedgeNode::collect_memory_data(TEZEDGE_PORT).await?;
+                let current_head_info = TezedgeNode::collect_head_data(*node_rpc_port).await?;
+                let tezedge_node = TezedgeNode::collect_memory_data(*node_rpc_port).await?;
                 let protocol_runners =
-                    TezedgeNode::collect_protocol_runners_memory_stats(TEZEDGE_PORT).await?;
+                    TezedgeNode::collect_protocol_runners_memory_stats(*node_rpc_port).await?;
                 let tezedge_disk = TezedgeNode::collect_disk_data(tezedge_volume_path.to_string())?;
 
-                let tezedge_cpu = TezedgeNode::collect_cpu_data(system, "light-node")?;
+                let tezedge_cpu = TezedgeNode::collect_cpu_data(system, *pid)?;
                 let protocol_runners_cpu =
                     TezedgeNode::collect_cpu_data(system, "protocol-runner")?;
                 let resources = ResourceUtilization {
@@ -286,7 +306,7 @@ impl ResourceMonitor {
                 resources
             };
 
-            match &mut resource_storage.write() {
+            match &mut storage.write() {
                 Ok(resources_locked) => {
                     if resources_locked.len() == MEASUREMENTS_MAX_CAPACITY {
                         resources_locked.pop_back();

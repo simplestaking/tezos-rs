@@ -922,36 +922,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "deploy-monitoring"
-version = "1.7.0"
-dependencies = [
- "async-trait",
- "chrono",
- "clap",
- "failure",
- "fs2",
- "fs_extra",
- "getset",
- "http",
- "itertools 0.10.0",
- "merge",
- "percentage",
- "reqwest",
- "serde 1.0.123",
- "serde_json",
- "shell",
- "shiplift",
- "slog",
- "slog-async",
- "slog-term",
- "sysinfo",
- "tokio",
- "wait-timeout",
- "warp",
- "zip",
-]
-
-[[package]]
 name = "derive_builder"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1915,9 +1885,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.87"
+version = "0.2.98"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "265d751d31d6780a3f956bb5b8022feba2d94eeee5a84ba64f4212eedca42213"
+checksum = "320cfe77175da3a483efed4bc0adc1968ca050b098ce4f2f1c13a56626128790"
 
 [[package]]
 name = "libflate"
@@ -2306,6 +2276,37 @@ dependencies = [
  "cc",
  "cfg-if 1.0.0",
  "libc",
+]
+
+[[package]]
+name = "node-monitoring"
+version = "1.6.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "clap",
+ "failure",
+ "fs2",
+ "fs_extra",
+ "getset",
+ "http",
+ "itertools 0.10.0",
+ "merge",
+ "percentage",
+ "procfs",
+ "reqwest",
+ "serde 1.0.123",
+ "serde_json",
+ "shell",
+ "shiplift",
+ "slog",
+ "slog-async",
+ "slog-term",
+ "sysinfo",
+ "tokio",
+ "wait-timeout",
+ "warp",
+ "zip",
 ]
 
 [[package]]
@@ -2809,6 +2810,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e0704ee1a7e00d7bb417d0770ea303c1bccbabf0ef1667dae92b5967f5f8a71"
 dependencies = [
  "unicode-xid 0.2.1",
+]
+
+[[package]]
+name = "procfs"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab8809e0c18450a2db0f236d2a44ec0b4c1412d0eb936233579f0990faa5d5cd"
+dependencies = [
+ "bitflags",
+ "byteorder",
+ "chrono",
+ "flate2",
+ "hex",
+ "lazy_static",
+ "libc",
 ]
 
 [[package]]
@@ -3848,9 +3864,9 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
-version = "0.16.5"
+version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "567e910ef0207be81a4e1bb0491e9a8d9866cf45b20fe1a52c03d347da9ea51b"
+checksum = "a68b8aff80646f09ec11e59b56091a5278ee527d5baeca938f1a5dbd9a15a859"
 dependencies = [
  "cfg-if 1.0.0",
  "core-foundation-sys",
