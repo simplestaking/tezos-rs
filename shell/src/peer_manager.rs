@@ -300,6 +300,7 @@ impl PeerManager {
         network_channel: NetworkChannelRef,
         tokio_executor: Handle,
         info: BootstrapOutput,
+        log: &Logger,
     ) -> Result<PeerRef, CreateError> {
         Peer::actor(
             &P2pPeers::generate_next_peer_actor_name(),
@@ -307,6 +308,7 @@ impl PeerManager {
             network_channel,
             tokio_executor,
             info,
+            log,
         )
     }
 
@@ -828,14 +830,14 @@ impl Receive<ConnectToPeer> for PeerManager {
         let peers = self.peers.clone();
 
         self.tokio_executor.spawn(async move {
-            let log = system.log();
+            let log: riker::system::LoggingSystem = system.log();
             debug!(log, "(Outgoing) Connecting to IP"; "ip" => msg.address);
             match timeout(CONNECT_TIMEOUT, TcpStream::connect(&msg.address)).await {
                 Ok(Ok(stream)) => {
                     debug!(log, "(Outgoing) Connection to peer successful, so start bootstrapping"; "incoming" => false, "ip" => msg.address);
                     match bootstrap(Bootstrap::outgoing(stream, msg.address.clone(), disable_mempool, private_node), local_node_info, &log).await {
                         Ok(bootstrap_output) => {
-                            match Self::create_peer(&system, network_channel.clone(), tokio_executor, bootstrap_output) {
+                            match Self::create_peer(&system, network_channel.clone(), tokio_executor, bootstrap_output, &log) {
                                 Ok(peer) => {
                                     if let Err(e) = peers.add_outgoing_peer(peer.clone(), msg.address) {
                                         warn!(log, "Failed to add outgoing peer to state - stopping peer actor"; "reason" => format!("{:?}", e));
@@ -892,7 +894,7 @@ impl Receive<AcceptPeer> for PeerManager {
                     debug!(log, "Bootstrapping"; "incoming" => true, "ip" => &msg.address);
                     match bootstrap(Bootstrap::incoming(msg.stream, msg.address.clone(), disable_mempool, private_node), local_node_info, &log).await {
                         Ok(bootstrap_output) => {
-                            match Self::create_peer(&system, network_channel.clone(), tokio_executor, bootstrap_output) {
+                            match Self::create_peer(&system, network_channel.clone(), tokio_executor, bootstrap_output, &log) {
                                 Ok(peer) => {
                                     if let Err(e) = peers.add_incoming_peer(peer.clone(), msg.address) {
                                         warn!(log, "Failed to add incoming peer to state - stopping peer actor"; "reason" => format!("{:?}", e));
@@ -1286,8 +1288,13 @@ pub mod tests {
             assert_eq!(1, p2p_peers.incoming_connection_tickets.available_permits());
 
             // register as incoming
-            let PeerState { peer_id, .. } =
-                test_peer(&actor_system, network_channel.clone(), &tokio_runtime, 7777);
+            let PeerState { peer_id, .. } = test_peer(
+                &actor_system,
+                network_channel.clone(),
+                &tokio_runtime,
+                7777,
+                &log,
+            );
             p2p_peers
                 .add_incoming_peer(peer_id.peer_ref.clone(), peer_id.peer_address)
                 .unwrap();
@@ -1306,8 +1313,13 @@ pub mod tests {
             assert_eq!(1, p2p_peers.incoming_connection_tickets.available_permits());
 
             // register as incoming
-            let PeerState { peer_id, .. } =
-                test_peer(&actor_system, network_channel.clone(), &tokio_runtime, 7778);
+            let PeerState { peer_id, .. } = test_peer(
+                &actor_system,
+                network_channel.clone(),
+                &tokio_runtime,
+                7778,
+                &log,
+            );
             p2p_peers
                 .add_incoming_peer(peer_id.peer_ref.clone(), peer_id.peer_address)
                 .unwrap();
@@ -1321,8 +1333,13 @@ pub mod tests {
         assert!(!p2p_peers.is_max_connections_exceeded().unwrap());
 
         // register as outgoing
-        let PeerState { peer_id, .. } =
-            test_peer(&actor_system, network_channel.clone(), &tokio_runtime, 7779);
+        let PeerState { peer_id, .. } = test_peer(
+            &actor_system,
+            network_channel.clone(),
+            &tokio_runtime,
+            7779,
+            &log,
+        );
         p2p_peers
             .add_outgoing_peer(peer_id.peer_ref.clone(), peer_id.peer_address)
             .unwrap();

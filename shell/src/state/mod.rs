@@ -292,6 +292,7 @@ pub mod tests {
             network_channel: NetworkChannelRef,
             tokio_runtime: &tokio::runtime::Runtime,
             port: u16,
+            log: &Logger,
         ) -> PeerState {
             let socket_address: SocketAddr = format!("127.0.0.1:{}", port)
                 .parse()
@@ -318,6 +319,7 @@ pub mod tests {
                     version,
                     socket_address,
                 ),
+                log,
             )
             .unwrap();
 
