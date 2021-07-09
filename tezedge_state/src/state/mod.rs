@@ -456,6 +456,9 @@ impl<E: Effects> TezedgeState<E> {
         let len = self.potential_peers.len()
             .min(self.missing_pending_peers());
 
+        if len == 0 {
+            return
+        }
         slog::info!(&self.log, "Initiating handshakes";
                      "connected_peers" => self.connected_peers.len(),
                      "pending_peers" => self.pending_peers.len(),
@@ -480,9 +483,7 @@ impl<E: Effects> TezedgeState<E> {
             });
         }
 
-        if len > 0 {
-            self.adjust_p2p_state(at);
-        }
+        self.adjust_p2p_state(at);
     }
 
     pub(crate) fn periodic_react(&mut self, at: Instant) {
