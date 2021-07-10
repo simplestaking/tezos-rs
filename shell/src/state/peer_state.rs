@@ -157,7 +157,7 @@ impl PeerState {
     }
 
     pub fn schedule_missing_operations_for_mempool(
-        network_channel: NetworkChannelRef,
+        network_channel: &NetworkChannelRef,
         peers: &mut HashMap<PeerAddress, PeerState>,
     ) {
         peers
@@ -193,14 +193,14 @@ impl PeerState {
                         .chunks(limits::GET_OPERATIONS_MAX_LENGTH)
                         .for_each(|ops_to_get| {
                             tell_peer(
-                                network_channel.clone(),
+                                &network_channel,
                                 peer,
                                 GetOperationsMessage::new(ops_to_get.into()).into(),
                             )
                         });
                 } else {
                     tell_peer(
-                        network_channel.clone(),
+                        &network_channel,
                         peer,
                         GetOperationsMessage::new(ops_to_get).into(),
                     );
@@ -344,7 +344,7 @@ impl UpdateIsBootstrapped for PeerState {
 }
 
 pub fn tell_peer(
-    network_channel: NetworkChannelRef,
+    network_channel: &NetworkChannelRef,
     peer: &PeerState,
     msg: Arc<PeerMessageResponse>,
 ) {
