@@ -35,7 +35,7 @@ use crate::PeerConnectionThreshold;
 
 use tla_sm::Acceptor;
 
-use tezedge_state::{TezedgeState, TezedgeConfig};
+use tezedge_state::{DefaultEffects, TezedgeConfig, TezedgeState};
 use tezedge_state::proposals::ExtendPotentialPeersProposal;
 
 use tezedge_state::proposer::{TezedgeProposer, TezedgeProposerConfig, Notification};
@@ -352,7 +352,7 @@ impl Receive<NetworkChannelMsg> for PeerManager {
 }
 
 fn run(
-    mut proposer: TezedgeProposer<MioEvents, MioManager>,
+    mut proposer: TezedgeProposer<MioEvents, DefaultEffects, MioManager>,
     rx: mpsc::Receiver<ProposerMsg>,
     network_channel: NetworkChannelRef,
     log: &Logger,
