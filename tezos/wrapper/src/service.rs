@@ -330,7 +330,6 @@ pub fn process_protocol_commands<Proto: ProtocolApi, P: AsRef<Path>, SDC: Fn(&Lo
                 )))?,
                 Some(index) => {
                     let prefix_borrowed: Vec<&str> = prefix.iter().map(|s| s.as_str()).collect();
-                    // TODO: remove unwraps
                     let result = index
                         .get_context_tree_by_prefix(&context_hash, &prefix_borrowed, depth)
                         .map_err(|err| format!("{:?}", err));
@@ -1018,8 +1017,8 @@ impl ProtocolController {
                 Some(IpcCmdServer::IO_TIMEOUT),
             )? {
                 NodeMessage::InitProtocolContextIpcServerResult(result) => {
-                    result.map_err(|_err| ProtocolServiceError::ContextIpcServerError {
-                        message: "Failure when starting context IPC server".to_owned(),
+                    result.map_err(|err| ProtocolServiceError::ContextIpcServerError {
+                        message: format!("Failure when starting context IPC server: {}", err),
                     })
                 }
                 message => Err(ProtocolServiceError::UnexpectedMessage {

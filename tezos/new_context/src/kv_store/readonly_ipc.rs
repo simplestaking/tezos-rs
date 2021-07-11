@@ -360,6 +360,9 @@ impl IpcContextListener {
 
     /// Create new IPC endpoint
     pub fn try_new<P: AsRef<Path>>(socket_path: P) -> Result<Self, IpcError> {
+        // Remove file first, otherwise bind will fail.
+        std::fs::remove_file(&socket_path).ok();
+
         Ok(IpcContextListener(IpcServer::bind_path(socket_path)?))
     }
 
