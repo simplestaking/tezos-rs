@@ -1053,11 +1053,11 @@ impl Environment {
                     .unwrap_or("")
                     .parse::<u16>()
                     .expect("Was expecting value of rpc-port"),
-                websocket_address: args
+                websocket_address:  args
                     .value_of("websocket-address")
                     .unwrap_or("")
                     .parse::<SocketAddr>()
-                    .map_or_else(None,|socket_addrs| {
+                    .map_or(None,|socket_addrs| {
                         Some(socket_addrs)
                     })
             },
