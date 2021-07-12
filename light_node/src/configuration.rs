@@ -662,58 +662,58 @@ pub fn tezos_app() -> App<'static, 'static> {
         .subcommand(
             clap::SubCommand::with_name("replay")
                 .arg(Arg::with_name("from-block")
-                     .long("from-block")
-                     .takes_value(true)
-                     .value_name("HASH")
-                     .display_order(0)
-                     .help("Block from which we start the replay")
-                     .validator(|value| {
-                         value.parse::<BlockHash>().map(|_| ()).map_err(|_| format!("Block hash not valid"))
-                     })
+                    .long("from-block")
+                    .takes_value(true)
+                    .value_name("HASH")
+                    .display_order(0)
+                    .help("Block from which we start the replay")
+                    .validator(|value| {
+                        value.parse::<BlockHash>().map(|_| ()).map_err(|_| format!("Block hash not valid"))
+                    })
                 )
                 .arg(Arg::with_name("to-block")
-                     .long("to-block")
-                     .takes_value(true)
-                     .value_name("HASH")
-                     .display_order(0)
-                     .required(true)
-                     .help("Replay until this block")
-                     .validator(|value| {
-                         value.parse::<BlockHash>().map(|_| ()).map_err(|_| format!("Block hash not valid"))
-                     })
+                    .long("to-block")
+                    .takes_value(true)
+                    .value_name("HASH")
+                    .display_order(0)
+                    .required(true)
+                    .help("Replay until this block")
+                    .validator(|value| {
+                        value.parse::<BlockHash>().map(|_| ()).map_err(|_| format!("Block hash not valid"))
+                    })
                 )
                 .arg(Arg::with_name("target-path")
-                     .long("target-path")
-                     .takes_value(true)
-                     .value_name("PATH")
-                     .display_order(1)
-                     .required(true)
-                     .help("A directory for the replay")
-                     .validator(|v| {
-                         let dir = Path::new(&v);
-                         if dir.exists() {
-                             if dir.is_dir() {
-                                 Ok(())
-                             } else {
-                                 Err(format!("Required replay data dir '{}' exists, but is not a directory!", v))
-                             }
-                         } else {
-                             // Tezos data dir does not exists, try to create it
-                             if let Err(e) = fs::create_dir_all(dir) {
-                                 Err(format!("Unable to create required replay data dir '{}': {} ", v, e))
-                             } else {
-                                 Ok(())
-                             }
-                         }
-                     }))
+                    .long("target-path")
+                    .takes_value(true)
+                    .value_name("PATH")
+                    .display_order(1)
+                    .required(true)
+                    .help("A directory for the replay")
+                    .validator(|v| {
+                        let dir = Path::new(&v);
+                        if dir.exists() {
+                            if dir.is_dir() {
+                                Ok(())
+                            } else {
+                                Err(format!("Required replay data dir '{}' exists, but is not a directory!", v))
+                            }
+                        } else {
+                            // Tezos data dir does not exists, try to create it
+                            if let Err(e) = fs::create_dir_all(dir) {
+                                Err(format!("Unable to create required replay data dir '{}': {} ", v, e))
+                            } else {
+                                Ok(())
+                            }
+                        }
+                    }))
                 .arg(Arg::with_name("fail-above")
-                     .long("fail-above")
-                     .takes_value(true)
-                     .value_name("NUM")
-                     .display_order(1)
-                     .required(false)
-                     .help("Panic if the block application took longer than this number of milliseconds")
-                     .validator(parse_validator_fn!(u64, "Value must be a valid number"))
+                    .long("fail-above")
+                    .takes_value(true)
+                    .value_name("NUM")
+                    .display_order(1)
+                    .required(false)
+                    .help("Panic if the block application took longer than this number of milliseconds")
+                    .validator(parse_validator_fn!(u64, "Value must be a valid number"))
                 )
         );
     app
@@ -783,7 +783,8 @@ fn validate_required_args(args: &clap::ArgMatches) {
     validate_required_arg(args, "p2p-port", None);
     validate_required_arg(args, "protocol-runner", None);
     validate_required_arg(args, "rpc-port", None);
-    validate_required_arg(args, "websocket-address", None);
+    // Websocke address is not longer required
+    //validate_required_arg(args, "websocket-address", None);
     validate_required_arg(args, "peer-thresh-low", None);
     validate_required_arg(args, "peer-thresh-high", None);
     validate_required_arg(args, "tokio-threads", None);
@@ -1008,12 +1009,12 @@ impl Environment {
                             addr,
                             crate::configuration::P2p::DEFAULT_P2P_PORT_FOR_LOOKUP,
                         )
-                        .unwrap_or_else(|_| {
-                            panic!(
-                                "Was expecting 'ADDR' or 'ADDR:PORT', invalid value: {}",
-                                addr
-                            )
-                        })
+                            .unwrap_or_else(|_| {
+                                panic!(
+                                    "Was expecting 'ADDR' or 'ADDR:PORT', invalid value: {}",
+                                    addr
+                                )
+                            })
                     })
                     .collect(),
                 bootstrap_peers: args
@@ -1039,7 +1040,7 @@ impl Environment {
                             .expect("Provided value cannot be converted to number")
                     }),
                 )
-                .expect("Invalid threashold range"),
+                    .expect("Invalid threashold range"),
                 private_node: args
                     .value_of("private-node")
                     .unwrap_or("false")
@@ -1053,13 +1054,14 @@ impl Environment {
                     .unwrap_or("")
                     .parse::<u16>()
                     .expect("Was expecting value of rpc-port"),
-                websocket_address:  args
+                websocket_address: args
                     .value_of("websocket-address")
-                    .unwrap_or("")
-                    .parse::<SocketAddr>()
-                    .map_or(None,|socket_addrs| {
-                        Some(socket_addrs)
-                    })
+                    .map_or(None, |address| {
+                        address.parse::<SocketAddr>()
+                        .map_or(None, |socket_addrs| {
+                            Some(socket_addrs)
+                        })
+                    }),
             },
             logging: crate::configuration::Logging {
                 log,
@@ -1339,7 +1341,7 @@ impl Environment {
 
             // fold the drains into one Duplicate struct
             let merged_drains: Box<
-                dyn SendSyncRefUnwindSafeDrain<Ok = (), Err = Never> + UnwindSafe,
+                dyn SendSyncRefUnwindSafeDrain<Ok=(), Err=Never> + UnwindSafe,
             > = leftover_drains.into_iter().fold(initial_value, |acc, new| {
                 Box::new(Duplicate::new(Arc::new(acc), new).fuse())
             });
