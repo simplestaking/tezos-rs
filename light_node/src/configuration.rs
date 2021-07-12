@@ -783,8 +783,6 @@ fn validate_required_args(args: &clap::ArgMatches) {
     validate_required_arg(args, "p2p-port", None);
     validate_required_arg(args, "protocol-runner", None);
     validate_required_arg(args, "rpc-port", None);
-    // Websocke address is not longer required
-    //validate_required_arg(args, "websocket-address", None);
     validate_required_arg(args, "peer-thresh-low", None);
     validate_required_arg(args, "peer-thresh-high", None);
     validate_required_arg(args, "tokio-threads", None);
