@@ -346,7 +346,7 @@ impl PendingPeer {
         use RequestState::*;
 
         match &self.step {
-            Initiated { .. } if !self.incoming => true,
+            Initiated { .. } if self.incoming => true,
             Connect { sent: Success { .. }, received: None, .. } => true,
             Metadata { sent: Success { .. }, received: None, .. } => true,
             Ack { sent: Success { .. }, received: false, .. } => true,
