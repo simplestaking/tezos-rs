@@ -86,7 +86,7 @@ macro_rules! create_file_logger {
 #[derive(Debug, Clone)]
 pub struct Rpc {
     pub listener_port: u16,
-    pub websocket_address: SocketAddr,
+    pub websocket_address: Option<SocketAddr>,
 }
 
 #[derive(Debug, Clone)]
@@ -1056,8 +1056,10 @@ impl Environment {
                 websocket_address: args
                     .value_of("websocket-address")
                     .unwrap_or("")
-                    .parse()
-                    .expect("Provided value cannot be converted into valid uri"),
+                    .parse::<SocketAddr>()
+                    .map_or_else(None,|socket_addrs| {
+                        Some(socket_addrs)
+                    })
             },
             logging: crate::configuration::Logging {
                 log,
