@@ -97,37 +97,6 @@ pub struct TezedgeState<E = DefaultEffects> {
 }
 
 impl<E> TezedgeState<E> {
-    pub fn new(
-        log: Logger,
-        config: TezedgeConfig,
-        identity: Identity,
-        shell_compatibility_version: ShellCompatibilityVersion,
-        effects: E,
-        initial_time: Instant,
-    ) -> Self
-    {
-        let periodic_react_interval = config.periodic_react_interval;
-        let max_connected_peers = config.max_connected_peers;
-        let max_pending_peers = config.max_pending_peers;
-
-        Self {
-            log,
-            config,
-            identity,
-            shell_compatibility_version,
-            effects,
-            listening_for_connection_requests: false,
-            potential_peers: HashSet::new(),
-            pending_peers: PendingPeers::with_capacity(max_pending_peers),
-            connected_peers: ConnectedPeers::with_capacity(max_connected_peers),
-            blacklisted_peers: BlacklistedPeers::new(),
-            p2p_state: P2pState::Pending,
-            requests: slab::Slab::new(),
-            newest_time_seen: initial_time,
-            last_periodic_react: initial_time - periodic_react_interval,
-        }
-    }
-
     pub fn config(&self) -> &TezedgeConfig {
         &self.config
     }
@@ -293,6 +262,42 @@ impl<E> TezedgeState<E> {
 }
 
 impl<E: Effects> TezedgeState<E> {
+    pub fn new(
+        log: Logger,
+        config: TezedgeConfig,
+        identity: Identity,
+        shell_compatibility_version: ShellCompatibilityVersion,
+        effects: E,
+        initial_time: Instant,
+    ) -> Self
+    {
+        let periodic_react_interval = config.periodic_react_interval;
+        let max_connected_peers = config.max_connected_peers;
+        let max_pending_peers = config.max_pending_peers;
+
+        let mut this = Self {
+            log,
+            config,
+            identity,
+            shell_compatibility_version,
+            effects,
+            listening_for_connection_requests: false,
+            potential_peers: HashSet::new(),
+            pending_peers: PendingPeers::with_capacity(max_pending_peers),
+            connected_peers: ConnectedPeers::with_capacity(max_connected_peers),
+            blacklisted_peers: BlacklistedPeers::new(),
+            p2p_state: P2pState::Pending,
+            requests: slab::Slab::new(),
+            newest_time_seen: initial_time,
+            last_periodic_react: initial_time - periodic_react_interval,
+        };
+
+        // Adjust p2p state to start listening for new connections.
+        this.adjust_p2p_state(initial_time);
+
+        this
+    }
+
     pub(crate) fn set_peer_connected(
         &mut self,
         at: Instant,
