@@ -1,3 +1,4 @@
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Instant, Duration};
 use std::io::{self, Read, Write};
@@ -131,7 +132,11 @@ impl Manager for MioManager {
 
     fn start_listening_to_server_events(&mut self) {
         if self.server.is_none() {
-            let mut server = TcpListener::bind(format!("0.0.0.0:{}", self.server_port).parse().unwrap()).unwrap();
+            let listen_addr = SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+                self.server_port,
+            );
+            let mut server = TcpListener::bind(listen_addr).unwrap();
             self.poll.registry()
                 .register(&mut server, MIO_SERVER_TOKEN, mio::Interest::READABLE)
                 .unwrap();
