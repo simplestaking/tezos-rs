@@ -1,5 +1,8 @@
 [workspace]
 members = [
+    "tla_sm",
+    "tezedge_state",
+    "simulator",
     "ipc",
     "logging",
     "crypto",
@@ -21,6 +24,7 @@ members = [
     "storage",
     "sandbox",
     "light_node",
+    "new_node",
     "monitoring",
     "protocol_runner",
     "rpc",

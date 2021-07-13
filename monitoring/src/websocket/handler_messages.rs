@@ -81,7 +81,7 @@ impl IncomingTransferMetrics {
 #[serde(rename_all = "camelCase")]
 pub struct PeerMetrics {
     #[serde(rename = "id")]
-    public_key: String,
+    public_key_hash: String,
     ip_address: String,
     transferred_bytes: usize,
     average_transfer_speed: f32,
@@ -90,14 +90,14 @@ pub struct PeerMetrics {
 
 impl PeerMetrics {
     pub fn new(
-        public_key: String,
+        public_key_hash: String,
         ip_address: String,
         transferred_bytes: usize,
         average_transfer_speed: f32,
         current_transfer_speed: f32,
     ) -> Self {
         Self {
-            public_key,
+            public_key_hash,
             ip_address,
             transferred_bytes,
             average_transfer_speed,

@@ -5,7 +5,10 @@ authors = ["Tomas Sedlak <tomas.sedlak@simplestaking.com>"]
 edition = "2018"
 
 [dependencies]
+getset = "0.1"
 bytes = "1"
+slab = "0.4.3"
+rand = "0.7.3"
 failure = "0.1"
 futures = "0.3"
 hex = "0.4"
@@ -17,6 +20,7 @@ crypto = { path = "../crypto" }
 tezos_encoding = { path = "../tezos/encoding" }
 tezos_identity = { path = "../tezos/identity" }
 tezos_messages = { path = "../tezos/messages" }
+tezedge-state = { path = "../tezedge_state" }
 
 [dev-dependencies]
 tokio-test = { version = "0.4" }
@@ -25,7 +29,6 @@ slog-term = "2.8"
 slog-async = "2.6"
 slog-envlogger = "2.2"
 criterion = { version = "0.3", features = ["html_reports"] }
-
-[[bench]]
-name = "stream_benchmark"
-harness = false
+quickcheck = "1.0.3"
+quickcheck_derive = "0.3.0"
+itertools = "0.10.0"

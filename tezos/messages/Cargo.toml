@@ -22,6 +22,9 @@ nom = "6.1"
 crypto = { path = "../../crypto" }
 tezos_encoding = { path = "../encoding" }
 tezos_encoding_derive = { path = "../encoding-derive" }
+quickcheck = "1.0.3"
+quickcheck_derive = { git = "https://github.com/tezedge/quickcheck_derive" }
+rand = "0.7.3"
 
 [[bench]]
 name = "message_benchmark"

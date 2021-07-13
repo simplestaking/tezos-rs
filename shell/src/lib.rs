@@ -32,8 +32,8 @@ pub struct InvalidRangeError(String);
 /// Simple threshold, for representing integral ranges.
 #[derive(Copy, Clone, Debug)]
 pub struct PeerConnectionThreshold {
-    low: usize,
-    high: usize,
+    pub low: usize,
+    pub high: usize,
     peers_for_bootstrap_threshold: Option<usize>,
 }
 

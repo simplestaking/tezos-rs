@@ -13,6 +13,7 @@
 //! CryptoboxPublicKeyHash - generated as a hash of [`PublicKey`], for example used as a peer_id
 
 use std::convert::TryFrom;
+use std::fmt::{self, Debug};
 
 use hex::{FromHex, FromHexError};
 use sodiumoxide::crypto::box_;
@@ -155,6 +156,10 @@ impl PrecomputedKey {
         Self(box_::precompute(pk.as_ref(), sk.as_ref()))
     }
 
+    pub fn from_bytes(bytes: [u8; box_::PRECOMPUTEDKEYBYTES]) -> Self {
+        Self(box_::PrecomputedKey(bytes))
+    }
+
     /// Encrypt binary message
     ///
     /// # Arguments
@@ -178,6 +183,12 @@ impl PrecomputedKey {
             Ok(msg) => Ok(msg),
             Err(()) => Err(CryptoError::FailedToDecrypt),
         }
+    }
+}
+
+impl Debug for PrecomputedKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "PrecomputedKey(****)")
     }
 }
 
