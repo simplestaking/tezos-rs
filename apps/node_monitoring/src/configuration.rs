@@ -44,6 +44,8 @@ pub struct DeployMonitoringEnvironment {
     pub tezedge_volume_path: String,
 
     pub nodes: Vec<Node>,
+
+    pub wait_for_nodes: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -210,6 +212,11 @@ fn deploy_monitoring_app() -> App<'static, 'static> {
                 .takes_value(true)
                 .value_name("ALERT-THRESHOLD-SYNCHRONIZATION")
                 .help("Thershold in seconds for critical alerts - synchronization"),
+        )
+        .arg(
+            Arg::with_name("wait-for-nodes")
+                .long("wait-for-nodes")
+                .help("Waits for the defined nodes to come online."),
         );
     app
 }
@@ -396,6 +403,8 @@ impl DeployMonitoringEnvironment {
             slack_configuration,
             tezedge_volume_path,
             nodes: tezedge_nodes,
+            wait_for_nodes: args
+                .is_present("wait-for-nodes")
         }
     }
 }

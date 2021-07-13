@@ -28,9 +28,8 @@ FROM ${BASE_IMAGE} as light-node
 COPY --from=build-env /home/appuser/tezedge/target/release/node-monitoring /
 
 # Copy shared libraries
-COPY --from=build-env /home/appuser/tezedge/tezos/sys/lib_tezos/artifacts/libtezos.so /usr/lib/x86_64-linux-gnu/libtezos.so
-COPY --from=build-env /usr/lib/x86_64-linux-gnu/libev.so.4 /usr/lib/x86_64-linux-gnu/libev.so.4
-COPY --from=build-env /usr/lib/x86_64-linux-gnu/libffi.so.6 /usr/lib/x86_64-linux-gnu/libffi.so.6
+COPY --from=build-env /usr/lib/x86_64-linux-gnu/libssl.so.1.1 /usr/lib/x86_64-linux-gnu/libssl.so.1.1
+COPY --from=build-env /usr/lib/x86_64-linux-gnu/libcrypto.so.1.1 /usr/lib/x86_64-linux-gnu/libcrypto.so.1.1
 
 # Default entry point runs node with default config + several default values, which can be overriden by CMD
 ENTRYPOINT [ "/node-monitoring" ]

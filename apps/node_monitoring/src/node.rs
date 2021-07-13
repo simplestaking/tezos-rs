@@ -32,7 +32,7 @@ pub struct Node {
     #[get = "pub"]
     tag: String,
 
-    #[set = "pub"]
+    #[getset(get = "pub", set = "pub")]
     pid: Option<i32>,
 
     #[get = "pub"]

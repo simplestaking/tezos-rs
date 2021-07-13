@@ -26,6 +26,8 @@ use crate::constants::MEASUREMENTS_MAX_CAPACITY;
 use crate::monitors::alerts::Alerts;
 use crate::monitors::resource::{ResourceUtilization, ResourceUtilizationStorage};
 
+const PROCESS_LOOKUP_INTERVAL: Duration = Duration::from_secs(10);
+
 #[tokio::main]
 async fn main() {
     let env = configuration::DeployMonitoringEnvironment::from_args();
@@ -54,19 +56,40 @@ async fn main() {
 
     let mut storages = Vec::new();
 
-    for mut node in env.nodes.clone() {
-        if let Some(pid) = find_node_process_id(node.port()) {
-            info!(log, "Found node with port {} -> PID: {}", node.port(), pid);
-            node.set_pid(Some(pid));
-            let resource_storage = ResourceUtilizationStorage::new(
-                node.clone(),
-                Arc::new(RwLock::new(VecDeque::<ResourceUtilization>::with_capacity(
-                    MEASUREMENTS_MAX_CAPACITY,
-                ))),
-            );
-            storages.push(resource_storage);
-        } else {
-            panic!("Cannot find defined node with port {}", node.port())
+    if env.wait_for_nodes {
+        for mut node in env.nodes.clone() {
+            while node.pid().is_none() {
+                if let Some(pid) = find_node_process_id(node.port()) {
+                    info!(log, "Found node with port {} -> PID: {}", node.port(), pid);
+                    node.set_pid(Some(pid));
+                    let resource_storage = ResourceUtilizationStorage::new(
+                        node.clone(),
+                        Arc::new(RwLock::new(VecDeque::<ResourceUtilization>::with_capacity(
+                            MEASUREMENTS_MAX_CAPACITY,
+                        ))),
+                    );
+                    storages.push(resource_storage);
+                } else {
+                    info!(log, "Waiting for node {} with port: {}", node.tag(), node.port());
+                    sleep(PROCESS_LOOKUP_INTERVAL).await;
+                }
+            }
+        }
+    } else {
+        for mut node in env.nodes.clone() {
+            if let Some(pid) = find_node_process_id(node.port()) {
+                info!(log, "Found node with port {} -> PID: {}", node.port(), pid);
+                node.set_pid(Some(pid));
+                let resource_storage = ResourceUtilizationStorage::new(
+                    node.clone(),
+                    Arc::new(RwLock::new(VecDeque::<ResourceUtilization>::with_capacity(
+                        MEASUREMENTS_MAX_CAPACITY,
+                    ))),
+                );
+                storages.push(resource_storage);
+            } else {
+                panic!("Cannot find defined node with port {}", node.port())
+            }
         }
     }
 
@@ -141,6 +164,10 @@ fn find_node_process_id(port: u16) -> Option<i32> {
         }
     }
     None
+}
+
+fn collect_nodes() {
+
 }
 
 /// Creates a slog Logger
