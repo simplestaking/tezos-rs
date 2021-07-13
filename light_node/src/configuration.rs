@@ -34,7 +34,7 @@ use tezos_wrapper::TezosApiConnectionPoolConfiguration;
 #[derive(Debug, Clone)]
 pub struct Rpc {
     pub listener_port: u16,
-    pub websocket_address: SocketAddr,
+    pub websocket_address: Option<SocketAddr>,
 }
 
 #[derive(Debug, Clone)]
@@ -682,7 +682,6 @@ fn validate_required_args(args: &clap::ArgMatches) {
     validate_required_arg(args, "p2p-port", None);
     validate_required_arg(args, "protocol-runner", None);
     validate_required_arg(args, "rpc-port", None);
-    validate_required_arg(args, "websocket-address", None);
     validate_required_arg(args, "peer-thresh-low", None);
     validate_required_arg(args, "peer-thresh-high", None);
     validate_required_arg(args, "tokio-threads", None);
@@ -983,11 +982,14 @@ impl Environment {
                     .unwrap_or("")
                     .parse::<u16>()
                     .expect("Was expecting value of rpc-port"),
-                websocket_address: args
+                websocket_address:  args
                     .value_of("websocket-address")
-                    .unwrap_or("")
-                    .parse()
-                    .expect("Provided value cannot be converted into valid uri"),
+                    .map_or(None, |address| {
+                        address.parse::<SocketAddr>()
+                        .map_or(None, |socket_addrs| {
+                            Some(socket_addrs)
+                        })
+                    }),
             },
             logging: crate::configuration::Logging {
                 slog: SlogConfig {
