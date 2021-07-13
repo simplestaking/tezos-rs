@@ -18,7 +18,7 @@ ARG RUSTFLAGS=""
 ENV OCAML_WHERE_PATH=/tmp/ocaml-includes
 RUN wget https://gitlab.com/tezedge/tezos/uploads/1bf4d1d130e75129be82a148149b04b3/libtezos-ffi-headers.tar.gz
 RUN mkdir -p $OCAML_WHERE_PATH; tar xvzf libtezos-ffi-headers.tar.gz -C $OCAML_WHERE_PATH
-RUN cd /home/appuser && git clone ${tezedge_git} --branch ${SOURCE_BRANCH} && cd tezedge && RUSTFLAGS=${RUSTFLAGS} cargo build --bin node-monitoring --release
+RUN cd /home/appuser && git clone ${tezedge_git} --branch ${SOURCE_BRANCH} && cd tezedge && RUSTFLAGS=${RUSTFLAGS} cargo build --bin node-monitoring --release #1
 
 WORKDIR /home/appuser/tezedge
 

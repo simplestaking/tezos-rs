@@ -43,6 +43,19 @@ services:
     ports:
       - "80:80"
       - "8080:80"
+    logging:
+      driver: none
+
+  monitoring:
+    privileged: true
+    pid: "host"
+    image: local/tezedge-monitoring:latest
+    command: ["--tezedge-nodes", "tezedge:18732:/tmp/tezedge", "--wait-for-nodes"]
+    volumes:
+      - "tezedge-shared-data:/tmp/tezedge"
+      - "/proc:/proc"
+    ports:
+      - "38732:38732"
 
 volumes:
   tezedge-shared-data:
