@@ -683,6 +683,16 @@ impl OneRealNodeCluster {
         self
     }
 
+    pub fn disconnect_peer(&mut self, peer_id: FakePeerId) -> &mut Self {
+        self.proposer.manager.events.push_back(Event::Network(FakeNetworkEvent {
+            time: self.time,
+            from: peer_id,
+            event_type: FakeNetworkEventType::Disconnected,
+        }));
+
+        self
+    }
+
     pub fn add_readable_event(&mut self, peer_id: FakePeerId, read_limit: Option<usize>) -> &mut Self {
         self.proposer.manager.events.push_back(Event::Network(FakeNetworkEvent {
             time: self.time,
