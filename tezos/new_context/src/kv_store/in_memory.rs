@@ -133,7 +133,7 @@ impl HashValueStore {
     pub(crate) fn get_value(&self, hash_id: HashId) -> Result<Option<&[u8]>, HashIdError> {
         match self.values.get(hash_id)? {
             Some(value) => Ok(value.as_ref().map(|v| v.as_ref())),
-            None => return Ok(None),
+            None => Ok(None),
         }
     }
 
@@ -347,9 +347,9 @@ impl InMemory {
         let hashed = hasher.finish();
 
         self.context_hashes.insert(hashed, commit_hash_id);
-        self.context_hashes_cycles
-            .back_mut()
-            .map(|v| v.push(hashed));
+        if let Some(back) = self.context_hashes_cycles.back_mut() {
+            back.push(hashed);
+        };
 
         Ok(())
     }

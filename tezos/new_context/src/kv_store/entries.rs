@@ -13,6 +13,12 @@ pub struct Entries<K, V> {
     _phantom: PhantomData<K>,
 }
 
+impl<K, V> Default for Entries<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<K, V> Entries<K, V> {
     pub fn new() -> Self {
         Self {
@@ -30,6 +36,10 @@ impl<K, V> Entries<K, V> {
 
     pub fn len(&self) -> usize {
         self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn capacity(&self) -> usize {

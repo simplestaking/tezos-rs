@@ -15,7 +15,7 @@ pub fn set_block(rt: &OCamlRuntime, block_hash: OCamlRef<Option<OCamlBlockHash>>
     let timestamp = if block_hash.is_some() {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap_or(Duration::new(0, 0));
+            .unwrap_or_else(|_| Duration::new(0, 0));
         Some(timestamp)
     } else {
         None

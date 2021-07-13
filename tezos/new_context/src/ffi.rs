@@ -1,6 +1,8 @@
 // Copyright (c) SimpleStaking, Viable Systems and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
+#![allow(clippy::type_complexity)]
+
 //! Functions exposed to be called from OCaml
 
 use core::borrow::Borrow;
@@ -298,7 +300,7 @@ ocaml_export! {
         let ocaml_index = rt.get(index);
         let index: &TezedgeIndexFFI = ocaml_index.borrow();
         let index = index.0.borrow().clone();
-        let empty_context = TezedgeContext::new(index.clone(), None, None);
+        let empty_context = TezedgeContext::new(index, None, None);
 
         OCaml::box_value(rt, empty_context.into())
     }
@@ -432,15 +434,9 @@ ocaml_export! {
         let length = length.map(|n| n as usize);
         let key = make_key(rt, key);
 
-        // TODO: don't clone the string, implement `ToOCaml` trait for `Rc<_>`
         let result = context
             .list(offset, length, &key)
-            .map_err(|err| format!("{:?}", err))
-            .map(|v| {
-                v.into_iter()
-                    .map(|(s, tree)| (s.to_string(), tree))
-                    .collect::<Vec<_>>()
-            });
+            .map_err(|err| format!("{:?}", err));
 
         result.to_ocaml(rt)
     }
@@ -490,7 +486,7 @@ ocaml_export! {
             .map(|h| {
                 ContextHash::try_from(&h[..]).map_err(|err| format!("{:?}", err))
             })
-            .unwrap_or_else(|v| Err(v));
+            .unwrap_or_else(Err);
 
         result.to_ocaml(rt)
     }
@@ -725,15 +721,9 @@ ocaml_export! {
         let length = length.map(|n| n as usize);
         let key = make_key(rt, key);
 
-        // TODO: don't clone the string, implement `ToOCaml` trait for `Rc<_>`
         let result = tree
             .list(offset, length, &key)
-            .map_err(|err| format!("{:?}", err))
-            .map(|v| {
-                v.into_iter()
-                    .map(|(s, tree)| (s.to_string(), tree))
-                    .collect::<Vec<_>>()
-            });
+            .map_err(|err| format!("{:?}", err));
 
         result.to_ocaml(rt)
     }

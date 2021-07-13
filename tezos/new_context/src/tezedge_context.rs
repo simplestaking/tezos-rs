@@ -18,7 +18,7 @@ use crate::{
     working_tree::{
         serializer::deserialize,
         storage::{BlobStorageId, NodeId, Storage, StorageMemoryUsage},
-        working_tree::MerkleError,
+        working_tree::{MerkleError, PostCommitData},
         working_tree_stats::MerkleStoragePerfReport,
         Commit, Entry, Tree,
     },
@@ -144,7 +144,7 @@ impl TezedgeIndex {
 
     pub fn contains(&self, hash: HashId) -> Result<bool, DBError> {
         let db = self.repository.read()?;
-        Ok(db.contains(hash)?)
+        db.contains(hash)
     }
 
     pub fn get_context_hash_id(
@@ -172,9 +172,8 @@ impl TezedgeIndex {
             return Ok(e);
         };
         let hash = node.get_hash_id()?;
-        std::mem::drop(node);
-
         let entry = self.get_entry(hash, storage)?;
+
         let node = storage.get_node(node_id)?;
         node.set_entry(&entry)?;
 
@@ -212,8 +211,6 @@ impl TezedgeIndex {
             let fullpath = self.key_to_string(prefix) + delimiter + key;
             let rdepth = depth.map(|d| d - 1);
             let key_str = key.to_string();
-
-            std::mem::drop(key);
 
             out.insert(
                 key_str,
@@ -254,7 +251,6 @@ impl TezedgeIndex {
                     let key = storage.get_str(*key)?;
                     let fullpath = path.to_owned() + "/" + key;
                     let key_str = key.to_string();
-                    std::mem::drop(key);
 
                     let entry = self.node_entry(*child_node, storage)?;
                     let rdepth = depth.map(|d| d - 1);
@@ -290,7 +286,7 @@ impl TezedgeIndex {
             Some(first) => *first,
             None => {
                 // terminate recursion if end of path was reached
-                return Ok(root.clone());
+                return Ok(root);
             }
         };
 
@@ -321,9 +317,8 @@ impl TezedgeIndex {
 
         // get entry by hash (from DB)
         let hash = child_node.get_hash_id()?;
-        std::mem::drop(child_node);
-
         let entry = self.get_entry(hash, storage)?;
+
         let child_node = storage.get_node(child_node_id)?;
         child_node.set_entry(&entry)?;
 
@@ -391,9 +386,7 @@ impl TezedgeIndex {
 
         let commit = self.get_commit(context_hash, &mut storage)?;
         let root_tree = self.get_tree(commit.root_hash, &mut storage)?;
-        let rv = self._get_context_key_values_by_prefix(root_tree, prefix, &mut storage);
-
-        rv
+        self._get_context_key_values_by_prefix(root_tree, prefix, &mut storage)
     }
 
     fn _get_context_key_values_by_prefix(
@@ -414,7 +407,6 @@ impl TezedgeIndex {
             let key = storage.get_str(*key)?;
             // construct full path as Tree key is only one chunk of it
             let fullpath = self.key_to_string(prefix) + delimiter + key;
-            std::mem::drop(key);
 
             self.get_key_values_from_tree_recursively(&fullpath, &entry, &mut keyvalues, storage)?;
         }
@@ -451,7 +443,6 @@ impl TezedgeIndex {
                     .map(|(key, child_node)| {
                         let key = storage.get_str(*key)?;
                         let fullpath = path.to_owned() + "/" + key;
-                        std::mem::drop(key);
 
                         match self.node_entry(*child_node, storage) {
                             Err(_) => Ok(()),
@@ -708,7 +699,11 @@ impl ShellContextApi for TezedgeContext {
         // Entries to be inserted are obtained from the commit call and written here
         let date: u64 = date.try_into()?;
         let mut repository = self.index.repository.write()?;
-        let (commit_hash_id, batch, referenced_older_entries) = self.tree.prepare_commit(
+        let PostCommitData {
+            commit_hash_id,
+            batch,
+            reused,
+        } = self.tree.prepare_commit(
             date,
             author,
             message,
@@ -719,7 +714,7 @@ impl ShellContextApi for TezedgeContext {
         // FIXME: only write entries if there are any, empty commits should not produce anything
         repository.write_batch(batch)?;
         repository.put_context_hash(commit_hash_id)?;
-        repository.block_applied(referenced_older_entries)?;
+        repository.block_applied(reused)?;
 
         let commit_hash = self.get_commit_hash(commit_hash_id, &*repository)?;
         repository.clear_entries()?;
@@ -743,7 +738,7 @@ impl ShellContextApi for TezedgeContext {
         let date: u64 = date.try_into()?;
         let mut repository = self.index.repository.write()?;
 
-        let (commit_hash_id, _, _) = self.tree.prepare_commit(
+        let PostCommitData { commit_hash_id, .. } = self.tree.prepare_commit(
             date,
             author,
             message,

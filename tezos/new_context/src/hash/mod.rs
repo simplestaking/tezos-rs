@@ -119,7 +119,7 @@ fn index(depth: u32, name: &str) -> u32 {
 // IMPORTANT: entries must be sorted in lexicographic order of the name
 // Because we use `OrdMap`, this holds true when we iterate the items, but this is
 // something to keep in mind if the representation of `Tree` changes.
-fn partition_entries<'a>(
+fn partition_entries(
     depth: u32,
     entries: &[(StringId, NodeId)],
     store: &mut ContextKeyValueStore,

@@ -84,7 +84,7 @@ pub fn serialize_entry(
 
     match entry {
         Entry::Tree(tree) => {
-            output.write(&[ID_TREE])?;
+            output.write_all(&[ID_TREE])?;
             let tree = storage.get_tree(*tree)?;
 
             nchild = tree.len();
@@ -107,8 +107,8 @@ pub fn serialize_entry(
                             .with_key_inline_length(len as u8)
                             .with_blob_inline_length(blob_inline_length as u8)
                             .into_bytes();
-                        output.write(&byte[..])?;
-                        output.write(key.as_bytes())?;
+                        output.write_all(&byte[..])?;
+                        output.write_all(key.as_bytes())?;
                         keys_len += len;
                     }
                     len => {
@@ -117,11 +117,11 @@ pub fn serialize_entry(
                             .with_key_inline_length(0)
                             .with_blob_inline_length(blob_inline_length as u8)
                             .into_bytes();
-                        output.write(&byte[..])?;
+                        output.write_all(&byte[..])?;
 
                         let key_length: u16 = len.try_into()?;
-                        output.write(&key_length.to_ne_bytes())?;
-                        output.write(key.as_bytes())?;
+                        output.write_all(&key_length.to_ne_bytes())?;
+                        output.write_all(key.as_bytes())?;
                         keys_len += 2 + key.len();
                     }
                 }
@@ -133,43 +133,43 @@ pub fn serialize_entry(
                 }
 
                 if let Some(blob_inline) = blob_inline {
-                    output.write(&blob_inline)?;
+                    output.write_all(&blob_inline)?;
                 } else if hash_id & 0x7FFFFF == hash_id {
                     // The HashId fits in 23 bits
                     let hash_id: u32 = hash_id | COMPACT_HASH_ID_BIT;
                     let hash_id: [u8; 4] = hash_id.to_be_bytes();
 
-                    output.write(&hash_id[1..])?;
+                    output.write_all(&hash_id[1..])?;
                 } else {
                     // HashId is 32 bits
-                    output.write(&hash_id.to_be_bytes())?;
+                    output.write_all(&hash_id.to_be_bytes())?;
                 }
             }
         }
         Entry::Blob(blob_id) => {
             debug_assert!(!blob_id.is_inline());
 
-            output.write(&[ID_BLOB])?;
+            output.write_all(&[ID_BLOB])?;
             let blob = storage.get_blob(*blob_id)?;
-            output.write(blob.as_ref())?;
+            output.write_all(blob.as_ref())?;
         }
         Entry::Commit(commit) => {
-            output.write(&[ID_COMMIT])?;
-            output.write(
+            output.write_all(&[ID_COMMIT])?;
+            output.write_all(
                 &commit
                     .parent_commit_hash
                     .map(|h| h.as_u32())
                     .unwrap_or(0)
                     .to_ne_bytes(),
             )?;
-            output.write(&commit.root_hash.as_u32().to_ne_bytes())?;
-            output.write(&commit.time.to_ne_bytes())?;
+            output.write_all(&commit.root_hash.as_u32().to_ne_bytes())?;
+            output.write_all(&commit.time.to_ne_bytes())?;
             let author_length: u32 = commit.author.len().try_into()?;
-            output.write(&author_length.to_ne_bytes())?;
-            output.write(commit.author.as_bytes())?;
+            output.write_all(&author_length.to_ne_bytes())?;
+            output.write_all(commit.author.as_bytes())?;
             let message_length: u32 = commit.message.len().try_into()?;
-            output.write(&message_length.to_ne_bytes())?;
-            output.write(commit.message.as_bytes())?;
+            output.write_all(&message_length.to_ne_bytes())?;
+            output.write_all(commit.message.as_bytes())?;
         }
     }
     Ok((keys_len, highest_hash_id, nchild, hash_ids_len))
@@ -357,7 +357,7 @@ pub fn deserialize(data: &[u8], storage: &mut Storage) -> Result<Entry, Deserial
 }
 
 /// Iterate HashIds in the serialized data
-pub fn iter_hash_ids<'a>(data: &'a [u8]) -> HashIdIterator<'a> {
+pub fn iter_hash_ids(data: &[u8]) -> HashIdIterator {
     HashIdIterator { data, pos: 0 }
 }
 
@@ -421,7 +421,7 @@ impl<'a> Iterator for HashIdIterator<'a> {
                 self.pos = pos + 3;
 
                 let hash_id: u32 =
-                    (hash_id[0] as u32) << 16 as u32 | (hash_id[1] as u32) << 8 | hash_id[2] as u32;
+                    (hash_id[0] as u32) << 16 | (hash_id[1] as u32) << 8 | hash_id[2] as u32;
                 hash_id & (COMPACT_HASH_ID_BIT - 1)
             } else {
                 // HashId in 4 bytes

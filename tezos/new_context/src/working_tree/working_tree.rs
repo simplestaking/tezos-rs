@@ -72,6 +72,13 @@ use super::{
     storage::{BlobStorageId, NodeId, Storage, StorageIdError},
 };
 
+pub struct PostCommitData {
+    //(HashId, Vec<(HashId, Arc<[u8]>)>, Vec<HashId>)
+    pub commit_hash_id: HashId,
+    pub batch: Vec<(HashId, Arc<[u8]>)>,
+    pub reused: Vec<HashId>,
+}
+
 // The 'working tree' can be either a Tree or a Value
 #[derive(Clone)]
 enum WorkingTreeValue {
@@ -396,8 +403,6 @@ impl<'a> SerializingData<'a> {
         entry: &Entry,
         storage: &Storage,
     ) -> Result<(), MerkleError> {
-        //println!("HASH_ID={:?} SER={:?}", entry_hash, entry);
-
         let (keys_len, highest_hash_id, _nchild, hash_ids_len) =
             serialize_entry(entry, &mut self.serialized, storage)?;
 
@@ -476,7 +481,7 @@ impl WorkingTree {
         };
 
         let entry = &self._add(key, node, &mut storage)?;
-        let tree = self.entry_tree(entry)?.clone();
+        let tree = self.entry_tree(entry)?;
 
         Ok(self.with_new_root(tree))
     }
@@ -554,11 +559,11 @@ impl WorkingTree {
         let tree = match node.node_kind() {
             NodeKind::NonLeaf => WorkingTree {
                 index: self.index.clone(),
-                value: WorkingTreeValue::Tree(self.entry_tree(&entry)?.clone()),
+                value: WorkingTreeValue::Tree(self.entry_tree(&entry)?),
             },
             NodeKind::Leaf => WorkingTree {
                 index: self.index.clone(),
-                value: WorkingTreeValue::Value(self.entry_value(&entry)?.clone()),
+                value: WorkingTreeValue::Value(self.entry_value(&entry)?),
             },
         };
         Ok(tree)
@@ -601,7 +606,7 @@ impl WorkingTree {
     /// Get value from current working tree
     pub fn find(&self, key: &ContextKey) -> Result<Option<ContextValue>, MerkleError> {
         let root = self.get_working_tree_root_ref();
-        let rv = match self.get_from_tree(root, key) {
+        match self.get_from_tree(root, key) {
             Ok(blob_id) => {
                 let storage = self.index.storage.borrow();
                 let blob = storage.get_blob(blob_id)?;
@@ -609,25 +614,19 @@ impl WorkingTree {
             }
             Err(MerkleError::ValueNotFound { .. }) => Ok(None),
             Err(err) => Err(err),
-        };
-
-        rv
+        }
     }
 
     /// Check if value exists in current working tree
     pub fn mem(&self, key: &ContextKey) -> Result<bool, MerkleError> {
         let root = self.get_working_tree_root_ref();
-        let rv = self.value_exists(root, key);
-
-        rv
+        self.value_exists(root, key)
     }
 
     /// Check if directory exists in current staged root
     pub fn mem_tree(&self, key: &ContextKey) -> bool {
         let root = self.get_working_tree_root_ref();
-        let rv = self.directory_exists(root, key);
-
-        rv
+        self.directory_exists(root, key)
     }
 
     fn value_exists(&self, tree: Tree, key: &ContextKey) -> Result<bool, MerkleError> {
@@ -696,10 +695,7 @@ impl WorkingTree {
                 tree.iter()
                     .map(|(key, child_node)| {
                         let key = storage.get_str(*key)?;
-
                         let fullpath = path.to_owned() + "/" + key;
-
-                        std::mem::drop(key);
 
                         match self.node_entry(*child_node, storage) {
                             Err(_) => Ok(()),
@@ -735,9 +731,7 @@ impl WorkingTree {
         let commit = self.get_commit(context_hash_id, &mut storage)?;
         let entry = self.get_entry_from_hash_id(commit.root_hash, store)?;
         let root_tree = self.entry_tree(&entry)?;
-        let rv = self._get_key_values_by_prefix(root_tree, prefix, store, &mut storage);
-
-        rv
+        self._get_key_values_by_prefix(root_tree, prefix, store, &mut storage)
     }
 
     fn _get_key_values_by_prefix(
@@ -759,7 +753,6 @@ impl WorkingTree {
             let key = storage.get_str(*key)?;
             // construct full path as Tree key is only one chunk of it
             let fullpath = self.key_to_string(prefix) + delimiter + key;
-            std::mem::drop(key);
 
             self.get_key_values_from_tree_recursively(
                 &fullpath,
@@ -789,13 +782,13 @@ impl WorkingTree {
         parent_commit_hash: Option<HashId>,
         store: &mut ContextKeyValueStore,
         commit_to_storage: bool,
-    ) -> Result<(HashId, Vec<(HashId, Arc<[u8]>)>, Vec<HashId>), MerkleError> {
+    ) -> Result<PostCommitData, MerkleError> {
         let root_hash = self.get_working_tree_root_hash(store)?;
         let root = self.get_working_tree_root_ref();
 
         let new_commit = Commit {
-            root_hash,
             parent_commit_hash,
+            root_hash,
             time,
             author,
             message,
@@ -821,7 +814,13 @@ impl WorkingTree {
             data.nbytes, data.nbytes_keys, data.hash_ids_len, data.highest_hash_id
         );
 
-        Ok((commit_hash, data.batch, data.referenced_older_entries))
+        Ok(PostCommitData {
+            commit_hash_id: commit_hash,
+            batch: data.batch,
+            reused: data.referenced_older_entries,
+        })
+
+        // Ok((commit_hash, data.batch, data.referenced_older_entries))
     }
 
     /// Returns a new version of the WorkingTree with the tree replaced
@@ -840,7 +839,7 @@ impl WorkingTree {
 
         let node = Self::get_leaf(Entry::Blob(blob_id));
         let entry = &self._add(key, node, &mut storage)?;
-        let tree = self.entry_tree(entry)?.clone();
+        let tree = self.entry_tree(entry)?;
 
         Ok(self.with_new_root(tree))
     }
@@ -857,7 +856,7 @@ impl WorkingTree {
     /// Delete an item from the staging area.
     pub fn delete(&self, key: &ContextKey) -> Result<Self, MerkleError> {
         let new_root_entry = &self._delete(key)?;
-        let tree = self.entry_tree(new_root_entry)?.clone();
+        let tree = self.entry_tree(new_root_entry)?;
         Ok(self.with_new_root(tree))
     }
 
@@ -880,7 +879,7 @@ impl WorkingTree {
         to_key: &ContextKey,
     ) -> Result<Option<Self>, MerkleError> {
         if let Some(new_root_entry) = &self._copy(from_key, to_key)? {
-            let tree = self.entry_tree(new_root_entry)?.clone();
+            let tree = self.entry_tree(new_root_entry)?;
             Ok(Some(self.with_new_root(tree)))
         } else {
             Ok(None)
@@ -978,8 +977,8 @@ impl WorkingTree {
     ) -> Result<HashId, MerkleError> {
         // TOOD: unnecessery recalculation, should be one when set_staged_root
         let root = self.get_working_tree_root_ref();
-        let mut storage = self.index.storage.borrow_mut();
-        hash_tree(root, store, &mut storage).map_err(MerkleError::from)
+        let storage = self.index.storage.borrow();
+        hash_tree(root, store, &storage).map_err(MerkleError::from)
     }
 
     /// Builds vector of entries to be persisted to DB, recursively
@@ -1034,7 +1033,7 @@ impl WorkingTree {
             }
             Entry::Commit(commit) => {
                 let entry = match root {
-                    Some(root) => Entry::Tree(root.clone()),
+                    Some(root) => Entry::Tree(root),
                     None => self.get_entry_from_hash_id(commit.root_hash, data.store)?,
                 };
                 self.get_entries_recursively(&entry, Some(commit.root_hash), None, data, storage)
@@ -1056,7 +1055,7 @@ impl WorkingTree {
         }
     }
 
-    fn entry_tree<'e>(&self, entry: &'e Entry) -> Result<Tree, MerkleError> {
+    fn entry_tree(&self, entry: &Entry) -> Result<Tree, MerkleError> {
         match entry {
             Entry::Tree(tree) => Ok(*tree),
             Entry::Blob(_) => Err(MerkleError::FoundUnexpectedStructure {
@@ -1070,7 +1069,7 @@ impl WorkingTree {
         }
     }
 
-    fn entry_value<'e>(&self, entry: &'e Entry) -> Result<BlobStorageId, MerkleError> {
+    fn entry_value(&self, entry: &Entry) -> Result<BlobStorageId, MerkleError> {
         match entry {
             Entry::Blob(blob) => Ok(*blob),
             Entry::Tree(_) => Err(MerkleError::FoundUnexpectedStructure {

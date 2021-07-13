@@ -105,7 +105,7 @@ macro_rules! num_codec {
             fn decode(bytes: &[u8]) -> Result<Self, SchemaError> {
                 if bytes.len() == std::mem::size_of::<$num>() {
                     let mut num_bytes: [u8; std::mem::size_of::<$num>()] = Default::default();
-                    num_bytes.copy_from_slice(&bytes[..]);
+                    num_bytes.copy_from_slice(bytes);
                     Ok($num::from_be_bytes(num_bytes))
                 } else {
                     Err(SchemaError::DecodeError)

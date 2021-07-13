@@ -70,9 +70,9 @@ impl TreeStorageId {
     }
 }
 
-impl Into<u64> for TreeStorageId {
-    fn into(self) -> u64 {
-        let bytes = self.into_bytes();
+impl From<TreeStorageId> for u64 {
+    fn from(tree_id: TreeStorageId) -> Self {
+        let bytes = tree_id.into_bytes();
         u64::from_ne_bytes(bytes)
     }
 }
@@ -119,9 +119,9 @@ pub struct BlobStorageId {
     bits: u64,
 }
 
-impl Into<u64> for BlobStorageId {
-    fn into(self) -> u64 {
-        self.bits
+impl From<BlobStorageId> for u64 {
+    fn from(blob_id: BlobStorageId) -> Self {
+        blob_id.bits
     }
 }
 
@@ -348,8 +348,8 @@ impl Storage {
         self.nodes.push(node).map_err(|_| NodeIdError)
     }
 
-    pub fn get_tree<'a>(
-        &'a self,
+    pub fn get_tree(
+        &self,
         tree_id: TreeStorageId,
     ) -> Result<&[(StringId, NodeId)], StorageIdError> {
         let (start, end) = tree_id.get();
@@ -386,7 +386,7 @@ impl Storage {
             Err(e) => {
                 // Take the error and stop the search
                 error = Some(e);
-                return Ordering::Equal;
+                Ordering::Equal
             }
         });
 
@@ -394,10 +394,10 @@ impl Storage {
             return Err(e);
         };
 
-        return Ok(result);
+        Ok(result)
     }
 
-    pub fn get_tree_node_id<'a>(&'a self, tree_id: TreeStorageId, key: &str) -> Option<NodeId> {
+    pub fn get_tree_node_id(&self, tree_id: TreeStorageId, key: &str) -> Option<NodeId> {
         let tree = self.get_tree(tree_id).ok()?;
         let index = self.find_in_tree(tree, key).ok()?.ok()?;
 

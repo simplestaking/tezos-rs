@@ -14,6 +14,7 @@ use self::{
 pub mod serializer;
 pub mod storage;
 pub mod string_interner;
+#[allow(clippy::module_inception)]
 pub mod working_tree;
 pub mod working_tree_stats; // TODO - TE-261 remove or reimplement
 
@@ -106,9 +107,9 @@ impl Node {
         let hash_id = self
             .entry_hash_id(store, tree_storage)?
             .ok_or(HashingError::HashIdEmpty)?;
-        Ok(store
+        store
             .get_hash(hash_id)?
-            .ok_or_else(|| HashingError::HashIdNotFound { hash_id })?)
+            .ok_or(HashingError::HashIdNotFound { hash_id })
     }
 
     pub fn entry_hash_id(
