@@ -15,6 +15,7 @@ impl<E, P> Acceptor<ExtendPotentialPeersProposal<P>> for TezedgeState<E>
             return;
         }
         self.extend_potential_peers(proposal.peers.into_iter().map(|x| x.into()));
+        self.initiate_handshakes(proposal.at);
         self.periodic_react(proposal.at);
     }
 }
