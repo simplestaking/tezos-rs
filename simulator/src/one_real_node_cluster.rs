@@ -185,6 +185,12 @@ impl From<FakePeerId> for PeerAddress {
     }
 }
 
+impl From<FakePeerId> for SocketAddr {
+    fn from(id: FakePeerId) -> Self {
+        PeerAddress::from(id).into()
+    }
+}
+
 impl From<PeerAddress> for FakePeerId {
     fn from(addr: PeerAddress) -> Self {
         Self {
@@ -230,9 +236,7 @@ impl ConnectedState {
         match self {
             Self::Incoming(_) => {}
             Self::Disconnected => *self = Self::Incoming(false),
-            Self::Outgoing(_) => {
-                panic!("tried to go from Outgoing to Incoming connection!");
-            }
+            Self::Outgoing(_) => {}
         }
     }
 
@@ -240,9 +244,7 @@ impl ConnectedState {
         match self {
             Self::Outgoing(_) => {}
             Self::Disconnected => *self = Self::Outgoing(false),
-            Self::Incoming(_) => {
-                panic!("tried to go from Incoming to Outgoing connection!");
-            }
+            Self::Incoming(_) => {}
         }
     }
 }
@@ -500,8 +502,7 @@ impl Manager for OneRealNodeManager {
                 *conn_state = ConnectedState::Outgoing(true);
                 Some(peer)
             }
-            ConnectedState::Outgoing(true) => None,
-            conn_state => unreachable!("Tried to accept connection from not incoming peer. Fake peer's conn_state: {:?}", conn_state),
+            _ => None,
         }
     }
 
@@ -553,9 +554,16 @@ impl Manager for OneRealNodeManager {
 
     fn get_peer_or_connect_mut(&mut self, address: &PeerAddress) -> io::Result<&mut Peer<Self::Stream>> {
         let peer = self.get_mut(address.into());
-        peer.stream.conn_state.to_incoming();
-
-        Ok(peer)
+        match &mut peer.stream.conn_state {
+            conn_state @ ConnectedState::Disconnected
+            | conn_state @ ConnectedState::Incoming(false)
+            => {
+                *conn_state = ConnectedState::Incoming(true);
+                Ok(peer)
+            }
+            ConnectedState::Outgoing(true) => Err(io::Error::new(io::ErrorKind::Other, "unexpected fake peer conn_state: ConnectedState::Outgoing!")),
+            conn_state => Err(io::Error::new(io::ErrorKind::Other, format!("unexpected fake peer conn_state: {:?}!", conn_state))),
+        }
     }
 
     fn get_peer_for_event_mut(&mut self, event: &Self::NetworkEvent) -> Option<&mut Peer<Self::Stream>> {
@@ -623,12 +631,19 @@ impl OneRealNodeCluster {
         self
     }
 
-    pub fn extend_node_potential_peers<I>(&mut self, peers: I)
+    fn _extend_node_potential_peers<I>(&mut self, peers: I)
         where I: Debug + IntoIterator<Item = SocketAddr>,
     {
         self.proposer.state.accept(
             ExtendPotentialPeersProposal { at: self.time, peers }
         )
+    }
+
+    fn extend_node_potential_peers<I>(&mut self, peers: I)
+        where I: IntoIterator<Item = FakePeerId>,
+              I::IntoIter: Debug,
+    {
+        self._extend_node_potential_peers(peers.into_iter().map(|x| x.into()))
     }
 
     pub fn init_new_fake_peer(&mut self) -> FakePeerId {
@@ -644,20 +659,28 @@ impl OneRealNodeCluster {
     }
 
     /// Connect to node if not already connected.
-    pub fn connect_to_node(&mut self, peer_id: FakePeerId) -> Result<&mut Self, ConnectToNodeError> {
-        let peer = &mut self.proposer.manager.get_mut(peer_id).stream;
+    pub fn connect_to_node(&mut self, from: FakePeerId) -> Result<&mut Self, ConnectToNodeError> {
         if self.proposer.manager.listening == false {
             return Err(ConnectToNodeError::NodeNotListening);
         }
 
-        self.proposer.manager.get_mut(peer_id).stream.conn_state.to_outgoing();
+        self.proposer.manager.get_mut(from).stream.conn_state.to_outgoing();
         self.proposer.manager.push_event(FakeNetworkEvent {
             time: self.time,
-            from: peer_id,
+            from,
             event_type: FakeNetworkEventType::IncomingConnection,
         }.into());
 
         Ok(self)
+    }
+
+    /// Connect to fake peer from node if maximum number of outgoing
+    /// connections isn't reached for node.
+    pub fn connect_from_node(&mut self, to: FakePeerId) -> &mut Self {
+        self.extend_node_potential_peers(std::iter::once(to));
+        self.proposer.manager.get_mut(to).stream.conn_state.to_incoming();
+
+        self
     }
 
     pub fn add_readable_event(&mut self, peer_id: FakePeerId, read_limit: Option<usize>) -> &mut Self {
@@ -769,7 +792,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_can_handshake() {
+    fn test_can_handshake_incoming() {
         let initial_time = Instant::now();
         let mut cluster = OneRealNodeCluster::new(
             initial_time,
@@ -797,6 +820,40 @@ mod tests {
 
         cluster
             .connect_to_node(peer_id).unwrap()
+            .make_progress()
+            .do_handshake(peer_id).unwrap()
+            .make_progress();
+    }
+
+    #[test]
+    fn test_can_handshake_outgoing() {
+        let initial_time = Instant::now();
+        let mut cluster = OneRealNodeCluster::new(
+            initial_time,
+            TezedgeProposerConfig {
+                wait_for_events_timeout: Some(Duration::from_millis(250)),
+                events_limit: 1024,
+            },
+            sample_tezedge_state::build(initial_time, TezedgeConfig {
+                port: 9732,
+                disable_mempool: true,
+                private_node: true,
+                min_connected_peers: 1,
+                max_connected_peers: 100,
+                max_pending_peers: 100,
+                max_potential_peers: 1000,
+                periodic_react_interval: Duration::from_millis(250),
+                peer_blacklist_duration: Duration::from_secs(15 * 60),
+                peer_timeout: Duration::from_secs(8),
+                // use high number to speed up identity generation.
+                pow_target: 1.0,
+            }),
+        );
+
+        let peer_id = cluster.init_new_fake_peer();
+
+        cluster
+            .connect_from_node(peer_id)
             .make_progress()
             .do_handshake(peer_id).unwrap()
             .make_progress();
