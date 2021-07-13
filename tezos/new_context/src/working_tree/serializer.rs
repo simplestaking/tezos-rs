@@ -53,7 +53,7 @@ impl From<StorageIdError> for SerializationError {
 fn get_inline_blob<'a>(storage: &'a Storage, node: &Node) -> Option<Blob<'a>> {
     if let Some(Entry::Blob(blob_id)) = node.get_entry() {
         if blob_id.is_inline() {
-            return storage.get_blob(blob_id);
+            return storage.get_blob(blob_id).ok();
         }
     }
     None
@@ -75,8 +75,6 @@ pub fn serialize_entry(
     output: &mut Vec<u8>,
     storage: &Storage,
 ) -> Result<(usize, u32, usize, usize), SerializationError> {
-    use SerializationError::*;
-
     output.clear();
 
     let mut hash_ids_len = 0;
@@ -87,14 +85,14 @@ pub fn serialize_entry(
     match entry {
         Entry::Tree(tree) => {
             output.write(&[ID_TREE])?;
-            let tree = storage.get_tree(*tree).ok_or(TreeNotFound)?;
+            let tree = storage.get_tree(*tree)?;
 
             nchild = tree.len();
 
             for (key_id, node_id) in tree {
                 let key = storage.get_str(*key_id)?;
 
-                let node = storage.get_node(*node_id).ok_or(NodeNotFound)?;
+                let node = storage.get_node(*node_id)?;
 
                 let hash_id: u32 = node.hash_id().map(|h| h.as_u32()).unwrap_or(0);
                 let kind = node.node_kind();
@@ -152,7 +150,7 @@ pub fn serialize_entry(
             debug_assert!(!blob_id.is_inline());
 
             output.write(&[ID_BLOB])?;
-            let blob = storage.get_blob(*blob_id).ok_or(BlobNotFound)?;
+            let blob = storage.get_blob(*blob_id)?;
             output.write(blob.as_ref())?;
         }
         Entry::Commit(commit) => {

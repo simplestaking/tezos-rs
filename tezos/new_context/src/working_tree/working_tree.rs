@@ -143,8 +143,8 @@ impl TreeWalkerLevel {
 
                 let storage = root.index.storage.borrow();
                 let tree = match storage.get_tree(*tree) {
-                    Some(tree) => tree,
-                    None => {
+                    Ok(tree) => tree,
+                    _ => {
                         // TODO: Handle this error in a better way
                         eprintln!("TreeWalkerLevel Error: TreeNotFound");
                         &[]
@@ -292,12 +292,6 @@ pub enum MerkleError {
     DeserializationError { error: DeserializationError },
     #[fail(display = "Storage ID error, {:?}", error)]
     StorageIdError { error: StorageIdError },
-    #[fail(display = "Tree not found.")]
-    TreeNotFound,
-    #[fail(display = "Node not found.")]
-    NodeNotFound,
-    #[fail(display = "Blob not found.")]
-    BlobNotFound,
 }
 
 impl From<persistent::database::DBError> for MerkleError {
@@ -455,7 +449,7 @@ impl WorkingTree {
             WorkingTreeValue::Tree(_) => None,
             WorkingTreeValue::Value(value_id) => {
                 let storage = self.index.storage.borrow();
-                storage.get_blob(value_id).map(|v| v.to_vec())
+                storage.get_blob(value_id).map(|v| v.to_vec()).ok()
             }
         }
     }
@@ -530,10 +524,7 @@ impl WorkingTree {
         let mut storage = self.index.storage.borrow_mut();
 
         let node = self.find_raw_tree(root, key, &mut storage)?;
-        let node = storage
-            .get_tree(node)
-            .ok_or(MerkleError::TreeNotFound)?
-            .to_vec();
+        let node = storage.get_tree(node)?.to_vec();
         let node_length = node.len();
 
         let length = length.unwrap_or(node_length).min(node_length);
@@ -559,7 +550,7 @@ impl WorkingTree {
         let mut storage = self.index.storage.borrow_mut();
 
         let entry = self.index.node_entry(node, &mut storage)?;
-        let node = storage.get_node(node).ok_or(MerkleError::NodeNotFound)?;
+        let node = storage.get_node(node)?;
         let tree = match node.node_kind() {
             NodeKind::NonLeaf => WorkingTree {
                 index: self.index.clone(),
@@ -613,7 +604,7 @@ impl WorkingTree {
         let rv = match self.get_from_tree(root, key) {
             Ok(blob_id) => {
                 let storage = self.index.storage.borrow();
-                let blob = storage.get_blob(blob_id).ok_or(MerkleError::BlobNotFound)?;
+                let blob = storage.get_blob(blob_id)?;
                 Ok(Some(blob.to_vec()))
             }
             Err(MerkleError::ValueNotFound { .. }) => Ok(None),
@@ -692,9 +683,7 @@ impl WorkingTree {
         match entry {
             Entry::Blob(blob_id) => {
                 // push key-value pair
-                let blob = storage
-                    .get_blob(*blob_id)
-                    .ok_or(MerkleError::BlobNotFound)?;
+                let blob = storage.get_blob(*blob_id)?;
                 entries.push((self.string_to_key(path), blob.to_vec()));
                 Ok(())
             }
@@ -702,10 +691,7 @@ impl WorkingTree {
                 // Go through all descendants and gather errors. Remap error if there is a failure
                 // anywhere in the recursion paths. TODO: is revert possible?
 
-                let tree = storage
-                    .get_tree(*tree)
-                    .ok_or(MerkleError::TreeNotFound)?
-                    .to_vec();
+                let tree = storage.get_tree(*tree)?.to_vec();
 
                 tree.iter()
                     .map(|(key, child_node)| {
@@ -765,10 +751,7 @@ impl WorkingTree {
         let mut keyvalues: Vec<(ContextKeyOwned, ContextValue)> = Vec::new();
         let delimiter = if prefix.is_empty() { "" } else { "/" };
 
-        let prefixed_tree = storage
-            .get_tree(prefixed_tree)
-            .ok_or(MerkleError::TreeNotFound)?
-            .to_vec();
+        let prefixed_tree = storage.get_tree(prefixed_tree)?.to_vec();
 
         for (key, child_node) in prefixed_tree.iter() {
             let entry = self.node_entry(*child_node, storage)?;
@@ -1020,13 +1003,11 @@ impl WorkingTree {
                 // Go through all descendants and gather errors. Remap error if there is a failure
                 // anywhere in the recursion paths. TODO: is revert possible?
                 // let storage = self.index.trees.borrow();
-                let tree = storage.get_tree(*tree).ok_or(MerkleError::TreeNotFound)?;
+                let tree = storage.get_tree(*tree)?;
 
                 tree.iter()
                     .map(|(_, child_node)| {
-                        let child_node = storage
-                            .get_node(*child_node)
-                            .ok_or(MerkleError::NodeNotFound)?;
+                        let child_node = storage.get_node(*child_node)?;
 
                         if child_node.is_commited() {
                             data.add_older_entry(child_node, storage)?;

@@ -93,6 +93,9 @@ pub enum StorageIdError {
     TreeLengthTooBig,
     NodeIdError,
     StringNotFound,
+    TreeNotFound,
+    BlobNotFound,
+    NodeNotFound,
 }
 
 impl From<NodeIdError> for StorageIdError {
@@ -324,27 +327,35 @@ impl Storage {
         }
     }
 
-    pub fn get_blob(&self, blob_id: BlobStorageId) -> Option<Blob> {
+    pub fn get_blob(&self, blob_id: BlobStorageId) -> Result<Blob, StorageIdError> {
         match blob_id.get() {
-            BlobRef::Inline { length, value } => Some(Blob::Inline { length, value }),
+            BlobRef::Inline { length, value } => Ok(Blob::Inline { length, value }),
             BlobRef::Ref { start, end } => {
-                let blob = self.blobs.get(start..end)?;
-                Some(Blob::Ref { blob })
+                let blob = match self.blobs.get(start..end) {
+                    Some(blob) => blob,
+                    None => return Err(StorageIdError::BlobNotFound),
+                };
+                Ok(Blob::Ref { blob })
             }
         }
     }
 
-    pub fn get_node(&self, node_id: NodeId) -> Option<&Node> {
-        self.nodes.get(node_id).ok()?
+    pub fn get_node(&self, node_id: NodeId) -> Result<&Node, StorageIdError> {
+        self.nodes.get(node_id)?.ok_or(StorageIdError::NodeNotFound)
     }
 
     pub fn add_node(&mut self, node: Node) -> Result<NodeId, NodeIdError> {
         self.nodes.push(node).map_err(|_| NodeIdError)
     }
 
-    pub fn get_tree<'a>(&'a self, tree_id: TreeStorageId) -> Option<&[(StringId, NodeId)]> {
+    pub fn get_tree<'a>(
+        &'a self,
+        tree_id: TreeStorageId,
+    ) -> Result<&[(StringId, NodeId)], StorageIdError> {
         let (start, end) = tree_id.get();
-        self.trees.get(start..end)
+        self.trees
+            .get(start..end)
+            .ok_or(StorageIdError::TreeNotFound)
     }
 
     #[cfg(test)]
@@ -387,16 +398,8 @@ impl Storage {
     }
 
     pub fn get_tree_node_id<'a>(&'a self, tree_id: TreeStorageId, key: &str) -> Option<NodeId> {
-        let tree = self.get_tree(tree_id)?;
-
+        let tree = self.get_tree(tree_id).ok()?;
         let index = self.find_in_tree(tree, key).ok()?.ok()?;
-
-        // let index = tree
-        //     .binary_search_by(|value| {
-        //         let value = self.get_str(value.0);
-        //         value.cmp(key)
-        //     })
-        //     .ok()?;
 
         Some(tree[index].1)
     }
@@ -437,7 +440,7 @@ impl Storage {
 
         self.with_new_tree(|this, new_tree| {
             let tree = match this.get_tree(tree_id) {
-                Some(tree) if !tree.is_empty() => tree,
+                Ok(tree) if !tree.is_empty() => tree,
                 _ => {
                     new_tree.push((key_id, node_id));
                     return this.add_tree(new_tree);
@@ -469,7 +472,7 @@ impl Storage {
     ) -> Result<TreeStorageId, StorageIdError> {
         self.with_new_tree(|this, new_tree| {
             let tree = match this.get_tree(tree_id) {
-                Some(tree) if !tree.is_empty() => tree,
+                Ok(tree) if !tree.is_empty() => tree,
                 _ => return Ok(tree_id),
             };
 

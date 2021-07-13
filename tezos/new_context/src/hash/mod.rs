@@ -196,9 +196,7 @@ fn hash_long_inode(
                 hasher.update(name.as_bytes());
 
                 // \000 for nodes, and \001 for contents.
-                let node = storage
-                    .get_node(*node_id)
-                    .ok_or(HashingError::NodeNotFound)?;
+                let node = storage.get_node(*node_id)?;
                 match node.node_kind() {
                     NodeKind::Leaf => hasher.update(&[1u8]),
                     NodeKind::NonLeaf => hasher.update(&[0u8]),
@@ -263,7 +261,7 @@ fn hash_short_inode(
     // +--------+--------------+-----+--------------+
     // |   \k   | prehash(e_1) | ... | prehash(e_k) |
 
-    let tree = storage.get_tree(tree).ok_or(HashingError::TreeNotFound)?;
+    let tree = storage.get_tree(tree)?;
     hasher.update(&(tree.len() as u64).to_be_bytes());
 
     // Node entry:
@@ -273,7 +271,7 @@ fn hash_short_inode(
     // | kind  |  \len(name)  |    name     |  \32  |  hash  |
 
     for (k, v) in tree {
-        let v = storage.get_node(*v).ok_or(HashingError::NodeNotFound)?;
+        let v = storage.get_node(*v)?;
         hasher.update(encode_irmin_node_kind(&v.node_kind()));
         // Key length is written in LEB128 encoding
 
@@ -283,7 +281,7 @@ fn hash_short_inode(
         hasher.update(&(ENTRY_HASH_LEN as u64).to_be_bytes());
 
         let blob_inlined = v.get_entry().and_then(|entry| match entry {
-            Entry::Blob(blob_id) if blob_id.is_inline() => storage.get_blob(blob_id),
+            Entry::Blob(blob_id) if blob_id.is_inline() => storage.get_blob(blob_id).ok(),
             _ => None,
         });
 
@@ -309,9 +307,7 @@ pub(crate) fn hash_tree(
     storage: &Storage,
 ) -> Result<HashId, HashingError> {
     // If there are >256 entries, we need to partition the tree and hash the resulting inode
-    let tree = storage
-        .get_tree(tree_id)
-        .ok_or(HashingError::TreeNotFound)?;
+    let tree = storage.get_tree(tree_id)?;
 
     if tree.len() > 256 {
         let inode = partition_entries(0, &tree, store, storage)?;
@@ -335,9 +331,7 @@ pub(crate) fn hash_blob(
 
     let mut hasher = VarBlake2b::new(ENTRY_HASH_LEN)?;
 
-    let blob = storage
-        .get_blob(blob_id)
-        .ok_or(HashingError::BlobNotFound)?;
+    let blob = storage.get_blob(blob_id)?;
     hasher.update(&(blob.len() as u64).to_be_bytes());
     hasher.update(blob);
 

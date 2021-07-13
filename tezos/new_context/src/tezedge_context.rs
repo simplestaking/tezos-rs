@@ -166,7 +166,7 @@ impl TezedgeIndex {
     }
 
     pub fn node_entry(&self, node_id: NodeId, storage: &mut Storage) -> Result<Entry, MerkleError> {
-        let node = storage.get_node(node_id).ok_or(MerkleError::NodeNotFound)?;
+        let node = storage.get_node(node_id)?;
 
         if let Some(e) = node.get_entry() {
             return Ok(e);
@@ -175,7 +175,7 @@ impl TezedgeIndex {
         std::mem::drop(node);
 
         let entry = self.get_entry(hash, storage)?;
-        let node = storage.get_node(node_id).ok_or(MerkleError::NodeNotFound)?;
+        let node = storage.get_node(node_id)?;
         node.set_entry(&entry)?;
 
         Ok(entry)
@@ -201,10 +201,7 @@ impl TezedgeIndex {
         let prefixed_tree = self.find_raw_tree(root_tree, prefix, storage)?;
         let delimiter = if prefix.is_empty() { "" } else { "/" };
 
-        let prefixed_tree = storage
-            .get_tree(prefixed_tree)
-            .ok_or(MerkleError::TreeNotFound)?
-            .to_vec();
+        let prefixed_tree = storage.get_tree(prefixed_tree)?.to_vec();
 
         for (key, child_node) in prefixed_tree.iter() {
             let entry = self.node_entry(*child_node, storage)?;
@@ -243,9 +240,7 @@ impl TezedgeIndex {
 
         match entry {
             Entry::Blob(blob_id) => {
-                let blob = storage
-                    .get_blob(*blob_id)
-                    .ok_or(MerkleError::BlobNotFound)?;
+                let blob = storage.get_blob(*blob_id)?;
                 Ok(StringTreeEntry::Blob(hex::encode(blob)))
             }
             Entry::Tree(tree) => {
@@ -253,10 +248,7 @@ impl TezedgeIndex {
                 // anywhere in the recursion paths. TODO: is revert possible?
                 let mut new_tree = StringTreeMap::new();
 
-                let tree = storage
-                    .get_tree(*tree)
-                    .ok_or(MerkleError::TreeNotFound)?
-                    .to_vec();
+                let tree = storage.get_tree(*tree)?.to_vec();
 
                 for (key, child_node) in tree.iter() {
                     let key = storage.get_str(*key)?;
@@ -311,9 +303,7 @@ impl TezedgeIndex {
         };
 
         // get entry (from working tree)
-        let child_node = storage
-            .get_node(child_node_id)
-            .ok_or(MerkleError::NodeNotFound)?;
+        let child_node = storage.get_node(child_node_id)?;
         if let Some(entry) = child_node.get_entry() {
             match entry {
                 Entry::Tree(tree) => {
@@ -334,9 +324,7 @@ impl TezedgeIndex {
         std::mem::drop(child_node);
 
         let entry = self.get_entry(hash, storage)?;
-        let child_node = storage
-            .get_node(child_node_id)
-            .ok_or(MerkleError::NodeNotFound)?;
+        let child_node = storage.get_node(child_node_id)?;
         child_node.set_entry(&entry)?;
 
         match entry {
@@ -361,7 +349,7 @@ impl TezedgeIndex {
         let tree = self.get_tree(commit.root_hash, &mut storage)?;
 
         let blob_id = self.get_from_tree(tree, key, &mut storage)?;
-        let blob = storage.get_blob(blob_id).ok_or(MerkleError::BlobNotFound)?;
+        let blob = storage.get_blob(blob_id)?;
 
         Ok(blob.to_vec())
     }
@@ -418,10 +406,7 @@ impl TezedgeIndex {
         let mut keyvalues: Vec<(ContextKeyOwned, ContextValue)> = Vec::new();
         let delimiter = if prefix.is_empty() { "" } else { "/" };
 
-        let prefixed_tree = storage
-            .get_tree(prefixed_tree)
-            .ok_or(MerkleError::TreeNotFound)?
-            .to_vec();
+        let prefixed_tree = storage.get_tree(prefixed_tree)?.to_vec();
 
         for (key, child_node) in prefixed_tree.iter() {
             let entry = self.node_entry(*child_node, storage)?;
@@ -452,9 +437,7 @@ impl TezedgeIndex {
         match entry {
             Entry::Blob(blob_id) => {
                 // push key-value pair
-                let blob = storage
-                    .get_blob(*blob_id)
-                    .ok_or(MerkleError::BlobNotFound)?;
+                let blob = storage.get_blob(*blob_id)?;
                 entries.push((self.string_to_key(path), blob.to_vec()));
                 Ok(())
             }
@@ -462,10 +445,7 @@ impl TezedgeIndex {
                 // Go through all descendants and gather errors. Remap error if there is a failure
                 // anywhere in the recursion paths. TODO: is revert possible?
                 // let storage = (&*self.trees).borrow();
-                let tree = storage
-                    .get_tree(*tree)
-                    .ok_or(MerkleError::TreeNotFound)?
-                    .to_vec();
+                let tree = storage.get_tree(*tree)?.to_vec();
 
                 tree.iter()
                     .map(|(key, child_node)| {
