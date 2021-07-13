@@ -659,7 +659,7 @@ impl PendingPeer {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PendingPeers {
     peers: slab::Slab<PendingPeer>,
 }
@@ -744,5 +744,13 @@ impl IntoIterator for PendingPeers {
 
     fn into_iter(self) -> Self::IntoIter {
         self.peers.into_iter()
+    }
+}
+
+impl Debug for PendingPeers {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list()
+            .entries(self.peers.iter().map(|x| x.1))
+            .finish()
     }
 }

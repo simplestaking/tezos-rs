@@ -20,10 +20,17 @@ impl<E> TezedgeStateWrapper<E> {
         self.0.is_peer_connected(peer)
     }
 
+    #[inline]
+    pub fn assert_state(&self) {
+        self.0.assert_state()
+    }
+
+    #[inline]
     pub fn config(&self) -> &TezedgeConfig {
         &self.0.config
     }
 
+    #[inline]
     pub fn stats(&self) -> TezedgeStats {
         self.0.stats()
     }

@@ -2,6 +2,7 @@
 members = [
     "tla_sm",
     "tezedge_state",
+    "simulator",
     "ipc",
     "logging",
     "crypto",

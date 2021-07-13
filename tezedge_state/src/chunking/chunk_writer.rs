@@ -2,6 +2,8 @@ use std::io::{self, Write};
 
 use tezos_messages::p2p::binary_message::BinaryChunk;
 
+use super::extendable_as_writable::ExtendableAsWritable;
+
 #[derive(Debug, Clone)]
 pub struct ChunkWriter {
     bytes: BinaryChunk,
@@ -41,5 +43,13 @@ impl ChunkWriter {
                 return Err(io::Error::new(io::ErrorKind::WouldBlock, "written 0 bytes"));
             }
         }
+    }
+
+    pub fn write_to_extendable<T>(&mut self, extendable: &mut T) -> Result<(), io::Error>
+        where T: Extend<u8>,
+    {
+        self.write_to(
+            &mut ExtendableAsWritable::from(extendable),
+        )
     }
 }

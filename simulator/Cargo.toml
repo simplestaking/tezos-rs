@@ -1,0 +1,35 @@
+[package]
+name = "simulator"
+version = "0.1.0"
+authors = ["Zura Benashvili <zura.benashvili@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+getset = "0.1"
+bytes = "1"
+slab = "0.4.3"
+rand = "0.7.3"
+failure = "0.1"
+futures = "0.3"
+hex = "0.4"
+riker = "0.4"
+slog = { version = "2.7", features = ["max_level_trace", "release_max_level_debug"] }
+slog-async = "2.6"
+slog-term = "2.6"
+tokio = { version = "1.2", features = ["time", "net", "io-util", "rt-multi-thread"] }
+mio = { version = "0.7.11", features = ["os-poll", "net"] }
+# local dependencies
+tla-sm = { path = "../tla_sm" }
+crypto = { path = "../crypto" }
+tezedge-state = { path = "../tezedge_state" }
+tezos_encoding = { path = "../tezos/encoding" }
+tezos_identity = { path = "../tezos/identity" }
+tezos_messages = { path = "../tezos/messages" }
+
+[dev-dependencies]
+criterion = { version = "0.3", features = ["html_reports"] }
+quickcheck = "1.0.3"
+quickcheck_derive = "0.3.0"
+itertools = "0.10.0"

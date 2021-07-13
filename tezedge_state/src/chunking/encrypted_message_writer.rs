@@ -10,7 +10,8 @@ use tezos_messages::p2p::encoding::prelude::{
 };
 
 use crate::PeerCrypto;
-use super::{WriteMessageError, ChunkWriter};
+use super::{ChunkWriter, WriteMessageError};
+use super::extendable_as_writable::ExtendableAsWritable;
 
 // BOX_ZERO_BYTES is subtracted since after encryption, chunk size will
 // increase and we don't want it to overflow CONTENT_LENGTH_MAX.
@@ -76,5 +77,18 @@ impl EncryptedMessageWriter {
                 );
             }
         }
+    }
+
+    pub fn write_to_extendable<T>(
+        &mut self,
+        extendable: &mut T,
+        crypto: &mut PeerCrypto,
+    ) -> Result<(), WriteMessageError>
+        where T: Extend<u8>,
+    {
+        self.write_to(
+            &mut ExtendableAsWritable::from(extendable),
+            crypto,
+        )
     }
 }

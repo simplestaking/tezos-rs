@@ -10,6 +10,8 @@ pub use chunk_read_buffer::*;
 mod message_read_buffer;
 pub use message_read_buffer::*;
 
+pub mod extendable_as_writable;
+
 mod chunk_writer;
 pub use chunk_writer::*;
 
