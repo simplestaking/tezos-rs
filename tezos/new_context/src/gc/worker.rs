@@ -8,7 +8,7 @@ use std::{
 
 use crossbeam_channel::Receiver;
 
-use crate::{kv_store::HashId, working_tree::Entry};
+use crate::{kv_store::HashId, working_tree::serializer::iter_hash_ids};
 
 use tezos_spsc::Producer;
 
@@ -65,7 +65,7 @@ impl Cycles {
             eprintln!("GC: Failed to insert value in Cycles")
         }
 
-        return Some(value);
+        Some(value)
     }
 
     fn roll(&mut self, new_cycle: BTreeMap<HashId, Option<Arc<[u8]>>>) -> Vec<HashId> {
@@ -161,29 +161,8 @@ impl GCThread {
                 None => continue,
             };
 
-            let entry: Entry = match bincode::deserialize(&value) {
-                Ok(value) => value,
-                Err(err) => {
-                    eprintln!("WorkingTree GC: error while decerializing entry: {:?}", err);
-                    continue;
-                }
-            };
-
-            match entry {
-                Entry::Blob(_) => {}
-                Entry::Tree(tree) => {
-                    // Push every entry in this directory
-                    for node in tree.values() {
-                        reused.push(match node.entry_hash.get() {
-                            Some(hash) => hash,
-                            None => continue,
-                        });
-                    }
-                }
-                Entry::Commit(commit) => {
-                    // Push the root tree for this commit
-                    reused.push(commit.root_hash);
-                }
+            for hash_id in iter_hash_ids(&value) {
+                reused.push(hash_id);
             }
         }
         self.send_pending();

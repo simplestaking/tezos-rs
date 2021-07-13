@@ -1,10 +1,7 @@
 // Copyright (c) SimpleStaking, Viable Systems and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
-use std::collections::{BTreeMap, HashMap};
-
 use failure::Fail;
-use serde::{Deserialize, Serialize};
 
 use crypto::hash::*;
 
@@ -108,7 +105,7 @@ macro_rules! num_codec {
             fn decode(bytes: &[u8]) -> Result<Self, SchemaError> {
                 if bytes.len() == std::mem::size_of::<$num>() {
                     let mut num_bytes: [u8; std::mem::size_of::<$num>()] = Default::default();
-                    num_bytes.copy_from_slice(&bytes[..]);
+                    num_bytes.copy_from_slice(bytes);
                     Ok($num::from_be_bytes(num_bytes))
                 } else {
                     Err(SchemaError::DecodeError)
@@ -134,50 +131,6 @@ num_codec!(u64);
 num_codec!(i32);
 num_codec!(u32);
 num_codec!(usize);
-
-pub trait BincodeEncoded: Sized + Serialize + for<'a> Deserialize<'a> {
-    fn decode(bytes: &[u8]) -> Result<Self, SchemaError> {
-        bincode::deserialize(bytes).map_err(|_| SchemaError::DecodeError)
-    }
-
-    fn encode(&self) -> Result<Vec<u8>, SchemaError> {
-        bincode::serialize::<Self>(self).map_err(|_| SchemaError::EncodeError)
-    }
-}
-
-impl<T> Encoder for T
-where
-    T: BincodeEncoded,
-{
-    fn encode(&self) -> Result<Vec<u8>, SchemaError> {
-        T::encode(self)
-    }
-}
-
-impl<T> Decoder for T
-where
-    T: BincodeEncoded,
-{
-    fn decode(bytes: &[u8]) -> Result<Self, SchemaError> {
-        T::decode(bytes)
-    }
-}
-
-impl<K, V> BincodeEncoded for HashMap<K, V>
-where
-    K: std::hash::Hash + Eq + Serialize + for<'a> Deserialize<'a>,
-    V: Serialize + for<'a> Deserialize<'a>,
-{
-}
-
-impl<K, V> BincodeEncoded for BTreeMap<K, V>
-where
-    K: Ord + Eq + Serialize + for<'a> Deserialize<'a>,
-    V: Serialize + for<'a> Deserialize<'a>,
-{
-}
-
-impl BincodeEncoded for () {}
 
 /// Create number from a bytes
 ///

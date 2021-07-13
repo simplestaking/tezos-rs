@@ -1,6 +1,8 @@
 // Copyright (c) SimpleStaking, Viable Systems and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
+#![allow(clippy::type_complexity)]
+
 //! Functions exposed to be called from OCaml
 
 use core::borrow::Borrow;
@@ -21,10 +23,10 @@ use crate::{
     timings,
     working_tree::{
         working_tree::{FoldDepth, TreeWalker, WorkingTree},
-        NodeKind,
+        NodeKind, Tree,
     },
-    ContextKeyValueStore, ContextValue, IndexApi, PatchContextFunction, ProtocolContextApi,
-    ShellContextApi, TezedgeContext, TezedgeIndex,
+    ContextKeyValueStore, IndexApi, PatchContextFunction, ProtocolContextApi, ShellContextApi,
+    TezedgeContext, TezedgeIndex,
 };
 use tezos_api::ffi::TezosContextTezEdgeStorageConfiguration;
 use tezos_api::ocaml_conv::{OCamlBlockHash, OCamlContextHash, OCamlOperationHash};
@@ -298,7 +300,7 @@ ocaml_export! {
         let ocaml_index = rt.get(index);
         let index: &TezedgeIndexFFI = ocaml_index.borrow();
         let index = index.0.borrow().clone();
-        let empty_context = TezedgeContext::new(index.clone(), None, None);
+        let empty_context = TezedgeContext::new(index, None, None);
 
         OCaml::box_value(rt, empty_context.into())
     }
@@ -365,7 +367,9 @@ ocaml_export! {
         let context: &TezedgeContextFFI = ocaml_context.borrow();
         let context = context.0.borrow().clone();
         let key = make_key(rt, key);
-        let value: ContextValue = value.to_rust(rt);
+
+        let value_ref = rt.get(value);
+        let value = value_ref.as_bytes();
 
         let result = context.add(&key, value)
             .map_err(|err| format!("{:?}", err))
@@ -430,15 +434,9 @@ ocaml_export! {
         let length = length.map(|n| n as usize);
         let key = make_key(rt, key);
 
-        // TODO: don't clone the string, implement `ToOCaml` trait for `Rc<_>`
         let result = context
             .list(offset, length, &key)
-            .map_err(|err| format!("{:?}", err))
-            .map(|v| {
-                v.into_iter()
-                    .map(|(s, tree)| (s.to_string(), tree))
-                    .collect::<Vec<_>>()
-            });
+            .map_err(|err| format!("{:?}", err));
 
         result.to_ocaml(rt)
     }
@@ -488,7 +486,7 @@ ocaml_export! {
             .map(|h| {
                 ContextHash::try_from(&h[..]).map_err(|err| format!("{:?}", err))
             })
-            .unwrap_or_else(|v| Err(v));
+            .unwrap_or_else(Err);
 
         result.to_ocaml(rt)
     }
@@ -517,7 +515,7 @@ ocaml_export! {
         let ocaml_context = rt.get(context);
         let context: &TezedgeContextFFI = ocaml_context.borrow();
         let context = context.0.borrow().clone();
-        let empty_tree = WorkingTree::new_with_tree(context.index, Default::default());
+        let empty_tree = WorkingTree::new_with_tree(context.index, Tree::empty());
 
         empty_tree.to_ocaml(rt)
     }
@@ -540,12 +538,22 @@ ocaml_export! {
         rt,
         context: OCamlRef<DynBox<TezedgeContextFFI>>,
         value: OCamlRef<OCamlBytes>
-    ) -> OCaml<DynBox<WorkingTreeFFI>> {
+    ) -> OCaml<Result<DynBox<WorkingTreeFFI>, String>> {
         let ocaml_context = rt.get(context);
         let context: &TezedgeContextFFI = ocaml_context.borrow();
         let context = context.0.borrow().clone();
-        let value = value.to_rust(rt);
-        let tree = WorkingTree::new_with_value(context.index, value);
+        let value = rt.get(value);
+
+        let value_id = {
+            let mut storage = context.index.storage.borrow_mut();
+            storage.add_blob_by_ref(value.as_bytes())
+        };
+
+        let tree = value_id.map(|v| {
+            WorkingTree::new_with_value(context.index, v)
+        }).map_err(|err| {
+            format!("{:?}", err)
+        });
 
         tree.to_ocaml(rt)
     }
@@ -652,7 +660,9 @@ ocaml_export! {
         let ocaml_tree = rt.get(tree);
         let tree: &WorkingTreeFFI = ocaml_tree.borrow();
         let key = make_key(rt, key);
-        let value: ContextValue = value.to_rust(rt);
+
+        let value_ref = rt.get(value);
+        let value = value_ref.as_bytes();
 
         let result =  tree.add(&key, value)
             .map_err(|err| format!("{:?}", err));
@@ -711,15 +721,9 @@ ocaml_export! {
         let length = length.map(|n| n as usize);
         let key = make_key(rt, key);
 
-        // TODO: don't clone the string, implement `ToOCaml` trait for `Rc<_>`
         let result = tree
             .list(offset, length, &key)
-            .map_err(|err| format!("{:?}", err))
-            .map(|v| {
-                v.into_iter()
-                    .map(|(s, tree)| (s.to_string(), tree))
-                    .collect::<Vec<_>>()
-            });
+            .map_err(|err| format!("{:?}", err));
 
         result.to_ocaml(rt)
     }

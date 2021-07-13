@@ -34,13 +34,11 @@ use serde::Deserialize;
 use serde::Serialize;
 
 pub use hash::EntryHash;
+use tezedge_context::ContextMemoryUsage;
 pub use tezedge_context::PatchContextFunction;
 pub use tezedge_context::TezedgeContext;
 pub use tezedge_context::TezedgeIndex;
-use working_tree::{
-    working_tree::{FoldDepth, TreeWalker, WorkingTree},
-    KeyFragment,
-};
+use working_tree::working_tree::{FoldDepth, TreeWalker, WorkingTree};
 
 use crate::gc::GarbageCollector;
 use crate::working_tree::working_tree::MerkleError;
@@ -49,7 +47,7 @@ use crypto::hash::{ContextHash, FromBytesError};
 
 mod persistent;
 
-use crate::persistent::{Flushable, KeyValueSchema, Persistable};
+use crate::persistent::{Flushable, Persistable};
 
 pub mod kv_store;
 pub mod tezedge_context;
@@ -79,7 +77,7 @@ where
     Self: Sized,
 {
     // set key-value
-    fn add(&self, key: &ContextKey, value: ContextValue) -> Result<Self, ContextError>;
+    fn add(&self, key: &ContextKey, value: &[u8]) -> Result<Self, ContextError>;
     // delete key-value
     fn delete(&self, key_prefix_to_delete: &ContextKey) -> Result<Self, ContextError>;
     // TODO: remove `copy`, not part of the API anymore (replaced by `find_tree` + `add_tree`)
@@ -103,7 +101,7 @@ where
         offset: Option<usize>,
         length: Option<usize>,
         key: &ContextKey,
-    ) -> Result<Vec<(KeyFragment, WorkingTree)>, ContextError>;
+    ) -> Result<Vec<(String, WorkingTree)>, ContextError>;
     fn fold_iter(
         &self,
         depth: Option<FoldDepth>,
@@ -164,7 +162,7 @@ where
     // get stats from merkle storage
     fn get_merkle_stats(&self) -> Result<MerkleStoragePerfReport, ContextError>;
 
-    fn get_memory_usage(&self) -> Result<usize, ContextError>;
+    fn get_memory_usage(&self) -> Result<ContextMemoryUsage, ContextError>;
 }
 /// Possible errors for context
 #[derive(Debug, Fail)]
@@ -191,8 +189,6 @@ pub enum ContextError {
     GarbageCollectionError { error: GarbageCollectionError },
     #[fail(display = "Database error error {:?}", error)]
     DBError { error: DBError },
-    #[fail(display = "Serialization error: {:?}", error)]
-    SerializationError { error: bincode::Error },
     #[fail(
         display = "Found wrong structure. Was looking for {}, but found {}",
         sought, found
@@ -238,31 +234,12 @@ impl From<DBError> for ContextError {
     }
 }
 
-impl From<bincode::Error> for ContextError {
-    fn from(error: bincode::Error) -> Self {
-        Self::SerializationError { error }
-    }
-}
-
 impl<T> From<PoisonError<T>> for ContextError {
     fn from(pe: PoisonError<T>) -> Self {
         Self::LockError {
             reason: format!("{}", pe),
         }
     }
-}
-
-// keys is hash of Entry
-pub type ContextKeyValueStoreSchemaKeyType = EntryHash;
-// Entry (serialized) - watch out, this is not the same as ContextValue
-pub type MerkleKeyValueStoreSchemaValueType = Vec<u8>;
-
-/// Common serialization prescript for K-V
-pub struct ContextKeyValueStoreSchema;
-
-impl KeyValueSchema for ContextKeyValueStoreSchema {
-    type Key = ContextKeyValueStoreSchemaKeyType;
-    type Value = MerkleKeyValueStoreSchemaValueType;
 }
 
 /// Base trait for kv-store to be used with merkle
@@ -347,3 +324,37 @@ mod tests {
         );
     }
 }
+
+#[derive(Default)]
+pub struct NoHash(u64);
+
+impl std::hash::BuildHasher for NoHash {
+    type Hasher = Self;
+    fn build_hasher(&self) -> Self::Hasher {
+        Self(0)
+    }
+}
+
+impl std::hash::Hasher for NoHash {
+    fn finish(&self) -> u64 {
+        self.0 as u64
+    }
+    fn write(&mut self, _slice: &[u8]) {
+        panic!("Wrong use of NoHash");
+    }
+    fn write_usize(&mut self, n: usize) {
+        self.0 = n as u64
+    }
+    fn write_u64(&mut self, n: u64) {
+        self.0 = n;
+    }
+    fn write_u32(&mut self, n: u32) {
+        self.0 = n as u64
+    }
+    fn write_u16(&mut self, n: u16) {
+        self.0 = n as u64
+    }
+}
+
+/// A map, without hashing
+pub type Map<K, V> = std::collections::HashMap<K, V, NoHash>;
