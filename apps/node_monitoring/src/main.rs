@@ -84,7 +84,6 @@ async fn main() {
             alerts,
             log.clone(),
             slack_server,
-            tezedge_volume_path.to_string(),
         );
 
         let thread_log = log.clone();

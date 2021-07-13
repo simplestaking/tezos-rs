@@ -44,7 +44,6 @@ pub struct ResourceMonitor {
     log: Logger,
     slack: Option<SlackServer>,
     system: System,
-    tezedge_volume_path: String,
 }
 
 #[derive(Clone, Debug, Serialize, Getters, Default)]
@@ -201,7 +200,6 @@ impl ResourceMonitor {
         alerts: Alerts,
         log: Logger,
         slack: Option<SlackServer>,
-        tezedge_volume_path: String,
     ) -> Self {
         Self {
             resource_utilization,
@@ -210,7 +208,6 @@ impl ResourceMonitor {
             log,
             slack,
             system: System::new_all(),
-            tezedge_volume_path,
         }
     }
 
@@ -222,7 +219,6 @@ impl ResourceMonitor {
             last_checked_head_level,
             alerts,
             slack,
-            tezedge_volume_path,
             ..
         } = self;
 
@@ -274,7 +270,7 @@ impl ResourceMonitor {
                     node.collect_memory_stats_children(system, "protocol-runner")?;
                 let ocaml_disk = node.collect_disk_data()?;
                 let ocaml_cpu = node.collect_cpu_data(system)?;
-                let validators_cpu = node.collect_cpu_data_children(system, "tezos-node")?;
+                let _validators_cpu = node.collect_cpu_data_children(system, "tezos-node")?;
 
                 let resources = ResourceUtilization {
                     timestamp: chrono::Local::now().timestamp(),

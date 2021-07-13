@@ -1,6 +1,7 @@
 // Copyright (c) SimpleStaking, Viable Systems and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
+use std::path::PathBuf;
 use std::convert::TryInto;
 
 use failure::{bail, format_err};
@@ -35,7 +36,7 @@ pub struct Node {
     pid: Option<i32>,
 
     #[get = "pub"]
-    volume_path: String,
+    volume_path: PathBuf,
 
     #[get = "pub"]
     node_type: NodeType,
@@ -46,7 +47,7 @@ impl Node {
         port: u16,
         tag: String,
         pid: Option<i32>,
-        volume_path: String,
+        volume_path: PathBuf,
         node_type: NodeType,
     ) -> Self {
         Self {
@@ -59,34 +60,35 @@ impl Node {
     }
 
     pub fn collect_disk_data(&self) -> Result<DiskData, failure::Error> {
+        let volume_path = self.volume_path.as_path().display();
         if self.node_type == NodeType::Tezedge {
             // context actions DB is optional
             let context_actions = dir::get_size(&format!(
                 "{}/{}",
-                self.volume_path, "bootstrap_db/context_actions"
+                volume_path, "bootstrap_db/context_actions"
             ))
             .unwrap_or(0);
 
             let disk_data = TezedgeDiskData::new(
                 dir::get_size(&format!("{}/{}", DEBUGGER_VOLUME_PATH, "tezedge")).unwrap_or(0),
-                dir::get_size(&format!("{}/{}", self.volume_path, "context")).unwrap_or(0),
-                dir::get_size(&format!("{}/{}", self.volume_path, "bootstrap_db/context"))
+                dir::get_size(&format!("{}/{}", volume_path, "context")).unwrap_or(0),
+                dir::get_size(&format!("{}/{}", volume_path, "bootstrap_db/context"))
                     .unwrap_or(0),
                 dir::get_size(&format!(
                     "{}/{}",
-                    self.volume_path, "bootstrap_db/block_storage"
+                    volume_path, "bootstrap_db/block_storage"
                 ))
                 .unwrap_or(0),
                 context_actions,
-                dir::get_size(&format!("{}/{}", self.volume_path, "bootstrap_db/db")).unwrap_or(0),
+                dir::get_size(&format!("{}/{}", volume_path, "bootstrap_db/db")).unwrap_or(0),
             );
 
             Ok(DiskData::Tezedge(disk_data))
         } else {
             Ok(DiskData::Ocaml(OcamlDiskData::new(
                 dir::get_size(&format!("{}/{}", DEBUGGER_VOLUME_PATH, "tezos")).unwrap_or(0),
-                dir::get_size(&format!("{}/{}", OCAML_VOLUME_PATH, "data/store")).unwrap_or(0),
-                dir::get_size(&format!("{}/{}", OCAML_VOLUME_PATH, "data/context")).unwrap_or(0),
+                dir::get_size(&format!("{}/{}", volume_path, "data/store")).unwrap_or(0),
+                dir::get_size(&format!("{}/{}", volume_path, "data/context")).unwrap_or(0),
             )))
         }
     }
@@ -139,7 +141,6 @@ impl Node {
                 .to_string(),
         ))
 
-        // Ok(head_data)
     }
 
     pub fn collect_memory_stats(
