@@ -2297,7 +2297,6 @@ dependencies = [
  "reqwest",
  "serde 1.0.123",
  "serde_json",
- "shell",
  "shiplift",
  "slog",
  "slog-async",

@@ -38,16 +38,16 @@ pub struct DarwinOsData {
     resident: String, // resident set size
 }
 
-#[derive(Serialize, Debug, Default, Merge, Clone, PartialEq, CopyGetters)]
-pub struct ProcessMemoryStats {
-    #[get_copy = "pub"]
-    #[merge(strategy = merge::num::saturating_add)]
-    virtual_mem: usize,
+// #[derive(Serialize, Debug, Default, Merge, Clone, PartialEq, CopyGetters)]
+// pub struct ProcessMemoryStats {
+//     #[get_copy = "pub"]
+//     #[merge(strategy = merge::num::saturating_add)]
+//     virtual_mem: usize,
 
-    #[get_copy = "pub"]
-    #[merge(strategy = merge::num::saturating_add)]
-    resident_mem: usize,
-}
+//     #[get_copy = "pub"]
+//     #[merge(strategy = merge::num::saturating_add)]
+//     resident_mem: usize,
+// }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 #[serde(untagged)]
@@ -68,77 +68,77 @@ impl From<DarwinOsData> for MemoryData {
     }
 }
 
-impl TryFrom<MemoryData> for ProcessMemoryStats {
-    type Error = failure::Error;
+// impl TryFrom<MemoryData> for ProcessMemoryStats {
+//     type Error = failure::Error;
 
-    fn try_from(data: MemoryData) -> Result<Self, Self::Error> {
-        match data {
-            MemoryData::Linux(stats) => {
-                let LinuxData {
-                    size,
-                    resident,
-                    page_size,
-                    ..
-                } = stats;
+//     fn try_from(data: MemoryData) -> Result<Self, Self::Error> {
+//         match data {
+//             MemoryData::Linux(stats) => {
+//                 let LinuxData {
+//                     size,
+//                     resident,
+//                     page_size,
+//                     ..
+//                 } = stats;
 
-                let size = size.parse::<usize>()?;
-                let resident = resident.parse::<usize>()?;
+//                 let size = size.parse::<usize>()?;
+//                 let resident = resident.parse::<usize>()?;
 
-                let virtual_mem = size * page_size;
-                let resident_mem = resident * page_size;
+//                 let virtual_mem = size * page_size;
+//                 let resident_mem = resident * page_size;
 
-                Ok(ProcessMemoryStats {
-                    virtual_mem,
-                    resident_mem,
-                })
-            }
-            MemoryData::DarwinOs(stats) => {
-                let DarwinOsData {
-                    resident,
-                    page_size,
-                    ..
-                } = stats;
+//                 Ok(ProcessMemoryStats {
+//                     virtual_mem,
+//                     resident_mem,
+//                 })
+//             }
+//             MemoryData::DarwinOs(stats) => {
+//                 let DarwinOsData {
+//                     resident,
+//                     page_size,
+//                     ..
+//                 } = stats;
 
-                let resident = resident.parse::<usize>()?;
+//                 let resident = resident.parse::<usize>()?;
 
-                // Note: we cannot get the virstual memory size from the data available
-                let virtual_mem = 0;
-                let resident_mem = resident * page_size;
+//                 // Note: we cannot get the virstual memory size from the data available
+//                 let virtual_mem = 0;
+//                 let resident_mem = resident * page_size;
 
-                Ok(ProcessMemoryStats {
-                    virtual_mem,
-                    resident_mem,
-                })
-            }
-        }
-    }
-}
+//                 Ok(ProcessMemoryStats {
+//                     virtual_mem,
+//                     resident_mem,
+//                 })
+//             }
+//         }
+//     }
+// }
 
-impl fmt::Display for ProcessMemoryStats {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(
-            f,
-            "\n\tVirtual memory: {} MB\n\tResident memory: {} MB",
-            self.virtual_mem, self.resident_mem,
-        )
-    }
-}
+// impl fmt::Display for ProcessMemoryStats {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         writeln!(
+//             f,
+//             "\n\tVirtual memory: {} MB\n\tResident memory: {} MB",
+//             self.virtual_mem, self.resident_mem,
+//         )
+//     }
+// }
 
-impl ProcessMemoryStats {
-    pub fn new(virtual_mem: usize, resident_mem: usize) -> Self {
-        Self {
-            virtual_mem,
-            resident_mem,
-        }
-    }
+// impl ProcessMemoryStats {
+//     pub fn new(virtual_mem: usize, resident_mem: usize) -> Self {
+//         Self {
+//             virtual_mem,
+//             resident_mem,
+//         }
+//     }
 
-    pub fn to_megabytes(&self) -> Self {
-        Self {
-            resident_mem: self.resident_mem / 1024 / 1024,
-            virtual_mem: self.virtual_mem / 1024 / 1024,
-        }
-    }
-}
+//     pub fn to_megabytes(&self) -> Self {
+//         Self {
+//             resident_mem: self.resident_mem / 1024 / 1024,
+//             virtual_mem: self.virtual_mem / 1024 / 1024,
+//         }
+//     }
+// }
 
 #[derive(PartialEq, Debug, Fail)]
 pub enum MemoryStatsError {

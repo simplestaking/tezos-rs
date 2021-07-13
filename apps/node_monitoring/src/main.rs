@@ -26,10 +26,6 @@ use crate::constants::MEASUREMENTS_MAX_CAPACITY;
 use crate::monitors::alerts::Alerts;
 use crate::monitors::resource::{ResourceUtilization, ResourceUtilizationStorage};
 
-// TODO: get this from a config, and default to this
-// const TEZEDGE_PORT: u16 = 18732;
-// const PROCESS_LOOKUP_INTERVAL: Duration = Duration::from_secs(10);
-
 #[tokio::main]
 async fn main() {
     let env = configuration::DeployMonitoringEnvironment::from_args();
@@ -60,6 +56,7 @@ async fn main() {
 
     for mut node in env.nodes.clone() {
         if let Some(pid) = find_node_process_id(node.port()) {
+            info!(log, "Found node with port {} -> PID: {}", node.port(), pid);
             node.set_pid(Some(pid));
             let resource_storage = ResourceUtilizationStorage::new(
                 node.clone(),
@@ -68,6 +65,8 @@ async fn main() {
                 ))),
             );
             storages.push(resource_storage);
+        } else {
+            panic!("Cannot find defined node with port {}", node.port())
         }
     }
 

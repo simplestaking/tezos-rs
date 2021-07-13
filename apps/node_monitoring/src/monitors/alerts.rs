@@ -9,12 +9,11 @@ use getset::Getters;
 use percentage::{Percentage, PercentageInteger};
 use slog::{crit, Logger};
 
-use shell::stats::memory::ProcessMemoryStats;
-
 use crate::configuration::AlertThresholds;
 use crate::display_info::NodeInfo;
 use crate::slack::SlackServer;
 use crate::ResourceUtilization;
+use crate::monitors::resource::ProcessMemoryStats; 
 
 #[derive(Debug, PartialEq)]
 pub enum AlertResult {

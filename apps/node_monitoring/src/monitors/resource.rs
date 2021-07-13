@@ -1,7 +1,7 @@
 // Copyright (c) SimpleStaking, Viable Systems and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
-use std::cmp;
+use std::{cmp, fmt};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::convert::TryInto;
@@ -9,12 +9,11 @@ use std::sync::{Arc, RwLock};
 
 use chrono::Utc;
 use failure::format_err;
-use getset::Getters;
+use getset::{Getters, CopyGetters};
 use serde::Serialize;
 use slog::{error, Logger};
 use sysinfo::{System, SystemExt};
-
-use shell::stats::memory::ProcessMemoryStats;
+use merge::Merge;
 
 use crate::constants::MEASUREMENTS_MAX_CAPACITY;
 use crate::display_info::{NodeInfo, OcamlDiskData, TezedgeDiskData};
@@ -59,6 +58,36 @@ pub struct MemoryStats {
     #[get = "pub(crate)"]
     #[serde(skip_serializing_if = "Option::is_none")]
     validators: Option<ProcessMemoryStats>,
+}
+
+#[derive(Serialize, Debug, Default, Merge, Clone, PartialEq, CopyGetters)]
+pub struct ProcessMemoryStats {
+    #[get_copy = "pub"]
+    #[merge(strategy = merge::num::saturating_add)]
+    virtual_mem: usize,
+
+    #[get_copy = "pub"]
+    #[merge(strategy = merge::num::saturating_add)]
+    resident_mem: usize,
+}
+
+impl fmt::Display for ProcessMemoryStats {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(
+            f,
+            "\n\tVirtual memory: {} MB\n\tResident memory: {} MB",
+            self.virtual_mem, self.resident_mem,
+        )
+    }
+}
+
+impl ProcessMemoryStats {
+    pub fn new(virtual_mem: usize, resident_mem: usize) -> Self {
+        Self {
+            virtual_mem,
+            resident_mem,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Getters)]

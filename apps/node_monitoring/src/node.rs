@@ -12,9 +12,9 @@ use merge::Merge;
 
 use sysinfo::{ProcessExt, System, SystemExt};
 
-use shell::stats::memory::ProcessMemoryStats;
+use crate::monitors::resource::ProcessMemoryStats;
 
-use crate::constants::{DEBUGGER_VOLUME_PATH, OCAML_VOLUME_PATH};
+use crate::constants::DEBUGGER_VOLUME_PATH;
 use crate::display_info::NodeInfo;
 use crate::display_info::{DiskData, OcamlDiskData, TezedgeDiskData};
 

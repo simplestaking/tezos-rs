@@ -29,6 +29,4 @@ tokio = { version = "1.2", features = ["full"] }
 wait-timeout = "0.2"
 warp = "0.3"
 procfs = "0.9"
-# TODO: TE-499 remove shell dependency, and move stats/memory somewhere
-shell = { path = "../../shell" }
 zip = "0.5"
