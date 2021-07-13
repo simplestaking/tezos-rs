@@ -17,7 +17,7 @@ use crate::{
     kv_store::HashId,
     persistent::DBError,
     working_tree::{
-        storage::{Blob, BlobStorageId, NodeId, Storage},
+        storage::{Blob, BlobStorageId, NodeId, Storage, StorageIdError},
         string_interner::StringId,
         Commit, Entry, NodeKind, Tree,
     },
@@ -52,6 +52,16 @@ pub enum HashingError {
     DBError { error: DBError },
     #[fail(display = "HashId not found: {:?}", hash_id)]
     HashIdNotFound { hash_id: HashId },
+    #[fail(display = "HashId empty")]
+    HashIdEmpty,
+    #[fail(display = "Node not found")]
+    NodeNotFound,
+    #[fail(display = "Tree not found")]
+    TreeNotFound,
+    #[fail(display = "Blob not found")]
+    BlobNotFound,
+    #[fail(display = "StorageIdError: {:?}", error)]
+    StorageIdError { error: StorageIdError },
 }
 
 impl From<DBError> for HashingError {
@@ -75,6 +85,12 @@ impl From<TryFromSliceError> for HashingError {
 impl From<io::Error> for HashingError {
     fn from(error: io::Error) -> Self {
         Self::Leb128EncodeFailure { error }
+    }
+}
+
+impl From<StorageIdError> for HashingError {
+    fn from(error: StorageIdError) -> Self {
+        Self::StorageIdError { error }
     }
 }
 
@@ -122,7 +138,10 @@ fn partition_entries<'a>(
             let entries_at_depth_and_index_i: Vec<(StringId, NodeId)> = entries
                 .iter()
                 .filter(|(name, _)| {
-                    let name = storage.get_str(*name);
+                    let name = match storage.get_str(*name) {
+                        Ok(name) => name,
+                        Err(_) => return false,
+                    };
                     index(depth, name) == i
                 })
                 .cloned()
@@ -171,13 +190,15 @@ fn hash_long_inode(
             // | \len(name)  |     name     |  kind  |  hash  |
 
             for (name, node_id) in entries {
-                let name = storage.get_str(*name);
+                let name = storage.get_str(*name)?;
 
                 leb128::write::unsigned(&mut hasher, name.len() as u64)?;
                 hasher.update(name.as_bytes());
 
                 // \000 for nodes, and \001 for contents.
-                let node = storage.get_node(*node_id).unwrap();
+                let node = storage
+                    .get_node(*node_id)
+                    .ok_or(HashingError::NodeNotFound)?;
                 match node.node_kind() {
                     NodeKind::Leaf => hasher.update(&[1u8]),
                     NodeKind::NonLeaf => hasher.update(&[0u8]),
@@ -242,7 +263,7 @@ fn hash_short_inode(
     // +--------+--------------+-----+--------------+
     // |   \k   | prehash(e_1) | ... | prehash(e_k) |
 
-    let tree = storage.get_tree(tree).unwrap();
+    let tree = storage.get_tree(tree).ok_or(HashingError::TreeNotFound)?;
     hasher.update(&(tree.len() as u64).to_be_bytes());
 
     // Node entry:
@@ -252,11 +273,11 @@ fn hash_short_inode(
     // | kind  |  \len(name)  |    name     |  \32  |  hash  |
 
     for (k, v) in tree {
-        let v = storage.get_node(*v).unwrap();
+        let v = storage.get_node(*v).ok_or(HashingError::NodeNotFound)?;
         hasher.update(encode_irmin_node_kind(&v.node_kind()));
         // Key length is written in LEB128 encoding
 
-        let k = storage.get_str(*k);
+        let k = storage.get_str(*k)?;
         leb128::write::unsigned(&mut hasher, k.len() as u64)?;
         hasher.update(k.as_bytes());
         hasher.update(&(ENTRY_HASH_LEN as u64).to_be_bytes());
@@ -288,7 +309,9 @@ pub(crate) fn hash_tree(
     storage: &Storage,
 ) -> Result<HashId, HashingError> {
     // If there are >256 entries, we need to partition the tree and hash the resulting inode
-    let tree = storage.get_tree(tree_id).unwrap();
+    let tree = storage
+        .get_tree(tree_id)
+        .ok_or(HashingError::TreeNotFound)?;
 
     if tree.len() > 256 {
         let inode = partition_entries(0, &tree, store, storage)?;
@@ -312,7 +335,9 @@ pub(crate) fn hash_blob(
 
     let mut hasher = VarBlake2b::new(ENTRY_HASH_LEN)?;
 
-    let blob = storage.get_blob(blob_id).unwrap();
+    let blob = storage
+        .get_blob(blob_id)
+        .ok_or(HashingError::BlobNotFound)?;
     hasher.update(&(blob.len() as u64).to_be_bytes());
     hasher.update(blob);
 
@@ -525,11 +550,11 @@ mod tests {
 
         let mut storage = Storage::new();
 
-        let blob_id = storage.add_blob_by_ref(&[1]);
+        let blob_id = storage.add_blob_by_ref(&[1]).unwrap();
 
         let node = Node::new(NodeKind::Leaf, Entry::Blob(blob_id));
 
-        let dummy_tree = storage.insert(dummy_tree, "a", node);
+        let dummy_tree = storage.insert(dummy_tree, "a", node).unwrap();
 
         // hexademical representation of above tree:
         //
@@ -645,7 +670,7 @@ mod tests {
 
                 let node = Node::new_commited(node_kind, Some(hash_id), None);
 
-                tree = storage.insert(tree, binding.name.as_str(), node);
+                tree = storage.insert(tree, binding.name.as_str(), node).unwrap();
             }
 
             let expected_hash = ContextHash::from_base58_check(&test_case.hash).unwrap();

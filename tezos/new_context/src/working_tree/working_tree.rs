@@ -68,8 +68,8 @@ use crate::{persistent, ContextKeyValueStore};
 use crate::{ContextKey, ContextValue};
 
 use super::{
-    serializer::{deserialize, serialize_entry, SerializationError},
-    storage::{BlobStorageId, NodeId, Storage},
+    serializer::{deserialize, serialize_entry, DeserializationError, SerializationError},
+    storage::{BlobStorageId, NodeId, Storage, StorageIdError},
 };
 
 // The 'working tree' can be either a Tree or a Value
@@ -142,17 +142,29 @@ impl TreeWalkerLevel {
                 // TODO: can this clone be avoided?
 
                 let storage = root.index.storage.borrow();
-                let tree = storage.get_tree(*tree).unwrap();
+                let tree = match storage.get_tree(*tree) {
+                    Some(tree) => tree,
+                    None => {
+                        // TODO: Handle this error in a better way
+                        eprintln!("TreeWalkerLevel Error: TreeNotFound");
+                        &[]
+                    }
+                };
 
-                let tree = tree
-                    .into_iter()
-                    .map(|(k, v)| {
-                        let key = storage.get_str(*k).to_string();
-                        (key, *v)
-                    })
-                    .collect::<Vec<_>>();
+                let mut tree_vec = Vec::with_capacity(tree.len());
+                for (key_id, node_id) in tree {
+                    let key = match storage.get_str(*key_id) {
+                        Ok(key) => key.to_string(),
+                        Err(e) => {
+                            // TODO: Handle this error in a better way
+                            eprintln!("TreeWalkerLevel Error: {:?}", e);
+                            continue;
+                        }
+                    };
+                    tree_vec.push((key, *node_id));
+                }
 
-                Some(tree.into_iter())
+                Some(tree_vec.into_iter())
             } else {
                 None
             }
@@ -276,6 +288,16 @@ pub enum MerkleError {
     LockError { reason: String },
     #[fail(display = "Serialization error, {:?}", error)]
     SerializationError { error: SerializationError },
+    #[fail(display = "Deserialization error, {:?}", error)]
+    DeserializationError { error: DeserializationError },
+    #[fail(display = "Storage ID error, {:?}", error)]
+    StorageIdError { error: StorageIdError },
+    #[fail(display = "Tree not found.")]
+    TreeNotFound,
+    #[fail(display = "Node not found.")]
+    NodeNotFound,
+    #[fail(display = "Blob not found.")]
+    BlobNotFound,
 }
 
 impl From<persistent::database::DBError> for MerkleError {
@@ -296,6 +318,12 @@ impl From<SerializationError> for MerkleError {
     }
 }
 
+impl From<DeserializationError> for MerkleError {
+    fn from(error: DeserializationError) -> Self {
+        Self::DeserializationError { error }
+    }
+}
+
 impl From<GarbageCollectionError> for MerkleError {
     fn from(error: GarbageCollectionError) -> Self {
         Self::GarbageCollectionError { error }
@@ -311,6 +339,12 @@ impl From<TryFromSliceError> for MerkleError {
 impl From<FromBytesError> for MerkleError {
     fn from(error: FromBytesError) -> Self {
         Self::HashToStringError { error }
+    }
+}
+
+impl From<StorageIdError> for MerkleError {
+    fn from(error: StorageIdError) -> Self {
+        Self::StorageIdError { error }
     }
 }
 
@@ -496,7 +530,10 @@ impl WorkingTree {
         let mut storage = self.index.storage.borrow_mut();
 
         let node = self.find_raw_tree(root, key, &mut storage)?;
-        let node = storage.get_tree(node).unwrap().to_vec();
+        let node = storage
+            .get_tree(node)
+            .ok_or(MerkleError::TreeNotFound)?
+            .to_vec();
         let node_length = node.len();
 
         let length = length.unwrap_or(node_length).min(node_length);
@@ -511,7 +548,7 @@ impl WorkingTree {
                 Entry::Commit(_) => continue,
             };
 
-            let key = storage.get_str(*key).to_string();
+            let key = storage.get_str(*key)?.to_string();
             children.push((key, value));
         }
 
@@ -522,7 +559,7 @@ impl WorkingTree {
         let mut storage = self.index.storage.borrow_mut();
 
         let entry = self.index.node_entry(node, &mut storage)?;
-        let node = storage.get_node(node).unwrap();
+        let node = storage.get_node(node).ok_or(MerkleError::NodeNotFound)?;
         let tree = match node.node_kind() {
             NodeKind::NonLeaf => WorkingTree {
                 index: self.index.clone(),
@@ -576,7 +613,7 @@ impl WorkingTree {
         let rv = match self.get_from_tree(root, key) {
             Ok(blob_id) => {
                 let storage = self.index.storage.borrow();
-                let blob = storage.get_blob(blob_id).unwrap();
+                let blob = storage.get_blob(blob_id).ok_or(MerkleError::BlobNotFound)?;
                 Ok(Some(blob.to_vec()))
             }
             Err(MerkleError::ValueNotFound { .. }) => Ok(None),
@@ -655,7 +692,9 @@ impl WorkingTree {
         match entry {
             Entry::Blob(blob_id) => {
                 // push key-value pair
-                let blob = storage.get_blob(*blob_id).unwrap();
+                let blob = storage
+                    .get_blob(*blob_id)
+                    .ok_or(MerkleError::BlobNotFound)?;
                 entries.push((self.string_to_key(path), blob.to_vec()));
                 Ok(())
             }
@@ -663,11 +702,14 @@ impl WorkingTree {
                 // Go through all descendants and gather errors. Remap error if there is a failure
                 // anywhere in the recursion paths. TODO: is revert possible?
 
-                let tree = storage.get_tree(*tree).unwrap().to_vec();
+                let tree = storage
+                    .get_tree(*tree)
+                    .ok_or(MerkleError::TreeNotFound)?
+                    .to_vec();
 
                 tree.iter()
                     .map(|(key, child_node)| {
-                        let key = storage.get_str(*key);
+                        let key = storage.get_str(*key)?;
 
                         let fullpath = path.to_owned() + "/" + key;
 
@@ -723,12 +765,15 @@ impl WorkingTree {
         let mut keyvalues: Vec<(ContextKeyOwned, ContextValue)> = Vec::new();
         let delimiter = if prefix.is_empty() { "" } else { "/" };
 
-        let prefixed_tree = storage.get_tree(prefixed_tree).unwrap().to_vec();
+        let prefixed_tree = storage
+            .get_tree(prefixed_tree)
+            .ok_or(MerkleError::TreeNotFound)?
+            .to_vec();
 
         for (key, child_node) in prefixed_tree.iter() {
             let entry = self.node_entry(*child_node, storage)?;
 
-            let key = storage.get_str(*key);
+            let key = storage.get_str(*key)?;
             // construct full path as Tree key is only one chunk of it
             let fullpath = self.key_to_string(prefix) + delimiter + key;
             std::mem::drop(key);
@@ -808,7 +853,7 @@ impl WorkingTree {
     /// Set key/val to the working tree.
     pub fn add(&self, key: &ContextKey, value: &[u8]) -> Result<Self, MerkleError> {
         let mut storage = self.index.storage.borrow_mut();
-        let blob_id = storage.add_blob_by_ref(value);
+        let blob_id = storage.add_blob_by_ref(value)?;
 
         let node = Self::get_leaf(Entry::Blob(blob_id));
         let entry = &self._add(key, node, &mut storage)?;
@@ -920,8 +965,8 @@ impl WorkingTree {
         let tree = self.find_raw_tree(root, path, storage)?;
 
         let tree = match new_node {
-            None => storage.remove(tree, last),
-            Some(new_node) => storage.insert(tree, last, new_node),
+            None => storage.remove(tree, last)?,
+            Some(new_node) => storage.insert(tree, last, new_node)?,
         };
 
         if tree.is_empty() {
@@ -975,11 +1020,13 @@ impl WorkingTree {
                 // Go through all descendants and gather errors. Remap error if there is a failure
                 // anywhere in the recursion paths. TODO: is revert possible?
                 // let storage = self.index.trees.borrow();
-                let tree = storage.get_tree(*tree).unwrap();
+                let tree = storage.get_tree(*tree).ok_or(MerkleError::TreeNotFound)?;
 
                 tree.iter()
                     .map(|(_, child_node)| {
-                        let child_node = storage.get_node(*child_node).unwrap();
+                        let child_node = storage
+                            .get_node(*child_node)
+                            .ok_or(MerkleError::NodeNotFound)?;
 
                         if child_node.is_commited() {
                             data.add_older_entry(child_node, storage)?;
@@ -1023,7 +1070,7 @@ impl WorkingTree {
             None => Err(MerkleError::EntryNotFound { hash_id }),
             Some(entry_bytes) => {
                 let mut storage = self.index.storage.borrow_mut();
-                Ok(deserialize(entry_bytes.as_ref(), &mut storage).unwrap())
+                deserialize(entry_bytes.as_ref(), &mut storage).map_err(Into::into)
             }
         }
     }

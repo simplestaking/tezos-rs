@@ -1,4 +1,7 @@
-use std::convert::{TryFrom, TryInto};
+use std::{
+    cmp::Ordering,
+    convert::{TryFrom, TryInto},
+};
 
 use modular_bitfield::prelude::*;
 use static_assertions::assert_eq_size;
@@ -26,17 +29,28 @@ impl Default for TreeStorageId {
 }
 
 impl TreeStorageId {
-    fn new_tree(start: usize, end: usize) -> Self {
-        let length = end.checked_sub(start).unwrap();
+    fn new_tree(start: usize, end: usize) -> Result<Self, StorageIdError> {
+        let length = end
+            .checked_sub(start)
+            .ok_or(StorageIdError::TreeInvalidStartEnd)?;
 
-        let start: u32 = start.try_into().unwrap();
-        let length: u32 = length.try_into().unwrap();
+        if start & !0x3FFFFFFF != 0 {
+            // Must fit in 30 bits
+            return Err(StorageIdError::TreeStartTooBig);
+        }
 
-        let tree_id = Self::new().with_start(start).with_length(length);
+        if length & !0xFFFFF != 0 {
+            // Must fit in 20 bits
+            return Err(StorageIdError::TreeLengthTooBig);
+        }
+
+        let tree_id = Self::new()
+            .with_start(start as u32)
+            .with_length(length as u32);
 
         debug_assert_eq!(tree_id.get(), (start as usize, end));
 
-        tree_id
+        Ok(tree_id)
     }
 
     fn get(self) -> (usize, usize) {
@@ -47,7 +61,8 @@ impl TreeStorageId {
     }
 
     pub fn empty() -> Self {
-        Self::new_tree(0, 0)
+        // Never fails
+        Self::new_tree(0, 0).unwrap()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -73,6 +88,17 @@ pub enum StorageIdError {
     BlobSliceTooBig,
     BlobStartTooBig,
     BlobLengthTooBig,
+    TreeInvalidStartEnd,
+    TreeStartTooBig,
+    TreeLengthTooBig,
+    NodeIdError,
+    StringNotFound,
+}
+
+impl From<NodeIdError> for StorageIdError {
+    fn from(_: NodeIdError) -> Self {
+        Self::NodeIdError
+    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -160,13 +186,13 @@ impl BlobStorageId {
     }
 
     fn get(self) -> BlobRef {
-        if self.bits >> 61 != 0 {
+        if self.is_inline() {
             let length = ((self.bits >> 56) & 0x1F) as u8;
 
             // Extract the inline value and make it a slice
             let value: u64 = self.bits & 0xFFFFFFFFFFFFFF;
             let value: [u8; 8] = value.to_ne_bytes();
-            let value: [u8; 7] = value[..7].try_into().unwrap();
+            let value: [u8; 7] = value[..7].try_into().unwrap(); // Never fails, `value` is [u8; 8]
 
             BlobRef::Inline { length, value }
         } else {
@@ -280,24 +306,21 @@ impl Storage {
         self.strings.get_string_id(s)
     }
 
-    pub fn get_str(&self, string_id: StringId) -> &str {
-        match self.strings.get(string_id) {
-            Some(s) => s,
-            None => {
-                panic!("STRING_ID={:?}", string_id);
-            }
-        }
+    pub fn get_str(&self, string_id: StringId) -> Result<&str, StorageIdError> {
+        self.strings
+            .get(string_id)
+            .ok_or(StorageIdError::StringNotFound)
     }
 
-    pub fn add_blob_by_ref(&mut self, value: &[u8]) -> BlobStorageId {
+    pub fn add_blob_by_ref(&mut self, value: &[u8]) -> Result<BlobStorageId, StorageIdError> {
         if value.len() < 8 {
-            BlobStorageId::new_inline(value).unwrap()
+            BlobStorageId::new_inline(value)
         } else {
             let start = self.blobs.len();
             self.blobs.extend_from_slice(value);
             let end = self.blobs.len();
 
-            BlobStorageId::new(start, end).unwrap()
+            BlobStorageId::new(start, end)
         }
     }
 
@@ -340,20 +363,48 @@ impl Storage {
         )
     }
 
+    fn find_in_tree(
+        &self,
+        tree: &[(StringId, NodeId)],
+        key: &str,
+    ) -> Result<Result<usize, usize>, StorageIdError> {
+        let mut error = None;
+
+        let result = tree.binary_search_by(|value| match self.get_str(value.0) {
+            Ok(value) => value.cmp(key),
+            Err(e) => {
+                // Take the error and stop the search
+                error = Some(e);
+                return Ordering::Equal;
+            }
+        });
+
+        if let Some(e) = error {
+            return Err(e);
+        };
+
+        return Ok(result);
+    }
+
     pub fn get_tree_node_id<'a>(&'a self, tree_id: TreeStorageId, key: &str) -> Option<NodeId> {
         let tree = self.get_tree(tree_id)?;
 
-        let index = tree
-            .binary_search_by(|value| {
-                let value = self.get_str(value.0);
-                value.cmp(key)
-            })
-            .ok()?;
+        let index = self.find_in_tree(tree, key).ok()?.ok()?;
+
+        // let index = tree
+        //     .binary_search_by(|value| {
+        //         let value = self.get_str(value.0);
+        //         value.cmp(key)
+        //     })
+        //     .ok()?;
 
         Some(tree[index].1)
     }
 
-    pub fn add_tree(&mut self, new_tree: &mut Vec<(StringId, NodeId)>) -> TreeStorageId {
+    pub fn add_tree(
+        &mut self,
+        new_tree: &mut Vec<(StringId, NodeId)>,
+    ) -> Result<TreeStorageId, StorageIdError> {
         let start = self.trees.len();
         self.trees.append(new_tree);
         let end = self.trees.len();
@@ -375,9 +426,14 @@ impl Storage {
         result
     }
 
-    pub fn insert(&mut self, tree_id: TreeStorageId, key_str: &str, value: Node) -> TreeStorageId {
+    pub fn insert(
+        &mut self,
+        tree_id: TreeStorageId,
+        key_str: &str,
+        value: Node,
+    ) -> Result<TreeStorageId, StorageIdError> {
         let key_id = self.get_string_id(key_str);
-        let node_id = self.nodes.push(value).unwrap();
+        let node_id = self.nodes.push(value)?;
 
         self.with_new_tree(|this, new_tree| {
             let tree = match this.get_tree(tree_id) {
@@ -388,10 +444,7 @@ impl Storage {
                 }
             };
 
-            let index = tree.binary_search_by(|value| {
-                let value = this.get_str(value.0);
-                value.cmp(&key_str)
-            });
+            let index = this.find_in_tree(tree, key_str)?;
 
             match index {
                 Ok(found) => {
@@ -409,19 +462,20 @@ impl Storage {
         })
     }
 
-    pub fn remove(&mut self, tree_id: TreeStorageId, key: &str) -> TreeStorageId {
+    pub fn remove(
+        &mut self,
+        tree_id: TreeStorageId,
+        key: &str,
+    ) -> Result<TreeStorageId, StorageIdError> {
         self.with_new_tree(|this, new_tree| {
             let tree = match this.get_tree(tree_id) {
                 Some(tree) if !tree.is_empty() => tree,
-                _ => return tree_id,
+                _ => return Ok(tree_id),
             };
 
-            let index = match tree.binary_search_by(|value| {
-                let value = this.get_str(value.0);
-                value.cmp(key)
-            }) {
+            let index = match this.find_in_tree(tree, key)? {
                 Ok(index) => index,
-                Err(_) => return tree_id,
+                Err(_) => return Ok(tree_id),
             };
 
             if index > 0 {
@@ -468,19 +522,19 @@ mod tests {
     fn test_storage() {
         let mut storage = Storage::new();
 
-        let blob_id = storage.add_blob_by_ref(&[1]);
+        let blob_id = storage.add_blob_by_ref(&[1]).unwrap();
         let entry = Entry::Blob(blob_id);
 
-        let blob2_id = storage.add_blob_by_ref(&[2]);
+        let blob2_id = storage.add_blob_by_ref(&[2]).unwrap();
         let entry2 = Entry::Blob(blob2_id);
 
         let node1 = Node::new(Leaf, entry.clone());
         let node2 = Node::new(Leaf, entry2.clone());
 
         let tree_id = TreeStorageId::empty();
-        let tree_id = storage.insert(tree_id, "a", node1.clone());
-        let tree_id = storage.insert(tree_id, "b", node2.clone());
-        let tree_id = storage.insert(tree_id, "0", node1.clone());
+        let tree_id = storage.insert(tree_id, "a", node1.clone()).unwrap();
+        let tree_id = storage.insert(tree_id, "b", node2.clone()).unwrap();
+        let tree_id = storage.insert(tree_id, "0", node1.clone()).unwrap();
 
         assert_eq!(
             storage.get_owned_tree(tree_id).unwrap(),
@@ -500,9 +554,9 @@ mod tests {
         let slice2 = &[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
         let slice3 = &[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
 
-        let blob1 = storage.add_blob_by_ref(slice1);
-        let blob2 = storage.add_blob_by_ref(slice2);
-        let blob3 = storage.add_blob_by_ref(slice3);
+        let blob1 = storage.add_blob_by_ref(slice1).unwrap();
+        let blob2 = storage.add_blob_by_ref(slice2).unwrap();
+        let blob3 = storage.add_blob_by_ref(slice3).unwrap();
 
         assert_eq!(storage.get_blob(blob1).unwrap().as_ref(), slice1);
         assert_eq!(storage.get_blob(blob2).unwrap().as_ref(), slice2);

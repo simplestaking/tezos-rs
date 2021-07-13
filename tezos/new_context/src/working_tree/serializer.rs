@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    storage::{Blob, NodeIdError, Storage},
+    storage::{Blob, NodeIdError, Storage, StorageIdError},
     Entry, Node,
 };
 
@@ -26,7 +26,10 @@ const COMPACT_HASH_ID_BIT: u32 = 1 << 23;
 pub enum SerializationError {
     IOError,
     TreeNotFound,
+    NodeNotFound,
+    BlobNotFound,
     TryFromIntError,
+    StorageIdError { error: StorageIdError },
 }
 
 impl From<std::io::Error> for SerializationError {
@@ -38,6 +41,12 @@ impl From<std::io::Error> for SerializationError {
 impl From<TryFromIntError> for SerializationError {
     fn from(_: TryFromIntError) -> Self {
         Self::TryFromIntError
+    }
+}
+
+impl From<StorageIdError> for SerializationError {
+    fn from(error: StorageIdError) -> Self {
+        Self::StorageIdError { error }
     }
 }
 
@@ -83,10 +92,9 @@ pub fn serialize_entry(
             nchild = tree.len();
 
             for (key_id, node_id) in tree {
-                let key = storage.get_str(*key_id);
+                let key = storage.get_str(*key_id)?;
 
-                let node = storage.get_node(*node_id).unwrap();
-                // let node_bitfield = node.bitfield.get();
+                let node = storage.get_node(*node_id).ok_or(NodeNotFound)?;
 
                 let hash_id: u32 = node.hash_id().map(|h| h.as_u32()).unwrap_or(0);
                 let kind = node.node_kind();
@@ -105,18 +113,6 @@ pub fn serialize_entry(
                         output.write(key.as_bytes())?;
                         keys_len += len;
                     }
-                    // len if len < STRING_INTERN_THRESHOLD => {
-                    //     let byte: [u8; 1] = KeyDescriptor::new()
-                    //         .with_length(KeyLength::KeyId)
-                    //         .with_kind(kind)
-                    //         .with_inline_length(0)
-                    //         .into_bytes();
-                    //     output.write(&byte[..])?;
-
-                    //     let key_id: u32 = key_id.as_u32();
-                    //     output.write(&key_id.to_ne_bytes())?;
-                    //     keys_len += 4;
-                    // }
                     len => {
                         let byte: [u8; 1] = KeyNodeDescriptor::new()
                             .with_kind(kind)
@@ -156,7 +152,7 @@ pub fn serialize_entry(
             debug_assert!(!blob_id.is_inline());
 
             output.write(&[ID_BLOB])?;
-            let blob = storage.get_blob(*blob_id).unwrap();
+            let blob = storage.get_blob(*blob_id).ok_or(BlobNotFound)?;
             output.write(blob.as_ref())?;
         }
         Entry::Commit(commit) => {
@@ -191,6 +187,7 @@ pub enum DeserializationError {
     MissingRootHash,
     MissingHash,
     NodeIdError,
+    StorageIdError { error: StorageIdError },
 }
 
 impl From<TryFromSliceError> for DeserializationError {
@@ -217,6 +214,12 @@ impl From<NodeIdError> for DeserializationError {
     }
 }
 
+impl From<StorageIdError> for DeserializationError {
+    fn from(error: StorageIdError) -> Self {
+        Self::StorageIdError { error }
+    }
+}
+
 pub fn deserialize(data: &[u8], storage: &mut Storage) -> Result<Entry, DeserializationError> {
     let mut pos = 1;
 
@@ -227,91 +230,92 @@ pub fn deserialize(data: &[u8], storage: &mut Storage) -> Result<Entry, Deserial
         ID_TREE => {
             let data_length = data.len();
 
-            let tree_id = storage.with_new_tree::<_, Result<_, Error>>(|storage, new_tree| {
-                while pos < data_length {
-                    let descriptor = data.get(pos..pos + 1).ok_or(UnexpectedEOF)?;
-                    let descriptor = KeyNodeDescriptor::from_bytes([descriptor[0]; 1]);
+            let tree_id =
+                storage.with_new_tree::<_, Result<_, Error>>(|storage, new_tree| {
+                    while pos < data_length {
+                        let descriptor = data.get(pos..pos + 1).ok_or(UnexpectedEOF)?;
+                        let descriptor = KeyNodeDescriptor::from_bytes([descriptor[0]; 1]);
 
-                    pos += 1;
+                        pos += 1;
 
-                    let key_id = match descriptor.key_inline_length() as usize {
-                        len if len > 0 => {
-                            // The key is in the next `len` bytes
-                            let key_bytes = data.get(pos..pos + len).ok_or(UnexpectedEOF)?;
-                            let key_str = std::str::from_utf8(key_bytes)?;
-                            pos += len;
-                            storage.get_string_id(key_str)
-                        }
-                        _ => {
-                            // The key length is in 2 bytes, followed by the key itself
-                            let key_length = data.get(pos..pos + 2).ok_or(UnexpectedEOF)?;
-                            let key_length = u16::from_ne_bytes(key_length.try_into()?);
-                            let key_length = key_length as usize;
+                        let key_id = match descriptor.key_inline_length() as usize {
+                            len if len > 0 => {
+                                // The key is in the next `len` bytes
+                                let key_bytes = data.get(pos..pos + len).ok_or(UnexpectedEOF)?;
+                                let key_str = std::str::from_utf8(key_bytes)?;
+                                pos += len;
+                                storage.get_string_id(key_str)
+                            }
+                            _ => {
+                                // The key length is in 2 bytes, followed by the key itself
+                                let key_length = data.get(pos..pos + 2).ok_or(UnexpectedEOF)?;
+                                let key_length = u16::from_ne_bytes(key_length.try_into()?);
+                                let key_length = key_length as usize;
 
-                            let key_bytes = data
-                                .get(pos + 2..pos + 2 + key_length)
+                                let key_bytes = data
+                                    .get(pos + 2..pos + 2 + key_length)
+                                    .ok_or(UnexpectedEOF)?;
+                                let key_str = std::str::from_utf8(key_bytes)?;
+                                pos += 2 + key_length;
+                                storage.get_string_id(key_str)
+                            }
+                        };
+
+                        let kind = descriptor.kind();
+                        let blob_inline_length = descriptor.blob_inline_length() as usize;
+
+                        let node = if blob_inline_length > 0 {
+                            // The blob is inlined
+
+                            let blob = data
+                                .get(pos..pos + blob_inline_length)
                                 .ok_or(UnexpectedEOF)?;
-                            let key_str = std::str::from_utf8(key_bytes)?;
-                            pos += 2 + key_length;
-                            storage.get_string_id(key_str)
-                        }
-                    };
+                            let blob_id = storage.add_blob_by_ref(blob)?;
 
-                    let kind = descriptor.kind();
-                    let blob_inline_length = descriptor.blob_inline_length() as usize;
+                            pos += blob_inline_length;
 
-                    let node = if blob_inline_length > 0 {
-                        // The blob is inlined
-
-                        let blob = data
-                            .get(pos..pos + blob_inline_length)
-                            .ok_or(UnexpectedEOF)?;
-                        let blob_id = storage.add_blob_by_ref(blob);
-
-                        pos += blob_inline_length;
-
-                        Node::new_commited(kind, None, Some(Entry::Blob(blob_id)))
-                    } else {
-                        let hash_id = data.get(pos).copied().ok_or(UnexpectedEOF)?;
-
-                        if hash_id & 1 << 7 != 0 {
-                            // The HashId is in 3 bytes
-                            let hash_id = data.get(pos..pos + 3).ok_or(UnexpectedEOF)?;
-
-                            let hash_id: u32 = (hash_id[0] as u32) << 16
-                                | (hash_id[1] as u32) << 8
-                                | hash_id[2] as u32;
-                            let hash_id = hash_id & (COMPACT_HASH_ID_BIT - 1);
-                            let hash_id = HashId::new(hash_id).ok_or(MissingHash)?;
-
-                            pos += 3;
-
-                            Node::new_commited(kind, Some(hash_id), None)
+                            Node::new_commited(kind, None, Some(Entry::Blob(blob_id)))
                         } else {
-                            // The HashId is in 4 bytes
-                            let hash_id = data.get(pos..pos + 4).ok_or(UnexpectedEOF)?;
-                            let hash_id = u32::from_be_bytes(hash_id.try_into()?);
-                            let hash_id = HashId::new(hash_id).ok_or(MissingHash)?;
+                            let hash_id = data.get(pos).copied().ok_or(UnexpectedEOF)?;
 
-                            pos += 4;
+                            if hash_id & 1 << 7 != 0 {
+                                // The HashId is in 3 bytes
+                                let hash_id = data.get(pos..pos + 3).ok_or(UnexpectedEOF)?;
 
-                            Node::new_commited(kind, Some(hash_id), None)
-                        }
-                    };
+                                let hash_id: u32 = (hash_id[0] as u32) << 16
+                                    | (hash_id[1] as u32) << 8
+                                    | hash_id[2] as u32;
+                                let hash_id = hash_id & (COMPACT_HASH_ID_BIT - 1);
+                                let hash_id = HashId::new(hash_id).ok_or(MissingHash)?;
 
-                    let node_id = storage.add_node(node)?;
+                                pos += 3;
 
-                    new_tree.push((key_id, node_id));
-                }
+                                Node::new_commited(kind, Some(hash_id), None)
+                            } else {
+                                // The HashId is in 4 bytes
+                                let hash_id = data.get(pos..pos + 4).ok_or(UnexpectedEOF)?;
+                                let hash_id = u32::from_be_bytes(hash_id.try_into()?);
+                                let hash_id = HashId::new(hash_id).ok_or(MissingHash)?;
 
-                Ok(storage.add_tree(new_tree))
-            })?;
+                                pos += 4;
+
+                                Node::new_commited(kind, Some(hash_id), None)
+                            }
+                        };
+
+                        let node_id = storage.add_node(node)?;
+
+                        new_tree.push((key_id, node_id));
+                    }
+
+                    Ok(storage.add_tree(new_tree))
+                })??;
 
             Ok(Entry::Tree(tree_id))
         }
         ID_BLOB => {
             let blob = data.get(pos..).ok_or(UnexpectedEOF)?;
-            let blob_id = storage.add_blob_by_ref(blob);
+            let blob_id = storage.add_blob_by_ref(blob)?;
             Ok(Entry::Blob(blob_id))
         }
         ID_COMMIT => {
@@ -445,21 +449,27 @@ mod tests {
         let mut storage = Storage::new();
 
         let tree_id = TreeStorageId::empty();
-        let tree_id = storage.insert(
-            tree_id,
-            "a",
-            Node::new_commited(NodeKind::Leaf, HashId::new(1), None),
-        );
-        let tree_id = storage.insert(
-            tree_id,
-            "bab",
-            Node::new_commited(NodeKind::Leaf, HashId::new(2), None),
-        );
-        let tree_id = storage.insert(
-            tree_id,
-            "0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            Node::new_commited(NodeKind::Leaf, HashId::new(3), None),
-        );
+        let tree_id = storage
+            .insert(
+                tree_id,
+                "a",
+                Node::new_commited(NodeKind::Leaf, HashId::new(1), None),
+            )
+            .unwrap();
+        let tree_id = storage
+            .insert(
+                tree_id,
+                "bab",
+                Node::new_commited(NodeKind::Leaf, HashId::new(2), None),
+            )
+            .unwrap();
+        let tree_id = storage
+            .insert(
+                tree_id,
+                "0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Node::new_commited(NodeKind::Leaf, HashId::new(3), None),
+            )
+            .unwrap();
 
         let mut data = Vec::with_capacity(1024);
         serialize_entry(&Entry::Tree(tree_id), &mut data, &storage).unwrap();
@@ -479,7 +489,7 @@ mod tests {
         assert_eq!(iter.map(|h| h.as_u32()).collect::<Vec<_>>(), &[3, 1, 2]);
 
         // Not inlined value
-        let blob_id = storage.add_blob_by_ref(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        let blob_id = storage.add_blob_by_ref(&[1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
 
         let mut data = Vec::with_capacity(1024);
         serialize_entry(&Entry::Blob(blob_id), &mut data, &storage).unwrap();

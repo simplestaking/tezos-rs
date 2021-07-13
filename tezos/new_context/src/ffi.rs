@@ -542,22 +542,22 @@ ocaml_export! {
         rt,
         context: OCamlRef<DynBox<TezedgeContextFFI>>,
         value: OCamlRef<OCamlBytes>
-    ) -> OCaml<DynBox<WorkingTreeFFI>> {
+    ) -> OCaml<Result<DynBox<WorkingTreeFFI>, String>> {
         let ocaml_context = rt.get(context);
         let context: &TezedgeContextFFI = ocaml_context.borrow();
         let context = context.0.borrow().clone();
         let value = rt.get(value);
-        // let value: ContextValue = value.to_rust(rt);
 
         let value_id = {
             let mut storage = context.index.storage.borrow_mut();
             storage.add_blob_by_ref(value.as_bytes())
         };
 
-        // let mut storage = context.index.storage.borrow_mut();
-        // let value_id = storage.add_value(value);
-
-        let tree = WorkingTree::new_with_value(context.index, value_id);
+        let tree = value_id.map(|v| {
+            WorkingTree::new_with_value(context.index, v)
+        }).map_err(|err| {
+            format!("{:?}", err)
+        });
 
         tree.to_ocaml(rt)
     }
