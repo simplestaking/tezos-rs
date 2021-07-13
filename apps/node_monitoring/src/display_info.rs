@@ -1,10 +1,11 @@
 // Copyright (c) SimpleStaking, Viable Systems and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
+use core::convert::TryFrom;
 use std::fmt;
 
+use failure::format_err;
 use getset::{CopyGetters, Getters};
-// use merge::Merge;
 use serde::Serialize;
 
 #[derive(Serialize, Debug)]
@@ -137,6 +138,30 @@ impl From<OcamlDiskData> for DiskData {
 impl From<TezedgeDiskData> for DiskData {
     fn from(data: TezedgeDiskData) -> Self {
         DiskData::Tezedge(data)
+    }
+}
+
+impl TryFrom<DiskData> for TezedgeDiskData {
+    type Error = failure::Error;
+
+    fn try_from(data: DiskData) -> Result<Self, failure::Error> {
+        if let DiskData::Tezedge(disk) = data {
+            Ok(disk)
+        } else {
+            Err(format_err!("Cannot conver to TezedgeDiskData "))
+        }
+    }
+}
+
+impl TryFrom<DiskData> for OcamlDiskData {
+    type Error = failure::Error;
+
+    fn try_from(data: DiskData) -> Result<Self, failure::Error> {
+        if let DiskData::Ocaml(disk) = data {
+            Ok(disk)
+        } else {
+            Err(format_err!("Cannot conver to OcamlDiskData "))
+        }
     }
 }
 

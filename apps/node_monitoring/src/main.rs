@@ -4,32 +4,31 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
-use slog::{info, error, Drain, Level, Logger};
+use slog::{error, info, Drain, Level, Logger};
 use tokio::signal;
 use tokio::time::{sleep, Duration};
 
-use procfs::ProcResult;
+use procfs::net::{tcp, tcp6, TcpState};
 use procfs::process;
 use procfs::process::Process;
-use procfs::net::{tcp, tcp6, TcpState};
+use procfs::ProcResult;
 
-mod monitors;
 mod configuration;
 mod constants;
-mod slack;
 mod display_info;
+mod monitors;
 mod node;
 mod rpc;
+mod slack;
 
-use crate::monitors::alerts::Alerts;
-use crate::monitors::resource::ResourceUtilization;
 use crate::configuration::DeployMonitoringEnvironment;
 use crate::constants::MEASUREMENTS_MAX_CAPACITY;
-
+use crate::monitors::alerts::Alerts;
+use crate::monitors::resource::{ResourceUtilization, ResourceUtilizationStorage};
 
 // TODO: get this from a config, and default to this
 // const TEZEDGE_PORT: u16 = 18732;
-const PROCESS_LOOKUP_INTERVAL: Duration = Duration::from_secs(10);
+// const PROCESS_LOOKUP_INTERVAL: Duration = Duration::from_secs(10);
 
 #[tokio::main]
 async fn main() {
@@ -57,67 +56,66 @@ async fn main() {
         )
     });
 
-    // let tezedge_node_pid = find_node_process_id();
-    let pid = loop {
-        if let Some(pid) = find_node_process_id() {
-            break pid;
-        } else {
-            println!("No tezedge process found... Trying again in {}s", PROCESS_LOOKUP_INTERVAL.as_secs());
-            sleep(PROCESS_LOOKUP_INTERVAL).await;
+    let mut storages = Vec::new();
+
+    for mut node in env.nodes.clone() {
+        if let Some(pid) = find_node_process_id(node.port()) {
+            node.set_pid(Some(pid));
+            let resource_storage = ResourceUtilizationStorage::new(
+                node.clone(),
+                Arc::new(RwLock::new(VecDeque::<ResourceUtilization>::with_capacity(
+                    MEASUREMENTS_MAX_CAPACITY,
+                ))),
+            );
+            storages.push(resource_storage);
         }
-    };
+    }
 
-    println!("Found process! PID: {}", pid);
+    if storages.len() > 0 {
+        let alerts = Alerts::new(
+            tezedge_alert_thresholds,
+            ocaml_alert_thresholds,
+            tezedge_volume_path.to_string(),
+        );
 
-    let mut storage_map = HashMap::new();
-    storage_map.insert(
-        "tezedge",
-        Arc::new(RwLock::new(VecDeque::<ResourceUtilization>::with_capacity(
-            MEASUREMENTS_MAX_CAPACITY,
-        ))),
-    );
+        let mut resource_monitor = ResourceMonitor::new(
+            storages.clone(),
+            HashMap::new(),
+            alerts,
+            log.clone(),
+            slack_server,
+            tezedge_volume_path.to_string(),
+        );
 
-    let alerts = Alerts::new(
-        tezedge_alert_thresholds,
-        ocaml_alert_thresholds,
-        tezedge_volume_path.to_string(),
-    );
-    let mut resource_monitor = ResourceMonitor::new(
-        storage_map.clone(),
-        HashMap::new(),
-        alerts,
-        log.clone(),
-        slack_server,
-        tezedge_volume_path.to_string(),
-    );
-
-    let thread_log = log.clone();
-    let handle = tokio::spawn(async move {
-        loop {
-            if let Err(e) = resource_monitor.take_measurement().await {
-                error!(thread_log, "Resource monitoring error: {}", e);
+        let thread_log = log.clone();
+        let handle = tokio::spawn(async move {
+            loop {
+                if let Err(e) = resource_monitor.take_measurement().await {
+                    error!(thread_log, "Resource monitoring error: {}", e);
+                }
+                sleep(Duration::from_secs(resource_monitor_interval)).await;
             }
-            sleep(Duration::from_secs(resource_monitor_interval)).await;
-        }
-    });
+        });
 
-    info!(log, "Starting rpc server on port {}", &env.rpc_port);
-    let rpc_server_handle = rpc::spawn_rpc_server(env.rpc_port, log.clone(), storage_map);
+        info!(log, "Starting rpc server on port {}", &env.rpc_port);
+        let rpc_server_handle = rpc::spawn_rpc_server(env.rpc_port, log.clone(), storages);
 
-    // wait for SIGINT
-    signal::ctrl_c()
-        .await
-        .expect("Failed to listen for ctrl-c event");
-    info!(log, "Ctrl-c or SIGINT received!");
+        // wait for SIGINT
+        signal::ctrl_c()
+            .await
+            .expect("Failed to listen for ctrl-c event");
+        info!(log, "Ctrl-c or SIGINT received!");
 
-
-    // drop the looping thread handles (forces exit)
-    drop(handle);
-    drop(rpc_server_handle);
+        // drop the looping thread handles (forces exit)
+        drop(handle);
+        drop(rpc_server_handle);
+    } else {
+        panic!("No nodes found to monitor!");
+    }
 }
 
-/// Find the tezedge node to monitor
-fn find_node_process_id() -> Option<i32> {
+/// Find the node to monitor
+fn find_node_process_id(port: u16) -> Option<i32> {
     let all_procs = process::all_processes().expect("No processes found on system");
 
     let mut process_map: HashMap<u32, &Process> = HashMap::new();
@@ -138,9 +136,9 @@ fn find_node_process_id() -> Option<i32> {
     let tcp6 = tcp6().expect("Cannot get the tcp6 table");
 
     for entry in tcp.into_iter().chain(tcp6) {
-        if entry.local_address.port() == TEZEDGE_PORT && entry.state == TcpState::Listen {
+        if port == entry.local_address.port() && entry.state == TcpState::Listen {
             if let Some(process) = process_map.get(&entry.inode) {
-                return Some(process.pid)
+                return Some(process.pid());
             }
         }
     }

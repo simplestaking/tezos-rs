@@ -17,6 +17,7 @@ const FE_CAPACITY: usize = 1000;
 
 #[derive(Debug, Deserialize)]
 pub struct MeasurementOptions {
+    tag: Option<String>,
     limit: Option<usize>,
     offset: Option<usize>,
     every_nth: Option<usize>,
@@ -27,8 +28,10 @@ pub async fn get_measurements(
     log: Logger,
     measurements_storage: ResourceUtilizationStorage,
 ) -> Result<impl warp::Reply, reject::Rejection> {
-    let storage = measurements_storage.read().unwrap();
+    let storage = measurements_storage.storage().read().unwrap();
 
+    info!(log, "Serving: {}", measurements_storage.node().tag());
+    info!(log, "Measurement count: {}", storage.len());
     let ret: VecDeque<ResourceUtilization> = if let Some(every_nth) = options.every_nth {
         storage
             .clone()

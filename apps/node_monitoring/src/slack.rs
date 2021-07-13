@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 
-use reqwest::header::AUTHORIZATION;
 use slog::{error, info, Logger};
 
 #[derive(Clone)]
@@ -49,27 +48,27 @@ impl SlackServer {
         Ok(())
     }
 
-    pub async fn upload_file(&self, text: &str, file_content: &str) -> Result<(), failure::Error> {
-        let params = [
-            ("initial_comment", text),
-            ("content", file_content),
-            ("channels", &self.channel),
-        ];
+    // pub async fn upload_file(&self, text: &str, file_content: &str) -> Result<(), failure::Error> {
+    //     let params = [
+    //         ("initial_comment", text),
+    //         ("content", file_content),
+    //         ("channels", &self.channel),
+    //     ];
 
-        let client = reqwest::Client::new();
+    //     let client = reqwest::Client::new();
 
-        let res = client
-            .post("https://slack.com/api/files.upload")
-            .header(AUTHORIZATION, self.auth_token.clone())
-            .form(&params)
-            .send()
-            .await?;
+    //     let res = client
+    //         .post("https://slack.com/api/files.upload")
+    //         .header(AUTHORIZATION, self.auth_token.clone())
+    //         .form(&params)
+    //         .send()
+    //         .await?;
 
-        info!(
-            self.log,
-            "Slack file upload response: {}",
-            res.text().await?
-        );
-        Ok(())
-    }
+    //     info!(
+    //         self.log,
+    //         "Slack file upload response: {}",
+    //         res.text().await?
+    //     );
+    //     Ok(())
+    // }
 }

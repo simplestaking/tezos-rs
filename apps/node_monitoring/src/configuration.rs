@@ -3,10 +3,10 @@
 
 use clap::{App, Arg};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::{env, fmt};
 
-use crate::node::{OcamlNode, TezedgeNode};
+use crate::node::{Node, NodeType};
 
 #[derive(Clone, Debug)]
 pub struct DeployMonitoringEnvironment {
@@ -36,18 +36,14 @@ pub struct DeployMonitoringEnvironment {
 
     // flag for volume cleanup mode
     // pub cleanup_volumes: bool,
-
     pub slack_configuration: Option<SlackConfiguration>,
 
     // pub tezedge_only: bool,
 
     // pub disable_debugger: bool,
-
     pub tezedge_volume_path: String,
 
-    pub tezedge_nodes: Option<Vec<TezedgeNode>>,
-
-    pub ocaml_nodes: Option<Vec<OcamlNode>>,
+    pub nodes: Vec<Node>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -84,8 +80,8 @@ pub struct SlackConfiguration {
 }
 
 fn deploy_monitoring_app() -> App<'static, 'static> {
-    let app = App::new("Tezedge deploy monitoring app")
-        .version("0.10.0")
+    let app = App::new("Tezedge node monitoring app")
+        .version("1.7.0")
         .author("SimpleStaking and the project contributors")
         .setting(clap::AppSettings::AllArgsOverrideSelf)
         .arg(
@@ -226,7 +222,13 @@ pub fn validate_required_arg(args: &clap::ArgMatches, arg_name: &str) {
 }
 
 fn validate_required_args(args: &clap::ArgMatches) {
-    validate_required_arg(args, "compose-file-path");
+    if !args.is_present("tezedge-nodes") {
+        validate_required_arg(args, "ocaml-nodes");
+    }
+
+    if !args.is_present("ocaml-nodes") {
+        validate_required_arg(args, "tezedge-nodes");
+    }
 }
 
 fn check_slack_args(args: &clap::ArgMatches) -> Option<SlackConfiguration> {
@@ -257,7 +259,7 @@ impl DeployMonitoringEnvironment {
         let app = deploy_monitoring_app();
         let args = app.clone().get_matches();
 
-        // validate_required_args(&args);
+        validate_required_args(&args);
         let slack_configuration = check_slack_args(&args);
 
         let tezedge_alert_thresholds = AlertThresholds {
@@ -287,9 +289,8 @@ impl DeployMonitoringEnvironment {
                 }),
         };
 
-        let tezedge_volume_path = env::var("TEZEDGE_VOLUME_PATH").unwrap_or(
-            "/tmp/deploy_monitoring/tezedge".to_string(),
-        );
+        let tezedge_volume_path =
+            env::var("TEZEDGE_VOLUME_PATH").unwrap_or("/tmp/deploy_monitoring/tezedge".to_string());
 
         if !Path::new(&tezedge_volume_path).exists() {
             fs::create_dir_all(&tezedge_volume_path).unwrap_or_else(|_| {
@@ -334,19 +335,47 @@ impl DeployMonitoringEnvironment {
             });
         }
 
-        let tezetdge_nodes: Vec<TezedgeNode> = if let Some(vals) = args.values_of("tezedge-nodes") {
-            vals.into_iter().map(|val| {
-                let components = val.split(":").collect();
-                if components.len() == 2 {
-                    TezedgeNode::new(components[1], components[2])
-                } else {
-                    // TODO: rework probably
-                    panic!("Wrong format!!!")
-                }
-            }).collect()
+        let mut tezedge_nodes: Vec<Node> = if let Some(vals) = args.values_of("tezedge-nodes") {
+            vals.into_iter()
+                .map(|val| {
+                    let components: Vec<&str> = val.split(":").collect();
+                    if components.len() == 2 {
+                        let port = components[1]
+                            .parse::<u16>()
+                            .expect("Expected valid port number");
+                        let tag = components[0].to_string();
+                        Node::new(port, tag, None, "DUMMy".to_string(), NodeType::Tezedge)
+                    } else {
+                        // TODO: rework probably
+                        panic!("Wrong format!!!")
+                    }
+                })
+                .collect()
         } else {
-            None
-        }
+            Vec::new()
+        };
+
+        let ocaml_nodes: Vec<Node> = if let Some(vals) = args.values_of("ocaml-nodes") {
+            vals.into_iter()
+                .map(|val| {
+                    let components: Vec<&str> = val.split(":").collect();
+                    if components.len() == 2 {
+                        let port = components[1]
+                            .parse::<u16>()
+                            .expect("Expected valid port number");
+                        let tag = components[0].to_string();
+                        Node::new(port, tag, None, "DUMMy".to_string(), NodeType::Ocaml)
+                    } else {
+                        // TODO: rework probably
+                        panic!("Wrong format!!!")
+                    }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        tezedge_nodes.extend(ocaml_nodes);
 
         DeployMonitoringEnvironment {
             log_level: args
@@ -368,6 +397,7 @@ impl DeployMonitoringEnvironment {
             ocaml_alert_thresholds,
             slack_configuration,
             tezedge_volume_path,
+            nodes: tezedge_nodes,
         }
     }
 }

@@ -4,6 +4,7 @@
 use std::cmp;
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::convert::TryInto;
 use std::sync::{Arc, RwLock};
 
 use chrono::Utc;
@@ -15,32 +16,29 @@ use sysinfo::{System, SystemExt};
 
 use shell::stats::memory::ProcessMemoryStats;
 
-use crate::constants::{MEASUREMENTS_MAX_CAPACITY, OCAML_PORT};
+use crate::constants::MEASUREMENTS_MAX_CAPACITY;
 use crate::display_info::{NodeInfo, OcamlDiskData, TezedgeDiskData};
 use crate::monitors::alerts::Alerts;
-use crate::node::{Node, TezedgeNode, OcamlNode};
+use crate::node::{Node, NodeType};
 use crate::slack::SlackServer;
 
+#[derive(Clone, Debug, Getters)]
 pub struct ResourceUtilizationStorage {
-    node_rpc_port: u16,
-    pid: i32,
+    #[get = "pub"]
+    node: Node,
+
+    #[get = "pub"]
     storage: Arc<RwLock<VecDeque<ResourceUtilization>>>,
 }
 
 impl ResourceUtilizationStorage {
-    pub fn new(node_rpc_port: u16, pid: i32, storage: Arc<RwLock<VecDeque<ResourceUtilization>>>) -> Self {
-        Self {
-            node_rpc_port,
-            pid,
-            storage,
-        }
+    pub fn new(node: Node, storage: Arc<RwLock<VecDeque<ResourceUtilization>>>) -> Self {
+        Self { node, storage }
     }
 }
 
-pub type ResourceUtilizationStorageMap = HashMap<&'static str, ResourceUtilizationStorage>;
-
 pub struct ResourceMonitor {
-    resource_utilization: ResourceUtilizationStorageMap,
+    resource_utilization: Vec<ResourceUtilizationStorage>,
     last_checked_head_level: HashMap<String, u64>,
     alerts: Alerts,
     log: Logger,
@@ -198,7 +196,7 @@ pub struct CpuStats {
 
 impl ResourceMonitor {
     pub fn new(
-        resource_utilization: ResourceUtilizationStorageMap,
+        resource_utilization: Vec<ResourceUtilizationStorage>,
         last_checked_head_level: HashMap<String, u64>,
         alerts: Alerts,
         log: Logger,
@@ -230,23 +228,19 @@ impl ResourceMonitor {
 
         system.refresh_all();
 
-        for (node_tag, resource_storage) in resource_utilization {
-            let ResourceUtilizationStorage {
-                storage,
-                node_rpc_port,
-                pid
-            } = resource_storage;
+        for resource_storage in resource_utilization {
+            let ResourceUtilizationStorage { node, storage } = resource_storage;
 
-            let node_resource_measurement = if node_tag == &"tezedge" {
-                let current_head_info = TezedgeNode::collect_head_data(*node_rpc_port).await?;
-                let tezedge_node = TezedgeNode::collect_memory_data(*node_rpc_port).await?;
+            let node_resource_measurement = if node.node_type() == &NodeType::Tezedge {
+                let current_head_info = node.collect_head_data().await?;
+                let tezedge_node = node.collect_memory_stats(system)?;
                 let protocol_runners =
-                    TezedgeNode::collect_protocol_runners_memory_stats(*node_rpc_port).await?;
-                let tezedge_disk = TezedgeNode::collect_disk_data(tezedge_volume_path.to_string())?;
+                    node.collect_memory_stats_children(system, "protocol-runner")?;
+                let tezedge_disk = node.collect_disk_data()?;
 
-                let tezedge_cpu = TezedgeNode::collect_cpu_data(system, *pid)?;
+                let tezedge_cpu = node.collect_cpu_data(system)?;
                 let protocol_runners_cpu =
-                    TezedgeNode::collect_cpu_data(system, "protocol-runner")?;
+                    node.collect_cpu_data_children(system, "protocol-runner")?;
                 let resources = ResourceUtilization {
                     timestamp: chrono::Local::now().timestamp(),
                     memory: MemoryStats {
@@ -254,7 +248,7 @@ impl ResourceMonitor {
                         protocol_runners: Some(protocol_runners),
                         validators: None,
                     },
-                    tezedge_disk: Some(tezedge_disk),
+                    tezedge_disk: Some(tezedge_disk.try_into()?),
                     ocaml_disk: None,
                     cpu: CpuStats {
                         node: tezedge_cpu,
@@ -263,7 +257,8 @@ impl ResourceMonitor {
                     head_info: current_head_info,
                 };
                 handle_alerts(
-                    node_tag,
+                    NodeType::Tezedge,
+                    node.tag(),
                     resources.clone(),
                     last_checked_head_level,
                     slack.clone(),
@@ -273,11 +268,13 @@ impl ResourceMonitor {
                 .await?;
                 resources
             } else {
-                let current_head_info = OcamlNode::collect_head_data(OCAML_PORT).await?;
-                let ocaml_node = OcamlNode::collect_memory_data(OCAML_PORT).await?;
-                let tezos_validators = OcamlNode::collect_validator_memory_stats()?;
-                let ocaml_disk = OcamlNode::collect_disk_data()?;
-                let ocaml_cpu = OcamlNode::collect_cpu_data(system, "tezos-node")?;
+                let current_head_info = node.collect_head_data().await?;
+                let ocaml_node = node.collect_memory_stats(system)?;
+                let tezos_validators =
+                    node.collect_memory_stats_children(system, "protocol-runner")?;
+                let ocaml_disk = node.collect_disk_data()?;
+                let ocaml_cpu = node.collect_cpu_data(system)?;
+                let validators_cpu = node.collect_cpu_data_children(system, "tezos-node")?;
 
                 let resources = ResourceUtilization {
                     timestamp: chrono::Local::now().timestamp(),
@@ -286,7 +283,7 @@ impl ResourceMonitor {
                         protocol_runners: None,
                         validators: Some(tezos_validators),
                     },
-                    ocaml_disk: Some(ocaml_disk),
+                    ocaml_disk: Some(ocaml_disk.try_into()?),
                     tezedge_disk: None,
                     cpu: CpuStats {
                         node: ocaml_cpu,
@@ -295,7 +292,8 @@ impl ResourceMonitor {
                     head_info: current_head_info,
                 };
                 handle_alerts(
-                    node_tag,
+                    NodeType::Ocaml,
+                    node.tag(),
                     resources.clone(),
                     last_checked_head_level,
                     slack.clone(),
@@ -322,6 +320,7 @@ impl ResourceMonitor {
 }
 
 async fn handle_alerts(
+    node_type: NodeType,
     node_tag: &str,
     last_measurement: ResourceUtilization,
     last_checked_head_level: &mut HashMap<String, u64>,
@@ -330,12 +329,12 @@ async fn handle_alerts(
     log: &Logger,
 ) -> Result<(), failure::Error> {
     // TODO: TE-499 - (multinode) - fix for multinode support
-    let thresholds = if node_tag == "tezedge" {
+    let thresholds = if node_type == NodeType::Tezedge {
         *alerts.tezedge_thresholds()
-    } else if node_tag == "ocaml" {
+    } else if node_type == NodeType::Ocaml {
         *alerts.ocaml_thresholds()
     } else {
-        return Err(format_err!("Node [{}] not defined", node_tag));
+        return Err(format_err!("NodeReader [{:?}] not defined", node_type));
     };
 
     // current time timestamp
