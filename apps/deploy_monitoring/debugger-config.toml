@@ -1,23 +1,13 @@
-rpc_port = 17732
-bpf_sniffer_path = "/tmp/bpf-sniffer.sock"
+http_v2 = 17732
 
 [[nodes]]
-db_path = "/tmp/debugger_database/tezedge"
-# new server (optional)
-rpc_port = 17742
-# path to search identity at
-identity_path = "/tmp/volume/tezedge/identity.json"
-# debugger expect the node will listen its p2p incoming connections on this port
-# which process earliest will bind a socket on this port, will be considered as the node
-# this is an inner port inside docker's virtual network of the node's container
-p2p_port = 9732
-# debugger will run syslog server on this port
-# this is an inner port inside docker's virtual network of the debugger's container
-syslog_port = 10001
+name = "9732"
+db = "/tmp/debugger_database/tezedge"
+p2p = { identity = "/tmp/volume/tezedge/identity.json", port = 9732 }
+log = { port = 10001 }
 
 [[nodes]]
-db_path = "/tmp/debugger_database/tezos"
-rpc_port = 17743
-identity_path = "/tmp/volume/tezos/data/identity.json"
-p2p_port = 9733
-syslog_port = 11001
+name = "9733"
+db = "/tmp/debugger_database/tezos"
+p2p = { identity = "/tmp/volume/tezos/data/identity.json", port = 9733 }
+log = { port = 11001 }
