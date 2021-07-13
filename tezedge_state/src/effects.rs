@@ -1,5 +1,5 @@
+use rand::{prelude::IteratorRandom, Rng};
 use std::collections::HashSet;
-use rand::{Rng, prelude::IteratorRandom};
 
 use crypto::nonce::Nonce;
 
@@ -32,8 +32,7 @@ impl Effects for DefaultEffects {
         &mut self,
         potential_peers: &HashSet<PeerListenerAddress>,
         choice_len: usize,
-    ) -> Vec<PeerListenerAddress>
-    {
+    ) -> Vec<PeerListenerAddress> {
         if choice_len == 0 {
             return vec![];
         }
@@ -42,21 +41,26 @@ impl Effects for DefaultEffects {
             potential_peers.iter().cloned().collect()
         } else {
             let mut rng = rand::thread_rng();
-            potential_peers.iter().cloned().choose_multiple(&mut rng, choice_len)
+            potential_peers
+                .iter()
+                .cloned()
+                .choose_multiple(&mut rng, choice_len)
         }
     }
 
     fn choose_potential_peers_for_nack(
         &mut self,
         potential_peers: &HashSet<PeerListenerAddress>,
-    ) -> Vec<PeerListenerAddress>
-    {
+    ) -> Vec<PeerListenerAddress> {
         let mut rng = rand::thread_rng();
         let len = rng.gen_range(1, 80.min(potential_peers.len()).max(2));
         if len >= potential_peers.len() {
             potential_peers.iter().cloned().collect()
         } else {
-            potential_peers.iter().cloned().choose_multiple(&mut rng, len)
+            potential_peers
+                .iter()
+                .cloned()
+                .choose_multiple(&mut rng, len)
         }
     }
 }

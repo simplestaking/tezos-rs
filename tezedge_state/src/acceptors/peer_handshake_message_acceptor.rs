@@ -1,13 +1,16 @@
-use tla_sm::Acceptor;
-use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, AckMessage, PeerMessage};
 use tezos_messages::p2p::encoding::ack::NackMotive;
+use tezos_messages::p2p::encoding::prelude::{AckMessage, ConnectionMessage, PeerMessage};
+use tla_sm::Acceptor;
 
-use crate::{Effects, HandleReceivedMessageError, HandshakeStep, P2pState, RequestState, TezedgeState};
 use crate::proposals::{PeerHandshakeMessage, PeerHandshakeMessageProposal};
+use crate::{
+    Effects, HandleReceivedMessageError, HandshakeStep, P2pState, RequestState, TezedgeState,
+};
 
 impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
-    where E: Effects,
-          M: PeerHandshakeMessage,
+where
+    E: Effects,
+    M: PeerHandshakeMessage,
 {
     fn accept(&mut self, proposal: PeerHandshakeMessageProposal<M>) {
         if let Err(_err) = self.validate_proposal(&proposal) {
@@ -33,9 +36,7 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
         };
 
         let result = match &mut pending_peer.step {
-            Initiated { .. }
-            | Connect { received: None, .. }
-            => {
+            Initiated { .. } | Connect { received: None, .. } => {
                 let result = pending_peer.handle_received_conn_message(
                     &self.config,
                     &self.identity,
@@ -49,18 +50,18 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                     Ok(pub_key) => {
                         let proposal_peer = proposal.peer;
                         // check if peer with such identity is already connected.
-                        let already_connected = self.pending_peers
-                            .iter()
-                            .any(|(_, peer)| {
-                                peer.step.public_key().map(|existing_pub_key| {
-                                    existing_pub_key == &pub_key
-                                        && peer.address != proposal_peer
-                                }).unwrap_or(false)
-                            }) || {
-                                self.connected_peers.iter().any(|peer| {
-                                    peer.public_key == pub_key
+                        let already_connected = self.pending_peers.iter().any(|(_, peer)| {
+                            peer.step
+                                .public_key()
+                                .map(|existing_pub_key| {
+                                    existing_pub_key == &pub_key && peer.address != proposal_peer
                                 })
-                            };
+                                .unwrap_or(false)
+                        }) || {
+                            self.connected_peers
+                                .iter()
+                                .any(|peer| peer.public_key == pub_key)
+                        };
 
                         if already_connected {
                             pending_peer = self.pending_peers.get_mut(&proposal.peer).unwrap();
@@ -70,35 +71,35 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                     }
                     Err(err) => Err(err),
                 }
-
             }
             Metadata { received: None, .. } => {
                 pending_peer.handle_received_meta_message(proposal.at, proposal.message)
             }
-            Ack { received: false, .. } => {
-                let result = pending_peer.handle_received_ack_message(proposal.at, proposal.message);
+            Ack {
+                received: false, ..
+            } => {
+                let result =
+                    pending_peer.handle_received_ack_message(proposal.at, proposal.message);
 
                 match result {
                     Ok(AckMessage::Ack) => {
                         if pending_peer.is_handshake_finished() {
                             let nack_motive = pending_peer.nack_motive();
-                            let result = self.pending_peers
-                                .remove(&proposal.peer).unwrap()
+                            let result = self
+                                .pending_peers
+                                .remove(&proposal.peer)
+                                .unwrap()
                                 .to_handshake_result();
                             if let Some(result) = result {
-                                self.set_peer_connected(
-                                    proposal.at,
-                                    proposal.peer,
-                                    result,
-                                );
+                                self.set_peer_connected(proposal.at, proposal.peer, result);
                                 self.adjust_p2p_state(proposal.at);
                             } else {
                                 slog::warn!(&self.log, "Blacklisting peer";
-                                            "peer_address" => proposal.peer.to_string(),
-                                            "reason" => format!("Sent Nack({:?})", match nack_motive {
-                                                Some(motive) => motive.to_string(),
-                                                None => "[Unknown]".to_string(),
-                                            }));
+                                "peer_address" => proposal.peer.to_string(),
+                                "reason" => format!("Sent Nack({:?})", match nack_motive {
+                                    Some(motive) => motive.to_string(),
+                                    None => "[Unknown]".to_string(),
+                                }));
                                 self.blacklist_peer(proposal.at, proposal.peer);
                             }
                         }
@@ -113,7 +114,7 @@ impl<E, M> Acceptor<PeerHandshakeMessageProposal<M>> for TezedgeState<E>
                         self.extend_potential_peers(
                             info.potential_peers_to_connect()
                                 .into_iter()
-                                .filter_map(|x| x.parse::<>().ok()),
+                                .filter_map(|x| x.parse().ok()),
                         );
                         slog::warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Received Nack", "motive" => info.motive().to_string());
                         self.blacklist_peer(proposal.at, proposal.peer);

@@ -1,6 +1,6 @@
-use std::time::{Instant, Duration};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::time::{Duration, Instant};
 
 use crypto::hash::CryptoboxPublicKeyHash;
 
@@ -52,9 +52,10 @@ impl BlacklistedPeers {
         &mut self,
         at: Instant,
         expiary_duration: Duration,
-    ) -> Vec<(IpAddr, Option<Port>)>
-    {
-        let addrs = self.ips.iter()
+    ) -> Vec<(IpAddr, Option<Port>)> {
+        let addrs = self
+            .ips
+            .iter()
             .filter(|(_, x)| x.is_expired(at, expiary_duration))
             .map(|(ip, peer)| (*ip, peer.port))
             .collect::<Vec<_>>();

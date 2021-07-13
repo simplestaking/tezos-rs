@@ -23,7 +23,7 @@ use slog::{debug, info, trace, warn, Logger};
 use crypto::hash::{BlockHash, ChainId, CryptoboxPublicKeyHash, OperationHash};
 use crypto::seeded_step::Seed;
 use networking::p2p::network_channel::{NetworkChannelMsg, NetworkChannelRef, NetworkChannelTopic};
-use networking::{PeerId, PeerAddress};
+use networking::{PeerAddress, PeerId};
 use storage::mempool_storage::MempoolOperationType;
 use storage::PersistentStorage;
 use storage::{
@@ -294,13 +294,14 @@ impl ChainManager {
     }
 
     fn check_mempool_completeness(&mut self, _ctx: &Context<ChainManagerMsg>) {
-        let ChainManager { peers, network_channel, .. } = self;
+        let ChainManager {
+            peers,
+            network_channel,
+            ..
+        } = self;
 
         // check for missing mempool operations
-        PeerState::schedule_missing_operations_for_mempool(
-            &network_channel,
-            peers,
-        );
+        PeerState::schedule_missing_operations_for_mempool(&network_channel, peers);
     }
 
     fn process_network_channel_message(
@@ -326,8 +327,11 @@ impl ChainManager {
 
         match msg {
             NetworkChannelMsg::PeerBootstrapped(peer_id, peer_metadata, _) => {
-                let peer =
-                    PeerState::new(peer_id.clone(), &peer_metadata, chain_state.data_queues_limits());
+                let peer = PeerState::new(
+                    peer_id.clone(),
+                    &peer_metadata,
+                    chain_state.data_queues_limits(),
+                );
                 // store peer
                 self.peers.insert(peer_id.address, peer);
                 // retrieve mutable reference and use it as `tell_peer()` parameter
@@ -347,7 +351,8 @@ impl ChainManager {
                     let peer_id = peer_state.peer_id.clone();
                     // clear innner state (not needed, it will be drop)
                     peer_state.clear();
-                    if let Some(peer_branch_bootstrapper) = self.chain_state.peer_branch_bootstrapper()
+                    if let Some(peer_branch_bootstrapper) =
+                        self.chain_state.peer_branch_bootstrapper()
                     {
                         peer_branch_bootstrapper.tell(CleanPeerData(peer_id), None);
                     }
@@ -357,9 +362,10 @@ impl ChainManager {
             NetworkChannelMsg::PeerMessageReceived(received) => {
                 match peers.get_mut(&received.peer_address) {
                     Some(peer) => {
-                        let log = ctx.system.log().new(
-                            slog::o!("peer" => peer.peer_id.address.to_string()),
-                        );
+                        let log = ctx
+                            .system
+                            .log()
+                            .new(slog::o!("peer" => peer.peer_id.address.to_string()));
 
                         match received.message.message() {
                             PeerMessage::CurrentBranch(message) => {
@@ -422,11 +428,7 @@ impl ChainManager {
                                                     history,
                                                 ),
                                             );
-                                            tell_peer(
-                                                &network_channel,
-                                                peer,
-                                                msg.into(),
-                                            );
+                                            tell_peer(&network_channel, peer, msg.into());
                                         }
                                     }
                                 } else {
@@ -464,11 +466,7 @@ impl ChainManager {
                                     if let Some(block) = block_storage.get(block_hash)? {
                                         let msg: BlockHeaderMessage =
                                             (*block.header).clone().into();
-                                        tell_peer(
-                                            &network_channel,
-                                            peer,
-                                            msg.into(),
-                                        );
+                                        tell_peer(&network_channel, peer, msg.into());
                                     }
                                 }
                             }
@@ -494,11 +492,7 @@ impl ChainManager {
                                                     &current_head_local,
                                                 )?,
                                             );
-                                            tell_peer(
-                                                &network_channel,
-                                                peer,
-                                                msg.into(),
-                                            );
+                                            tell_peer(&network_channel, peer, msg.into());
                                         }
                                     }
                                 }
@@ -554,11 +548,7 @@ impl ChainManager {
 
                                     let key = get_op.into();
                                     if let Some(op) = operations_storage.get(&key)? {
-                                        tell_peer(
-                                            &network_channel,
-                                            peer,
-                                            op.into(),
-                                        );
+                                        tell_peer(&network_channel, peer, op.into());
                                     }
                                 }
                             }
@@ -742,11 +732,7 @@ impl ChainManager {
                                     // TODO: where to look for operations for advertised mempool?
                                     // TODO: if not found here, check regular operation storage?
                                     if let Some(found) = mempool_storage.find(&operation_hash)? {
-                                        tell_peer(
-                                            &network_channel,
-                                            peer,
-                                            found.into(),
-                                        );
+                                        tell_peer(&network_channel, peer, found.into());
                                     }
                                 }
                             }
@@ -905,17 +891,16 @@ impl ChainManager {
             }
             ShellChannelMsg::RequestCurrentHead(_) => {
                 let ChainManager {
-                    peers, chain_state, network_channel, ..
+                    peers,
+                    chain_state,
+                    network_channel,
+                    ..
                 } = self;
                 let msg: Arc<PeerMessageResponse> =
                     GetCurrentHeadMessage::new(chain_state.get_chain_id().as_ref().clone()).into();
                 peers.iter_mut().for_each(|(_, peer)| {
                     peer.current_head_request_last = Instant::now();
-                    tell_peer(
-                        &network_channel,
-                        peer,
-                        msg.clone(),
-                    )
+                    tell_peer(&network_channel, peer, msg.clone())
                 });
             }
             ShellChannelMsg::PeerBranchSynchronizationDone(msg) => {
@@ -1829,7 +1814,10 @@ impl Receive<AskPeersAboutCurrentHead> for ChainManager {
         _sender: Sender,
     ) {
         let ChainManager {
-            peers, chain_state, network_channel, ..
+            peers,
+            chain_state,
+            network_channel,
+            ..
         } = self;
         peers.iter_mut().for_each(|(_, peer)| {
             if peer.current_head_response_last.elapsed() > msg.last_received_timeout {

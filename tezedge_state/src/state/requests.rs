@@ -1,27 +1,18 @@
-use std::time::Instant;
 use crypto::hash::CryptoboxPublicKeyHash;
+use std::time::Instant;
 
 use tezos_messages::p2p::encoding::peer::PeerMessageResponse;
-pub use tla_sm::{Proposal, GetRequests};
-use tezos_messages::p2p::encoding::prelude::{
-    NetworkVersion,
-    MetadataMessage,
-};
+use tezos_messages::p2p::encoding::prelude::{MetadataMessage, NetworkVersion};
+pub use tla_sm::{GetRequests, Proposal};
 
 use crate::state::TezedgeState;
 use crate::PeerAddress;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum RequestState {
-    Idle {
-        at: Instant,
-    },
-    Pending {
-        at: Instant,
-    },
-    Success {
-        at: Instant,
-    },
+    Idle { at: Instant },
+    Pending { at: Instant },
+    Success { at: Instant },
     // Error {
     //     at: Instant,
     // },
@@ -86,7 +77,7 @@ pub enum PendingRequest {
         peer_public_key_hash: CryptoboxPublicKeyHash,
         metadata: MetadataMessage,
         network_version: NetworkVersion,
-    }
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -131,16 +122,17 @@ impl<E> GetRequests for TezedgeState<E> {
                         }
                     }
                     PendingRequest::NotifyHandshakeSuccessful {
-                        peer_address, peer_public_key_hash, metadata, network_version
-                    } => {
-                        TezedgeRequest::NotifyHandshakeSuccessful {
-                            req_id,
-                            peer_address: peer_address.clone(),
-                            peer_public_key_hash: peer_public_key_hash.clone(),
-                            metadata: metadata.clone(),
-                            network_version: network_version.clone(),
-                        }
-                    }
+                        peer_address,
+                        peer_public_key_hash,
+                        metadata,
+                        network_version,
+                    } => TezedgeRequest::NotifyHandshakeSuccessful {
+                        req_id,
+                        peer_address: peer_address.clone(),
+                        peer_public_key_hash: peer_public_key_hash.clone(),
+                        metadata: metadata.clone(),
+                        network_version: network_version.clone(),
+                    },
                 })
             }
         }

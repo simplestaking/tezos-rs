@@ -1,13 +1,13 @@
+use mio::net::{TcpListener, TcpStream};
+use slab::Slab;
+use std::collections::HashMap;
+use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use std::time::{Instant, Duration};
-use std::io::{self, Read, Write};
-use std::collections::HashMap;
-use slab::Slab;
-use mio::net::{TcpListener, TcpStream};
+use std::time::{Duration, Instant};
 
-use crate::{PeerCrypto, PeerAddress};
 use super::*;
+use crate::{PeerAddress, PeerCrypto};
 
 pub type MioEvent = mio::event::Event;
 pub type NetPeer = Peer<TcpStream>;
@@ -80,12 +80,10 @@ impl<'a> Iterator for MioEventsIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let tick_event_time = &mut self.tick_event_time;
 
-        self.mio_events_iter.next()
+        self.mio_events_iter
+            .next()
             .map(|event| EventRef::Network(event))
-            .or_else(|| {
-                tick_event_time.take()
-                    .map(|time| Event::Tick(time))
-            })
+            .or_else(|| tick_event_time.take().map(|time| Event::Tick(time)))
     }
 }
 
@@ -132,12 +130,11 @@ impl Manager for MioManager {
 
     fn start_listening_to_server_events(&mut self) {
         if self.server.is_none() {
-            let listen_addr = SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-                self.server_port,
-            );
+            let listen_addr =
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), self.server_port);
             let mut server = TcpListener::bind(listen_addr).unwrap();
-            self.poll.registry()
+            self.poll
+                .registry()
                 .register(&mut server, MIO_SERVER_TOKEN, mio::Interest::READABLE)
                 .unwrap();
 
@@ -161,9 +158,11 @@ impl Manager for MioManager {
                     let peer_entry = peers.vacant_entry();
                     let token = mio::Token(peer_entry.key());
 
-                    let registered_poll = poll.registry()
-                        .register(&mut stream, token, mio::Interest::READABLE | mio::Interest::WRITABLE);
-
+                    let registered_poll = poll.registry().register(
+                        &mut stream,
+                        token,
+                        mio::Interest::READABLE | mio::Interest::WRITABLE,
+                    );
 
                     match registered_poll {
                         Ok(_) => {
@@ -178,7 +177,7 @@ impl Manager for MioManager {
                 }
                 Err(err) => {
                     match err.kind() {
-                        io::ErrorKind::WouldBlock => {},
+                        io::ErrorKind::WouldBlock => {}
                         _ => {
                             eprintln!("error while accepting connection: {:?}", err);
                         }
@@ -226,8 +225,11 @@ impl Manager for MioManager {
 
         match TcpStream::connect(address.into()) {
             Ok(mut stream) => {
-                poll.registry()
-                    .register(&mut stream, token, mio::Interest::READABLE | mio::Interest::WRITABLE)?;
+                poll.registry().register(
+                    &mut stream,
+                    token,
+                    mio::Interest::READABLE | mio::Interest::WRITABLE,
+                )?;
 
                 let peer = NetPeer::new(address.clone(), stream);
 

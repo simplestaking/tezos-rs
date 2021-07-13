@@ -1,26 +1,25 @@
-use std::io::{self, Read, Write};
 use std::fmt::{self, Debug};
-use std::time::{Instant, Duration};
+use std::io::{self, Read, Write};
+use std::time::{Duration, Instant};
 
 use crypto::crypto_box::{CryptoKey, PrecomputedKey, PublicKey};
-use crypto::nonce::{Nonce, generate_nonces};
-use crypto::proof_of_work::{PowError, PowResult, check_proof_of_work};
+use crypto::nonce::{generate_nonces, Nonce};
+use crypto::proof_of_work::{check_proof_of_work, PowError, PowResult};
 use tezos_identity::Identity;
 use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryWrite};
 use tezos_messages::p2p::encoding::ack::{NackInfo, NackMotive};
-pub use tla_sm::{Proposal, GetRequests};
 use tezos_messages::p2p::encoding::prelude::{
-    NetworkVersion,
-    ConnectionMessage,
-    MetadataMessage,
-    AckMessage,
+    AckMessage, ConnectionMessage, MetadataMessage, NetworkVersion,
 };
+pub use tla_sm::{GetRequests, Proposal};
 
+use crate::chunking::{
+    ChunkWriter, EncryptedMessageWriter, HandshakeReadBuffer, WriteMessageError,
+};
 use crate::peer_address::PeerListenerAddress;
 use crate::proposals::{PeerHandshakeMessage, PeerHandshakeMessageError};
-use crate::{Effects, PeerAddress, PeerCrypto, Port, ShellCompatibilityVersion, TezedgeConfig};
 use crate::state::{NotMatchingAddress, RequestState};
-use crate::chunking::{HandshakeReadBuffer, ChunkWriter, EncryptedMessageWriter, WriteMessageError};
+use crate::{Effects, PeerAddress, PeerCrypto, Port, ShellCompatibilityVersion, TezedgeConfig};
 
 #[derive(Clone)]
 pub struct ReceivedConnectionMessageData {
@@ -86,7 +85,9 @@ pub struct HandshakeResult {
 
 #[derive(Clone)]
 pub enum HandshakeStep {
-    Initiated { at: Instant },
+    Initiated {
+        at: Instant,
+    },
     Connect {
         sent: RequestState,
         received: Option<ReceivedConnectionMessageData>,
@@ -119,29 +120,29 @@ impl HandshakeStep {
         use RequestState::*;
         matches!(
             self,
-            Self::Ack { sent: Success { .. }, received: true, .. }
+            Self::Ack {
+                sent: Success { .. },
+                received: true,
+                ..
+            }
         )
     }
 
     pub fn public_key(&self) -> Option<&PublicKey> {
         match self {
-            Self::Connect { received: Some(conn_msg), .. } => {
-                Some(conn_msg.public_key())
-            }
-            Self::Metadata { public_key, .. }
-            | Self::Ack { public_key, .. } => {
-                Some(&public_key)
-            }
+            Self::Connect {
+                received: Some(conn_msg),
+                ..
+            } => Some(conn_msg.public_key()),
+            Self::Metadata { public_key, .. } | Self::Ack { public_key, .. } => Some(&public_key),
             _ => None,
         }
     }
 
     pub fn crypto(&mut self) -> Option<&mut PeerCrypto> {
         match self {
-            Self::Connect { .. }
-            | Self::Initiated { .. } => None,
-            Self::Metadata { crypto, .. }
-            | Self::Ack { crypto, .. } => Some(crypto),
+            Self::Connect { .. } | Self::Initiated { .. } => None,
+            Self::Metadata { crypto, .. } | Self::Ack { crypto, .. } => Some(crypto),
         }
     }
 
@@ -150,8 +151,7 @@ impl HandshakeStep {
         match self {
             Self::Initiated { .. } => None,
             Self::Connect { received, .. } => received.as_ref().map(|x| x.port()),
-            Self::Metadata { port, .. }
-            | Self::Ack { port, .. } => Some(*port),
+            Self::Metadata { port, .. } | Self::Ack { port, .. } => Some(*port),
         }
     }
 
@@ -169,16 +169,14 @@ impl HandshakeStep {
                 disable_mempool,
                 private_node,
                 crypto,
-            } => {
-                Some(HandshakeResult {
-                    port,
-                    compatible_version,
-                    public_key,
-                    disable_mempool,
-                    private_node,
-                    crypto,
-                })
-            }
+            } => Some(HandshakeResult {
+                port,
+                compatible_version,
+                public_key,
+                disable_mempool,
+                private_node,
+                crypto,
+            }),
             _ => None,
         }
     }
@@ -187,29 +185,25 @@ impl HandshakeStep {
 impl Debug for HandshakeStep {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Initiated { at } => {
-                f.debug_struct("HandshakeStep::Initiated")
-                    .field("at", at)
-                    .finish()
-            }
-            Self::Connect { sent, received, .. } => {
-                f.debug_struct("HandshakeStep::Connect")
-                    .field("sent", sent)
-                    .field("received", &received.is_some())
-                    .finish()
-            }
-            Self::Metadata { sent, received, .. } => {
-                f.debug_struct("HandshakeStep::Metadata")
-                    .field("sent", sent)
-                    .field("received", &received.is_some())
-                    .finish()
-            }
-            Self::Ack { sent, received, .. } => {
-                f.debug_struct("HandshakeStep::Ack")
-                    .field("sent", sent)
-                    .field("received", received)
-                    .finish()
-            }
+            Self::Initiated { at } => f
+                .debug_struct("HandshakeStep::Initiated")
+                .field("at", at)
+                .finish(),
+            Self::Connect { sent, received, .. } => f
+                .debug_struct("HandshakeStep::Connect")
+                .field("sent", sent)
+                .field("received", &received.is_some())
+                .finish(),
+            Self::Metadata { sent, received, .. } => f
+                .debug_struct("HandshakeStep::Metadata")
+                .field("sent", sent)
+                .field("received", &received.is_some())
+                .finish(),
+            Self::Ack { sent, received, .. } => f
+                .debug_struct("HandshakeStep::Ack")
+                .field("sent", sent)
+                .field("received", received)
+                .finish(),
         }
     }
 }
@@ -281,15 +275,16 @@ impl PendingPeer {
                 sent_conn_msg,
             } => {
                 let nonce_pair = generate_nonces(
-                    &BinaryChunk::from_content(&sent_conn_msg.as_bytes().unwrap()).unwrap().raw(),
+                    &BinaryChunk::from_content(&sent_conn_msg.as_bytes().unwrap())
+                        .unwrap()
+                        .raw(),
                     conn_msg.encoded.raw(),
                     self.incoming,
-                ).unwrap();
+                )
+                .unwrap();
 
-                let precomputed_key = PrecomputedKey::precompute(
-                    &conn_msg.public_key(),
-                    &node_identity.secret_key,
-                );
+                let precomputed_key =
+                    PrecomputedKey::precompute(&conn_msg.public_key(), &node_identity.secret_key);
 
                 let crypto = PeerCrypto::new(precomputed_key, nonce_pair);
                 self.step = Metadata {
@@ -347,9 +342,21 @@ impl PendingPeer {
 
         match &self.step {
             Initiated { .. } if self.incoming => true,
-            Connect { sent: Success { .. }, received: None, .. } => true,
-            Metadata { sent: Success { .. }, received: None, .. } => true,
-            Ack { sent: Success { .. }, received: false, .. } => true,
+            Connect {
+                sent: Success { .. },
+                received: None,
+                ..
+            } => true,
+            Metadata {
+                sent: Success { .. },
+                received: None,
+                ..
+            } => true,
+            Ack {
+                sent: Success { .. },
+                received: false,
+                ..
+            } => true,
             _ => false,
         }
     }
@@ -374,12 +381,14 @@ impl PendingPeer {
         use RequestState::*;
 
         match &mut self.step {
-            Connect { sent: req_state @ Idle { .. }, sent_conn_msg, .. } => {
-                self.conn_msg_writer = Some(ChunkWriter::new(
-                    BinaryChunk::from_content(
-                        &sent_conn_msg.as_bytes()?,
-                    )?,
-                ));
+            Connect {
+                sent: req_state @ Idle { .. },
+                sent_conn_msg,
+                ..
+            } => {
+                self.conn_msg_writer = Some(ChunkWriter::new(BinaryChunk::from_content(
+                    &sent_conn_msg.as_bytes()?,
+                )?));
                 *req_state = Pending { at };
                 Ok(true)
             }
@@ -397,12 +406,19 @@ impl PendingPeer {
     ///   sending this concrete message at a current stage(state).
     ///
     /// - `Err(error)`: if error ocurred when encoding the message.
-    pub fn enqueue_send_meta_msg(&mut self, at: Instant, meta_msg: MetadataMessage) -> Result<bool, WriteMessageError> {
+    pub fn enqueue_send_meta_msg(
+        &mut self,
+        at: Instant,
+        meta_msg: MetadataMessage,
+    ) -> Result<bool, WriteMessageError> {
         use HandshakeStep::*;
         use RequestState::*;
 
         match &mut self.step {
-            Metadata { sent: req_state @ Idle { .. }, .. } => {
+            Metadata {
+                sent: req_state @ Idle { .. },
+                ..
+            } => {
                 self.msg_writer = Some((
                     HandshakeMessageType::Metadata,
                     EncryptedMessageWriter::try_new(&meta_msg)?,
@@ -429,13 +445,17 @@ impl PendingPeer {
         at: Instant,
         get_potential_peers: F,
     ) -> Result<bool, WriteMessageError>
-        where F: FnOnce() -> Vec<String>,
+    where
+        F: FnOnce() -> Vec<String>,
     {
         use HandshakeStep::*;
         use RequestState::*;
 
         match &mut self.step {
-            Ack { sent: req_state @ Idle { .. }, .. } => {
+            Ack {
+                sent: req_state @ Idle { .. },
+                ..
+            } => {
                 self.msg_writer = Some((
                     HandshakeMessageType::Ack,
                     EncryptedMessageWriter::try_new(&match &self.nack_motive {
@@ -457,13 +477,17 @@ impl PendingPeer {
         use RequestState::*;
 
         match &mut self.step {
-            Connect { sent: req_state @ Pending { .. }, sent_conn_msg, .. } => {
+            Connect {
+                sent: req_state @ Pending { .. },
+                sent_conn_msg,
+                ..
+            } => {
                 *req_state = Success { at };
                 self.advance_to_metadata(at, node_identity);
                 self.conn_msg_writer = None;
                 true
             }
-            _ => false
+            _ => false,
         }
     }
 
@@ -472,7 +496,10 @@ impl PendingPeer {
         use RequestState::*;
 
         match &mut self.step {
-            Metadata { sent: req_state @ Pending { .. }, .. } => {
+            Metadata {
+                sent: req_state @ Pending { .. },
+                ..
+            } => {
                 *req_state = Success { at };
                 self.advance_to_ack(at);
                 self.msg_writer = None;
@@ -487,7 +514,10 @@ impl PendingPeer {
         use RequestState::*;
 
         match &mut self.step {
-            Ack { sent: req_state @ Pending { .. }, .. } => {
+            Ack {
+                sent: req_state @ Pending { .. },
+                ..
+            } => {
                 *req_state = Success { at };
                 self.msg_writer = None;
 
@@ -500,8 +530,7 @@ impl PendingPeer {
     pub fn write_to<W: Write>(
         &mut self,
         writer: &mut W,
-    ) -> Result<HandshakeMessageType, WriteMessageError>
-    {
+    ) -> Result<HandshakeMessageType, WriteMessageError> {
         if let Some(chunk_writer) = self.conn_msg_writer.as_mut() {
             chunk_writer.write_to(writer)?;
             self.conn_msg_writer = None;
@@ -546,13 +575,16 @@ impl PendingPeer {
         at: Instant,
         mut message: M,
     ) -> Result<PublicKey, HandleReceivedMessageError>
-        where E: Effects,
-              M: PeerHandshakeMessage,
+    where
+        E: Effects,
+        M: PeerHandshakeMessage,
     {
         use HandshakeStep::*;
         use RequestState::*;
 
-        if let Err(e) = Self::check_proof_of_work(config.pow_target, message.binary_chunk().content()){
+        if let Err(e) =
+            Self::check_proof_of_work(config.pow_target, message.binary_chunk().content())
+        {
             // TODO: check maybe this message is nack.
             return Err(HandleReceivedMessageError::BadPow);
         }
@@ -589,7 +621,8 @@ impl PendingPeer {
                         &node_identity.proof_of_work_stamp,
                         effects.get_nonce(&self.address),
                         shell_compatibility_version.to_network_version(),
-                    ).unwrap(),
+                    )
+                    .unwrap(),
                 };
             }
             Connect { received, .. } => {
@@ -607,19 +640,21 @@ impl PendingPeer {
         at: Instant,
         mut message: M,
     ) -> Result<(), HandleReceivedMessageError>
-        where M: PeerHandshakeMessage,
+    where
+        M: PeerHandshakeMessage,
     {
         use HandshakeStep::*;
 
         match &mut self.step {
-            Metadata { received, crypto, .. } => {
+            Metadata {
+                received, crypto, ..
+            } => {
                 let meta_msg = message.as_metadata_msg(crypto)?;
                 *received = Some(meta_msg);
                 self.advance_to_ack(at);
                 Ok(())
             }
             _ => return Err(HandleReceivedMessageError::UnexpectedState),
-
         }
     }
 
@@ -628,12 +663,15 @@ impl PendingPeer {
         at: Instant,
         mut message: M,
     ) -> Result<AckMessage, HandleReceivedMessageError>
-        where M: PeerHandshakeMessage,
+    where
+        M: PeerHandshakeMessage,
     {
         use HandshakeStep::*;
 
         match &mut self.step {
-            Ack { received, crypto, .. } => {
+            Ack {
+                received, crypto, ..
+            } => {
                 let msg = message.as_ack_msg(crypto)?;
                 *received = true;
                 Ok(msg)
@@ -683,7 +721,8 @@ impl PendingPeers {
     }
 
     fn find_index(&self, address: &PeerAddress) -> Option<usize> {
-        self.peers.iter()
+        self.peers
+            .iter()
             .find(|(_, x)| &x.address == address)
             .map(|(index, _)| index)
     }
@@ -718,8 +757,7 @@ impl PendingPeers {
 
     #[inline]
     pub(crate) fn remove(&mut self, id: &PeerAddress) -> Option<PendingPeer> {
-        self.find_index(id)
-            .map(|index| self.peers.remove(index))
+        self.find_index(id).map(|index| self.peers.remove(index))
     }
 
     #[inline]

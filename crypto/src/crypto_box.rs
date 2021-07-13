@@ -12,8 +12,8 @@
 //!
 //! CryptoboxPublicKeyHash - generated as a hash of [`PublicKey`], for example used as a peer_id
 
-use std::fmt::{self, Debug};
 use std::convert::TryFrom;
+use std::fmt::{self, Debug};
 
 use hex::{FromHex, FromHexError};
 use sodiumoxide::crypto::box_;

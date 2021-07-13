@@ -1,12 +1,13 @@
 use std::net::SocketAddr;
 
-use tla_sm::Acceptor;
-use crate::{TezedgeState, Effects};
 use crate::proposals::ExtendPotentialPeersProposal;
+use crate::{Effects, TezedgeState};
+use tla_sm::Acceptor;
 
 impl<E, P> Acceptor<ExtendPotentialPeersProposal<P>> for TezedgeState<E>
-    where E: Effects,
-          P: IntoIterator<Item = SocketAddr>,
+where
+    E: Effects,
+    P: IntoIterator<Item = SocketAddr>,
 {
     fn accept(&mut self, proposal: ExtendPotentialPeersProposal<P>) {
         if let Err(_err) = self.validate_proposal(&proposal) {

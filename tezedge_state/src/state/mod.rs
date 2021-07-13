@@ -1,15 +1,17 @@
-use std::fmt::Debug;
-use std::time::{Instant, Duration};
+use slog::{warn, Logger};
 use std::collections::HashSet;
-use slog::{Logger, warn};
+use std::fmt::Debug;
+use std::time::{Duration, Instant};
 
 use crypto::crypto_box::{CryptoKey, PublicKey};
-pub use tla_sm::{Proposal, GetRequests};
 use tezos_identity::Identity;
 use tezos_messages::p2p::encoding::prelude::MetadataMessage;
+pub use tla_sm::{GetRequests, Proposal};
 
-use crate::{DefaultEffects, Effects, InvalidProposalError, PeerAddress, Port, ShellCompatibilityVersion};
 use crate::peer_address::PeerListenerAddress;
+use crate::{
+    DefaultEffects, Effects, InvalidProposalError, PeerAddress, Port, ShellCompatibilityVersion,
+};
 
 // mod peer_token;
 // pub use peer_token::*;
@@ -72,10 +74,10 @@ pub enum P2pState {
 
 impl P2pState {
     pub fn is_full(&self) -> bool {
-        matches!(self,
-            Self::PendingFull { .. }
-            | Self::ReadyFull { .. }
-            | Self::ReadyMaxed)
+        matches!(
+            self,
+            Self::PendingFull { .. } | Self::ReadyFull { .. } | Self::ReadyMaxed
+        )
     }
 }
 
@@ -110,8 +112,7 @@ impl<E> TezedgeState<E> {
     pub(crate) fn check_and_update_time<P: Proposal>(
         &mut self,
         proposal: &P,
-    ) -> Result<(), InvalidProposalError>
-    {
+    ) -> Result<(), InvalidProposalError> {
         if proposal.time() >= self.newest_time_seen {
             self.newest_time_seen = proposal.time();
             Ok(())
@@ -123,8 +124,7 @@ impl<E> TezedgeState<E> {
     pub fn validate_proposal<P: Proposal>(
         &mut self,
         proposal: &P,
-    ) -> Result<(), InvalidProposalError>
-    {
+    ) -> Result<(), InvalidProposalError> {
         self.check_and_update_time(proposal)?;
 
         Ok(())
@@ -144,14 +144,12 @@ impl<E> TezedgeState<E> {
     }
 
     pub fn meta_msg(&self) -> MetadataMessage {
-        MetadataMessage::new(
-            self.config.disable_mempool,
-            self.config.private_node,
-        )
+        MetadataMessage::new(self.config.disable_mempool, self.config.private_node)
     }
 
     pub(crate) fn extend_potential_peers<I>(&mut self, peers: I)
-        where I: IntoIterator<Item = PeerListenerAddress>,
+    where
+        I: IntoIterator<Item = PeerListenerAddress>,
     {
         // Return if maximum number of potential peers is already reached.
         if self.potential_peers.len() >= self.config.max_potential_peers {
@@ -163,13 +161,11 @@ impl<E> TezedgeState<E> {
         let connected_peers = &self.connected_peers;
         let blacklisted_peers = &self.blacklisted_peers;
 
-        self.potential_peers.extend(
-            peers
-                .into_iter()
-                .take(limit)
-                .filter(|addr| !connected_peers.contains_address(&addr.into())
-                            && !blacklisted_peers.is_address_blacklisted(&addr.into()))
-        );
+        self.potential_peers
+            .extend(peers.into_iter().take(limit).filter(|addr| {
+                !connected_peers.contains_address(&addr.into())
+                    && !blacklisted_peers.is_address_blacklisted(&addr.into())
+            }));
     }
 
     pub fn is_peer_connected(&self, peer: &PeerAddress) -> bool {
@@ -177,27 +173,26 @@ impl<E> TezedgeState<E> {
     }
 
     pub(crate) fn check_blacklisted_peers(&mut self, at: Instant) {
-        let whitelist_peers = self.blacklisted_peers
+        let whitelist_peers = self
+            .blacklisted_peers
             .take_expired_blacklisted_peers(at, self.config.peer_blacklist_duration);
 
         self.extend_potential_peers(
-            whitelist_peers.into_iter()
-                .filter_map(|(ip, port)| {
-                    port.map(|port| PeerListenerAddress::new(ip, port))
-                })
+            whitelist_peers
+                .into_iter()
+                .filter_map(|(ip, port)| port.map(|port| PeerListenerAddress::new(ip, port))),
         )
     }
 
-    pub(crate) fn disconnect_peer(
-        &mut self,
-        at: Instant,
-        address: PeerAddress,
-    ) {
-        let pending_peer_addr = self.pending_peers
+    pub(crate) fn disconnect_peer(&mut self, at: Instant, address: PeerAddress) {
+        let pending_peer_addr = self
+            .pending_peers
             .remove(&address)
             .and_then(|peer| peer.listener_address());
 
-        let listener_addr = self.connected_peers.remove(&address)
+        let listener_addr = self
+            .connected_peers
+            .remove(&address)
             .map(|peer| peer.listener_address())
             .or(pending_peer_addr);
 
@@ -211,23 +206,25 @@ impl<E> TezedgeState<E> {
         });
     }
 
-    pub(crate) fn blacklist_peer(
-        &mut self,
-        at: Instant,
-        address: PeerAddress,
-    ) {
-        let pending_peer_port = self.pending_peers
+    pub(crate) fn blacklist_peer(&mut self, at: Instant, address: PeerAddress) {
+        let pending_peer_port = self
+            .pending_peers
             .remove(&address)
             .and_then(|peer| peer.listener_port());
 
-        let listener_port = self.connected_peers.remove(&address)
+        let listener_port = self
+            .connected_peers
+            .remove(&address)
             .map(|peer| peer.listener_port())
             .or(pending_peer_port);
 
-        self.blacklisted_peers.insert_ip(address.ip(), BlacklistedPeer {
-            since: at,
-            port: listener_port,
-        });
+        self.blacklisted_peers.insert_ip(
+            address.ip(),
+            BlacklistedPeer {
+                since: at,
+                port: listener_port,
+            },
+        );
         // TODO: blacklist identity as well.
 
         self.requests.insert(PendingRequestState {
@@ -238,13 +235,16 @@ impl<E> TezedgeState<E> {
 
     #[inline]
     fn missing_connected_peers(&self) -> usize {
-        self.config.max_connected_peers
-            .checked_sub(self.connected_peers.len()).unwrap_or(0)
+        self.config
+            .max_connected_peers
+            .checked_sub(self.connected_peers.len())
+            .unwrap_or(0)
     }
 
     #[inline]
     fn missing_pending_peers(&self) -> usize {
-        self.config.max_pending_peers
+        self.config
+            .max_pending_peers
             .min(self.missing_connected_peers())
             .checked_sub(self.pending_peers.len())
             .unwrap_or(0)
@@ -271,8 +271,7 @@ impl<E: Effects> TezedgeState<E> {
         shell_compatibility_version: ShellCompatibilityVersion,
         effects: E,
         initial_time: Instant,
-    ) -> Self
-    {
+    ) -> Self {
         let periodic_react_interval = config.periodic_react_interval;
         let max_connected_peers = config.max_connected_peers;
         let max_pending_peers = config.max_pending_peers;
@@ -319,7 +318,8 @@ impl<E: Effects> TezedgeState<E> {
 
         let public_key_hash = result.public_key.public_key_hash().unwrap();
 
-        let connected_peer = self.connected_peers
+        let connected_peer = self
+            .connected_peers
             .set_peer_connected(at, peer_address, result);
 
         self.requests.insert(PendingRequestState {
@@ -339,7 +339,7 @@ impl<E: Effects> TezedgeState<E> {
     pub(crate) fn adjust_p2p_state(&mut self, at: Instant) {
         use P2pState::*;
         let min_connected = self.config.min_connected_peers as usize;
-        let missing_connected  = self.missing_connected_peers();
+        let missing_connected = self.missing_connected_peers();
         let missing_pending = self.missing_pending_peers();
 
         let mut should_listen_for_connections = false;
@@ -392,29 +392,26 @@ impl<E: Effects> TezedgeState<E> {
         let now = at;
         let peer_timeout = self.config.peer_timeout;
 
-        self.requests.retain(|req_id, req| {
-            match &req.request {
-                PendingRequest::ConnectPeer { .. } => {
-                    match &req.status {
-                        RequestState::Idle { at }
-                        | RequestState::Pending { at } => {
-                            if now.duration_since(*at) >= peer_timeout {
-                                false
-                            } else {
-                                true
-                            }
-                        }
-                        _ => false,
+        self.requests.retain(|req_id, req| match &req.request {
+            PendingRequest::ConnectPeer { .. } => match &req.status {
+                RequestState::Idle { at } | RequestState::Pending { at } => {
+                    if now.duration_since(*at) >= peer_timeout {
+                        false
+                    } else {
+                        true
                     }
                 }
-                _ => true
-            }
+                _ => false,
+            },
+            _ => true,
         });
 
         use HandshakeStep::*;
         use RequestState::*;
 
-        let end_handshakes = self.pending_peers.iter_mut()
+        let end_handshakes = self
+            .pending_peers
+            .iter_mut()
             .filter_map(|(_, peer)| {
                 let incoming = peer.incoming;
 
@@ -464,11 +461,10 @@ impl<E: Effects> TezedgeState<E> {
             ReadyMaxed | ReadyFull | PendingFull => return,
             Pending | Ready => {}
         }
-        let len = self.potential_peers.len()
-            .min(self.missing_pending_peers());
+        let len = self.potential_peers.len().min(self.missing_pending_peers());
 
         if len == 0 {
-            return
+            return;
         }
         slog::info!(&self.log, "Initiating handshakes";
                      "connected_peers" => self.connected_peers.len(),
@@ -476,10 +472,9 @@ impl<E: Effects> TezedgeState<E> {
                      "potential_peers" => self.potential_peers.len(),
                      "initiated_handshakes" => len);
 
-        let peers = self.effects.choose_peers_to_connect_to(
-            &self.potential_peers,
-            len,
-        );
+        let peers = self
+            .effects
+            .choose_peers_to_connect_to(&self.potential_peers, len);
 
         for peer in peers {
             self.potential_peers.remove(&peer);
@@ -499,7 +494,7 @@ impl<E: Effects> TezedgeState<E> {
 
     pub(crate) fn periodic_react(&mut self, at: Instant) {
         let dur_since_last_periodic_react = at.duration_since(self.last_periodic_react);
-        if  dur_since_last_periodic_react > self.config.periodic_react_interval {
+        if dur_since_last_periodic_react > self.config.periodic_react_interval {
             self.last_periodic_react = at;
             self.check_timeouts(at);
             self.check_blacklisted_peers(at);
@@ -540,4 +535,3 @@ pub struct TezedgeStats {
     pub pending_peers_len: usize,
     pub requests_len: usize,
 }
-

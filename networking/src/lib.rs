@@ -9,10 +9,10 @@ use std::sync::Arc;
 
 use crypto::hash::CryptoboxPublicKeyHash;
 use p2p::network_channel::NetworkChannelRef;
+pub use tezedge_state::PeerAddress;
 use tezos_identity::Identity;
 use tezos_messages::p2p::encoding::ack::NackMotive;
 use tezos_messages::p2p::encoding::prelude::NetworkVersion;
-pub use tezedge_state::PeerAddress;
 
 #[derive(Debug, Clone)]
 pub struct PeerId {

@@ -1,7 +1,7 @@
 use tla_sm::Acceptor;
 
-use crate::{TezedgeState, Effects};
 use crate::proposals::SendPeerMessageProposal;
+use crate::{Effects, TezedgeState};
 
 impl<E: Effects> Acceptor<SendPeerMessageProposal> for TezedgeState<E> {
     fn accept(&mut self, proposal: SendPeerMessageProposal) {

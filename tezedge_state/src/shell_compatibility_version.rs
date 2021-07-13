@@ -1,5 +1,5 @@
-use tezos_messages::p2p::encoding::prelude::NetworkVersion;
 use tezos_messages::p2p::encoding::ack::NackMotive;
+use tezos_messages::p2p::encoding::prelude::NetworkVersion;
 
 /// Holds informations about supported versions:
 /// - all distributed_db_versions

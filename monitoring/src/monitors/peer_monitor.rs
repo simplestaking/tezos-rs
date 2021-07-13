@@ -19,10 +19,7 @@ pub(crate) struct PeerMonitor {
 }
 
 impl PeerMonitor {
-    pub fn new(
-        peer_address: SocketAddr,
-        peer_public_key_hash: CryptoboxPublicKeyHash,
-    ) -> Self {
+    pub fn new(peer_address: SocketAddr, peer_public_key_hash: CryptoboxPublicKeyHash) -> Self {
         let now = Instant::now();
         Self {
             peer_address,

@@ -1,6 +1,6 @@
-use tla_sm::Acceptor;
-use crate::{TezedgeState, Effects};
 use crate::proposals::PeerDisconnectProposal;
+use crate::{Effects, TezedgeState};
+use tla_sm::Acceptor;
 
 impl<E: Effects> Acceptor<PeerDisconnectProposal> for TezedgeState<E> {
     fn accept(&mut self, proposal: PeerDisconnectProposal) {

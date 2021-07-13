@@ -4,9 +4,9 @@ pub use peer_address::{PeerAddress, Port};
 mod peer_crypto;
 pub use peer_crypto::PeerCrypto;
 
-pub mod proposals;
 pub mod acceptors;
 pub mod chunking;
+pub mod proposals;
 
 mod shell_compatibility_version;
 pub use shell_compatibility_version::*;

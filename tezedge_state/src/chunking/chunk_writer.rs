@@ -32,7 +32,8 @@ impl ChunkWriter {
     }
 
     pub fn write_to<W>(&mut self, writer: &mut W) -> Result<(), io::Error>
-        where W: Write,
+    where
+        W: Write,
     {
         loop {
             let size = writer.write(self.next_bytes())?;
@@ -46,10 +47,9 @@ impl ChunkWriter {
     }
 
     pub fn write_to_extendable<T>(&mut self, extendable: &mut T) -> Result<(), io::Error>
-        where T: Extend<u8>,
+    where
+        T: Extend<u8>,
     {
-        self.write_to(
-            &mut ExtendableAsWritable::from(extendable),
-        )
+        self.write_to(&mut ExtendableAsWritable::from(extendable))
     }
 }

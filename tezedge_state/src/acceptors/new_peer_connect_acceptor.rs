@@ -1,6 +1,6 @@
-use tla_sm::Acceptor;
-use crate::{Effects, HandshakeStep, P2pState, PendingPeer, TezedgeState};
 use crate::proposals::NewPeerConnectProposal;
+use crate::{Effects, HandshakeStep, P2pState, PendingPeer, TezedgeState};
+use tla_sm::Acceptor;
 
 impl<E: Effects> Acceptor<NewPeerConnectProposal> for TezedgeState<E> {
     fn accept(&mut self, proposal: NewPeerConnectProposal) {

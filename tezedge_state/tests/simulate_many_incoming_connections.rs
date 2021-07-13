@@ -140,7 +140,6 @@
 //     }
 // }
 
-
 // struct SimulatedManager {
 //     peer_count: usize,
 //     last_peer_index: usize,

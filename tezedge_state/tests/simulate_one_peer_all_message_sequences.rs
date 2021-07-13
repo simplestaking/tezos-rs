@@ -68,7 +68,6 @@
 //         HandshakeMsg::SendAckSuccess.into(),
 //         HandshakeMsg::SendAckError.into(),
 
-
 //         PeerAbstractDecodedMessage::new(to_binary_chunk(&conn_msg), conn_msg.into()).into(),
 //         PeerAbstractDecodedMessage::new(to_binary_chunk(&meta_msg), meta_msg.into()).into(),
 //         PeerAbstractDecodedMessage::new(to_binary_chunk(&ack_msg), ack_msg.into()).into(),

@@ -73,7 +73,6 @@ impl PeerMessage {
             Self::GetOperationsForBlocks(_) => "get operations for blocks",
             Self::OperationsForBlocks(_) => "operations for blocks",
         }
-
     }
 }
 

@@ -13,7 +13,7 @@ use tezos_messages::p2p::encoding::advertise::AdvertiseMessage;
 use tezos_messages::p2p::encoding::metadata::MetadataMessage;
 use tezos_messages::p2p::encoding::peer::PeerMessageResponse;
 
-use crate::{PeerId, PeerAddress};
+use crate::{PeerAddress, PeerId};
 
 use tezos_messages::p2p::encoding::version::NetworkVersion;
 

@@ -1,6 +1,6 @@
-use crypto::CryptoError;
 use crypto::crypto_box::PrecomputedKey;
 use crypto::nonce::{Nonce, NoncePair};
+use crypto::CryptoError;
 
 #[derive(Debug, Clone)]
 pub struct PeerCrypto {

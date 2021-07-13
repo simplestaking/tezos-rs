@@ -1,7 +1,7 @@
 use crypto::CryptoError;
 use tezos_encoding::binary_reader::BinaryReaderError;
 use tezos_messages::p2p::binary_message::BinaryChunk;
-use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, MetadataMessage, AckMessage};
+use tezos_messages::p2p::encoding::prelude::{AckMessage, ConnectionMessage, MetadataMessage};
 
 use crate::PeerCrypto;
 
@@ -34,6 +34,12 @@ pub trait PeerHandshakeMessage {
     fn take_binary_chunk(self) -> BinaryChunk;
     fn binary_chunk(&self) -> &BinaryChunk;
     fn as_connection_msg(&mut self) -> Result<ConnectionMessage, PeerHandshakeMessageError>;
-    fn as_metadata_msg(&mut self, crypto: &mut PeerCrypto) -> Result<MetadataMessage, PeerHandshakeMessageError>;
-    fn as_ack_msg(&mut self, crypto: &mut PeerCrypto) -> Result<AckMessage, PeerHandshakeMessageError>;
+    fn as_metadata_msg(
+        &mut self,
+        crypto: &mut PeerCrypto,
+    ) -> Result<MetadataMessage, PeerHandshakeMessageError>;
+    fn as_ack_msg(
+        &mut self,
+        crypto: &mut PeerCrypto,
+    ) -> Result<AckMessage, PeerHandshakeMessageError>;
 }

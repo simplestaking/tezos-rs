@@ -9,10 +9,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use networking::PeerAddress;
 use networking::p2p::network_channel::NetworkChannelMsg;
 use networking::p2p::network_channel::NetworkChannelRef;
 use networking::p2p::network_channel::NetworkChannelTopic;
+use networking::PeerAddress;
 use rand::Rng;
 use riker::actors::*;
 use slog::{info, warn, Logger};
@@ -184,7 +184,7 @@ pub type PeerBranchBootstrapperRef = ActorRef<PeerBranchBootstrapperMsg>;
     ApplyBlockBatchFailed,
     DisconnectStalledBootstraps,
     CleanPeerData,
-    LogStats,
+    LogStats
 )]
 pub struct PeerBranchBootstrapper {
     network_channel: NetworkChannelRef,
@@ -662,10 +662,13 @@ impl Receive<DisconnectStalledBootstraps> for PeerBranchBootstrapper {
 
         bootstrap_state.check_bootstrapped_branches(&None, &log);
         bootstrap_state.check_stalled_peers(&cfg, &log, |peer| {
-            network_channel.tell(Publish {
-                msg: NetworkChannelMsg::PeerStalled(Arc::new(peer.clone())),
-                topic: NetworkChannelTopic::NetworkEvents.into(),
-            }, None);
+            network_channel.tell(
+                Publish {
+                    msg: NetworkChannelMsg::PeerStalled(Arc::new(peer.clone())),
+                    topic: NetworkChannelTopic::NetworkEvents.into(),
+                },
+                None,
+            );
         });
 
         self.schedule_process_all_bootstrap_pipelines(ctx);

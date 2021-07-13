@@ -1,7 +1,7 @@
-use std::str::FromStr;
 use std::fmt::{self, Display};
 use std::hash::{Hash, Hasher};
-use std::net::{SocketAddr, IpAddr, Ipv4Addr, AddrParseError};
+use std::net::{AddrParseError, IpAddr, Ipv4Addr, SocketAddr};
+use std::str::FromStr;
 
 pub type Port = u16;
 
@@ -182,9 +182,21 @@ mod tests {
     #[test]
     fn test_peer_address_from_index_equals_to_index() {
         assert_eq!(255, PeerAddress::ipv4_from_index(255).to_index());
-        assert_eq!(255 + 600, PeerAddress::ipv4_from_index(255 + 600).to_index());
-        assert_eq!(255 * 255 + 100, PeerAddress::ipv4_from_index(255 * 255 + 100).to_index());
-        assert_eq!(255 * 255 * 255 + 100, PeerAddress::ipv4_from_index(255 * 255 * 255 + 100).to_index());
-        assert_eq!(255 * 255 * 255 * 255 + 100, PeerAddress::ipv4_from_index(255 * 255 * 255 * 255 + 100).to_index());
+        assert_eq!(
+            255 + 600,
+            PeerAddress::ipv4_from_index(255 + 600).to_index()
+        );
+        assert_eq!(
+            255 * 255 + 100,
+            PeerAddress::ipv4_from_index(255 * 255 + 100).to_index()
+        );
+        assert_eq!(
+            255 * 255 * 255 + 100,
+            PeerAddress::ipv4_from_index(255 * 255 * 255 + 100).to_index()
+        );
+        assert_eq!(
+            255 * 255 * 255 * 255 + 100,
+            PeerAddress::ipv4_from_index(255 * 255 * 255 * 255 + 100).to_index()
+        );
     }
 }

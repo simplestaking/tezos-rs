@@ -1,14 +1,17 @@
 use std::io::{self, Read, Write};
 
-use tla_sm::Acceptor;
-use crate::{TezedgeState, Effects};
 use crate::chunking::ReadMessageError;
 use crate::proposals::peer_handshake_message::PeerBinaryHandshakeMessage;
-use crate::proposals::{PeerReadableProposal, PeerWritableProposal, PeerMessageProposal, PeerHandshakeMessageProposal};
+use crate::proposals::{
+    PeerHandshakeMessageProposal, PeerMessageProposal, PeerReadableProposal, PeerWritableProposal,
+};
+use crate::{Effects, TezedgeState};
+use tla_sm::Acceptor;
 
 impl<'a, E, S> Acceptor<PeerReadableProposal<'a, S>> for TezedgeState<E>
-    where E: Effects,
-          S: Read + Write,
+where
+    E: Effects,
+    S: Read + Write,
 {
     fn accept(&mut self, proposal: PeerReadableProposal<S>) {
         if let Err(_err) = self.validate_proposal(&proposal) {

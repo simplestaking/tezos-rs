@@ -10,7 +10,7 @@ use networking::p2p::network_channel::{NetworkChannelMsg, NetworkChannelRef, Net
 use riker::actors::*;
 
 use crypto::hash::{BlockHash, OperationHash};
-use networking::{PeerId, PeerAddress};
+use networking::{PeerAddress, PeerId};
 use storage::mempool_storage::MempoolOperationType;
 use storage::BlockHeaderWithHash;
 use tezos_messages::p2p::encoding::block_header::Level;
@@ -348,8 +348,11 @@ pub fn tell_peer(
     peer: &PeerState,
     msg: Arc<PeerMessageResponse>,
 ) {
-    network_channel.tell(Publish {
-        msg: NetworkChannelMsg::SendMessage(peer.peer_id.clone(), msg),
-        topic: NetworkChannelTopic::NetworkCommands.into(),
-    }, None);
+    network_channel.tell(
+        Publish {
+            msg: NetworkChannelMsg::SendMessage(peer.peer_id.clone(), msg),
+            topic: NetworkChannelTopic::NetworkCommands.into(),
+        },
+        None,
+    );
 }

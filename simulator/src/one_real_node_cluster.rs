@@ -7,21 +7,21 @@ use std::time::{Duration, Instant};
 use crypto::crypto_box::CryptoKey;
 use crypto::crypto_box::PrecomputedKey;
 use crypto::crypto_box::PublicKey;
-use crypto::nonce::Nonce;
 use crypto::nonce::generate_nonces;
-use tezedge_state::DefaultEffects;
-use tezedge_state::PeerAddress;
-use tezedge_state::PeerCrypto;
-use tezedge_state::TezedgeState;
+use crypto::nonce::Nonce;
 use tezedge_state::chunking::ChunkReadBuffer;
 use tezedge_state::chunking::EncryptedMessageWriter;
 use tezedge_state::chunking::MessageReadBuffer;
 use tezedge_state::proposals::ExtendPotentialPeersProposal;
-use tezedge_state::proposer::{Event, EventRef};
-use tezedge_state::proposer::{Events, Manager, Peer};
 use tezedge_state::proposer::NetworkEvent;
 use tezedge_state::proposer::TezedgeProposer;
 use tezedge_state::proposer::TezedgeProposerConfig;
+use tezedge_state::proposer::{Event, EventRef};
+use tezedge_state::proposer::{Events, Manager, Peer};
+use tezedge_state::DefaultEffects;
+use tezedge_state::PeerAddress;
+use tezedge_state::PeerCrypto;
+use tezedge_state::TezedgeState;
 use tezos_identity::Identity;
 use tezos_messages::p2p::binary_message::BinaryChunk;
 use tezos_messages::p2p::binary_message::BinaryRead;
@@ -61,7 +61,6 @@ pub enum FakeNetworkEventType {
 
     BytesWritable(Option<usize>),
     // ByteChunksWritable(Vec<usize>),
-
     BytesReadable(Option<usize>),
     // ByteChunksReadable(Vec<usize>),
 }
@@ -70,7 +69,7 @@ pub enum FakeNetworkEventType {
 pub struct FakeNetworkEvent {
     time: Instant,
     from: FakePeerId,
-    event_type: FakeNetworkEventType
+    event_type: FakeNetworkEventType,
 }
 
 impl NetworkEvent for FakeNetworkEvent {
@@ -163,7 +162,7 @@ impl<'a> Iterator for FakeEventsIter<'a> {
     }
 }
 
-impl<'a, > IntoIterator for &'a FakeEvents {
+impl<'a> IntoIterator for &'a FakeEvents {
     type Item = FakeEventRef<'a>;
     type IntoIter = FakeEventsIter<'a>;
 
@@ -322,69 +321,115 @@ impl FakePeerStream {
 
     /// Send connection message to real node.
     pub fn send_conn_msg(&mut self, conn_msg: &ConnectionMessage) {
-        self.send_bytes(BinaryChunk::from_content(&conn_msg.as_bytes().unwrap()).unwrap().raw());
+        self.send_bytes(
+            BinaryChunk::from_content(&conn_msg.as_bytes().unwrap())
+                .unwrap()
+                .raw(),
+        );
     }
 
     pub fn read_conn_msg(&mut self) -> ConnectionMessage {
         let mut reader = ChunkReadBuffer::new();
         while !reader.is_finished() {
-            reader.read_from(&mut VecDequeReadable::from(&mut self.write_buf)).unwrap();
+            reader
+                .read_from(&mut VecDequeReadable::from(&mut self.write_buf))
+                .unwrap();
         }
         ConnectionMessage::from_bytes(reader.take_if_ready().unwrap().content()).unwrap()
     }
 
     pub fn send_meta_msg(&mut self, meta_msg: &MetadataMessage) {
-        let crypto = self.crypto.as_mut().expect("missing PeerCrypto for encryption");
+        let crypto = self
+            .crypto
+            .as_mut()
+            .expect("missing PeerCrypto for encryption");
         let mut encrypted_msg_writer = EncryptedMessageWriter::try_new(meta_msg).unwrap();
-        encrypted_msg_writer.write_to_extendable(&mut self.read_buf, crypto).unwrap();
+        encrypted_msg_writer
+            .write_to_extendable(&mut self.read_buf, crypto)
+            .unwrap();
     }
 
     pub fn read_meta_msg(&mut self) -> MetadataMessage {
-        let crypto = self.crypto.as_mut().expect("missing PeerCrypto for encryption");
+        let crypto = self
+            .crypto
+            .as_mut()
+            .expect("missing PeerCrypto for encryption");
         let mut reader = ChunkReadBuffer::new();
         while !reader.is_finished() {
-            reader.read_from(&mut VecDequeReadable::from(&mut self.write_buf)).unwrap();
+            reader
+                .read_from(&mut VecDequeReadable::from(&mut self.write_buf))
+                .unwrap();
         }
-        let bytes = crypto.decrypt(&reader.take_if_ready().unwrap().content()).unwrap();
+        let bytes = crypto
+            .decrypt(&reader.take_if_ready().unwrap().content())
+            .unwrap();
         MetadataMessage::from_bytes(bytes).unwrap()
     }
 
     pub fn send_ack_msg(&mut self, ack_msg: &AckMessage) {
-        let crypto = self.crypto.as_mut().expect("missing PeerCrypto for encryption");
+        let crypto = self
+            .crypto
+            .as_mut()
+            .expect("missing PeerCrypto for encryption");
         let mut encrypted_msg_writer = EncryptedMessageWriter::try_new(ack_msg).unwrap();
-        encrypted_msg_writer.write_to_extendable(&mut self.read_buf, crypto).unwrap();
+        encrypted_msg_writer
+            .write_to_extendable(&mut self.read_buf, crypto)
+            .unwrap();
     }
 
     pub fn read_ack_message(&mut self) -> AckMessage {
-        let crypto = self.crypto.as_mut().expect("missing PeerCrypto for encryption");
+        let crypto = self
+            .crypto
+            .as_mut()
+            .expect("missing PeerCrypto for encryption");
         let mut reader = ChunkReadBuffer::new();
         while !reader.is_finished() {
-            reader.read_from(&mut VecDequeReadable::from(&mut self.write_buf)).unwrap();
+            reader
+                .read_from(&mut VecDequeReadable::from(&mut self.write_buf))
+                .unwrap();
         }
-        let bytes = crypto.decrypt(&reader.take_if_ready().unwrap().content()).unwrap();
+        let bytes = crypto
+            .decrypt(&reader.take_if_ready().unwrap().content())
+            .unwrap();
         AckMessage::from_bytes(bytes).unwrap()
     }
 
     pub fn send_peer_message(&mut self, peer_message: PeerMessage) {
-        let crypto = self.crypto.as_mut().expect("missing PeerCrypto for encryption");
+        let crypto = self
+            .crypto
+            .as_mut()
+            .expect("missing PeerCrypto for encryption");
         let resp = PeerMessageResponse::from(peer_message);
         let mut encrypted_msg_writer = EncryptedMessageWriter::try_new(&resp).unwrap();
-        encrypted_msg_writer.write_to_extendable(&mut self.read_buf, crypto).unwrap();
+        encrypted_msg_writer
+            .write_to_extendable(&mut self.read_buf, crypto)
+            .unwrap();
     }
 
     pub fn read_peer_message(&mut self) -> Option<PeerMessage> {
-        let crypto = self.crypto.as_mut().expect("missing PeerCrypto for encryption");
+        let crypto = self
+            .crypto
+            .as_mut()
+            .expect("missing PeerCrypto for encryption");
         if self.write_buf.len() == 0 {
             return None;
         }
         let mut reader = MessageReadBuffer::new();
-        Some(reader.read_from(&mut VecDequeReadable::from(&mut self.write_buf), crypto).unwrap())
+        Some(
+            reader
+                .read_from(&mut VecDequeReadable::from(&mut self.write_buf), crypto)
+                .unwrap(),
+        )
     }
 }
 
 impl Read for FakePeerStream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        assert_ne!(buf.len(), 0, "empty(len = 0) buffer shouldn't be passed to read method");
+        assert_ne!(
+            buf.len(),
+            0,
+            "empty(len = 0) buffer shouldn't be passed to read method"
+        );
         let len = match &self.read_limit {
             Some(limit) => buf.len().min(*limit),
             None => buf.len(),
@@ -468,7 +513,9 @@ impl OneRealNodeManager {
     }
 
     fn init_new_fake_peer(&mut self) -> FakePeerId {
-        let peer_id = FakePeerId { id: self.fake_peers.len() };
+        let peer_id = FakePeerId {
+            id: self.fake_peers.len(),
+        };
         self.fake_peers.push(Peer::new(
             peer_id.into(),
             FakePeerStream::new(self.pow_target),
@@ -497,8 +544,7 @@ impl Manager for OneRealNodeManager {
         let peer = self.get_mut(event.from);
         match &mut peer.stream.conn_state {
             conn_state @ ConnectedState::Disconnected
-            | conn_state @ ConnectedState::Outgoing(false)
-            => {
+            | conn_state @ ConnectedState::Outgoing(false) => {
                 *conn_state = ConnectedState::Outgoing(true);
                 Some(peer)
             }
@@ -552,21 +598,32 @@ impl Manager for OneRealNodeManager {
         Some(self.get_mut(address.into()))
     }
 
-    fn get_peer_or_connect_mut(&mut self, address: &PeerAddress) -> io::Result<&mut Peer<Self::Stream>> {
+    fn get_peer_or_connect_mut(
+        &mut self,
+        address: &PeerAddress,
+    ) -> io::Result<&mut Peer<Self::Stream>> {
         let peer = self.get_mut(address.into());
         match &mut peer.stream.conn_state {
             conn_state @ ConnectedState::Disconnected
-            | conn_state @ ConnectedState::Incoming(false)
-            => {
+            | conn_state @ ConnectedState::Incoming(false) => {
                 *conn_state = ConnectedState::Incoming(true);
                 Ok(peer)
             }
-            ConnectedState::Outgoing(true) => Err(io::Error::new(io::ErrorKind::Other, "unexpected fake peer conn_state: ConnectedState::Outgoing!")),
-            conn_state => Err(io::Error::new(io::ErrorKind::Other, format!("unexpected fake peer conn_state: {:?}!", conn_state))),
+            ConnectedState::Outgoing(true) => Err(io::Error::new(
+                io::ErrorKind::Other,
+                "unexpected fake peer conn_state: ConnectedState::Outgoing!",
+            )),
+            conn_state => Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("unexpected fake peer conn_state: {:?}!", conn_state),
+            )),
         }
     }
 
-    fn get_peer_for_event_mut(&mut self, event: &Self::NetworkEvent) -> Option<&mut Peer<Self::Stream>> {
+    fn get_peer_for_event_mut(
+        &mut self,
+        event: &Self::NetworkEvent,
+    ) -> Option<&mut Peer<Self::Stream>> {
         Some(self.get_mut(event.from))
     }
 
@@ -593,10 +650,7 @@ impl OneRealNodeCluster {
             proposer_config,
             state,
             FakeEvents::new(),
-            OneRealNodeManager::new(
-                pow_target,
-                wait_for_events_timeout,
-            ),
+            OneRealNodeManager::new(pow_target, wait_for_events_timeout),
         );
         // needed to start listening for incoming connections.
         proposer.make_progress();
@@ -632,16 +686,19 @@ impl OneRealNodeCluster {
     }
 
     fn _extend_node_potential_peers<I>(&mut self, peers: I)
-        where I: Debug + IntoIterator<Item = SocketAddr>,
+    where
+        I: Debug + IntoIterator<Item = SocketAddr>,
     {
-        self.proposer.state.accept(
-            ExtendPotentialPeersProposal { at: self.time, peers }
-        )
+        self.proposer.state.accept(ExtendPotentialPeersProposal {
+            at: self.time,
+            peers,
+        })
     }
 
     fn extend_node_potential_peers<I>(&mut self, peers: I)
-        where I: IntoIterator<Item = FakePeerId>,
-              I::IntoIter: Debug,
+    where
+        I: IntoIterator<Item = FakePeerId>,
+        I::IntoIter: Debug,
     {
         self._extend_node_potential_peers(peers.into_iter().map(|x| x.into()))
     }
@@ -664,12 +721,20 @@ impl OneRealNodeCluster {
             return Err(ConnectToNodeError::NodeNotListening);
         }
 
-        self.proposer.manager.get_mut(from).stream.conn_state.to_outgoing();
-        self.proposer.manager.push_event(FakeNetworkEvent {
-            time: self.time,
-            from,
-            event_type: FakeNetworkEventType::IncomingConnection,
-        }.into());
+        self.proposer
+            .manager
+            .get_mut(from)
+            .stream
+            .conn_state
+            .to_outgoing();
+        self.proposer.manager.push_event(
+            FakeNetworkEvent {
+                time: self.time,
+                from,
+                event_type: FakeNetworkEventType::IncomingConnection,
+            }
+            .into(),
+        );
 
         Ok(self)
     }
@@ -678,37 +743,59 @@ impl OneRealNodeCluster {
     /// connections isn't reached for node.
     pub fn connect_from_node(&mut self, to: FakePeerId) -> &mut Self {
         self.extend_node_potential_peers(std::iter::once(to));
-        self.proposer.manager.get_mut(to).stream.conn_state.to_incoming();
+        self.proposer
+            .manager
+            .get_mut(to)
+            .stream
+            .conn_state
+            .to_incoming();
 
         self
     }
 
     pub fn disconnect_peer(&mut self, peer_id: FakePeerId) -> &mut Self {
-        self.proposer.manager.events.push_back(Event::Network(FakeNetworkEvent {
-            time: self.time,
-            from: peer_id,
-            event_type: FakeNetworkEventType::Disconnected,
-        }));
+        self.proposer
+            .manager
+            .events
+            .push_back(Event::Network(FakeNetworkEvent {
+                time: self.time,
+                from: peer_id,
+                event_type: FakeNetworkEventType::Disconnected,
+            }));
 
         self
     }
 
-    pub fn add_readable_event(&mut self, peer_id: FakePeerId, read_limit: Option<usize>) -> &mut Self {
-        self.proposer.manager.events.push_back(Event::Network(FakeNetworkEvent {
-            time: self.time,
-            from: peer_id,
-            event_type: FakeNetworkEventType::BytesReadable(read_limit),
-        }));
+    pub fn add_readable_event(
+        &mut self,
+        peer_id: FakePeerId,
+        read_limit: Option<usize>,
+    ) -> &mut Self {
+        self.proposer
+            .manager
+            .events
+            .push_back(Event::Network(FakeNetworkEvent {
+                time: self.time,
+                from: peer_id,
+                event_type: FakeNetworkEventType::BytesReadable(read_limit),
+            }));
 
         self
     }
 
-    pub fn add_writable_event(&mut self, peer_id: FakePeerId, write_limit: Option<usize>) -> &mut Self {
-        self.proposer.manager.events.push_back(Event::Network(FakeNetworkEvent {
-            time: self.time,
-            from: peer_id,
-            event_type: FakeNetworkEventType::BytesWritable(write_limit),
-        }));
+    pub fn add_writable_event(
+        &mut self,
+        peer_id: FakePeerId,
+        write_limit: Option<usize>,
+    ) -> &mut Self {
+        self.proposer
+            .manager
+            .events
+            .push_back(Event::Network(FakeNetworkEvent {
+                time: self.time,
+                from: peer_id,
+                event_type: FakeNetworkEventType::BytesWritable(write_limit),
+            }));
 
         self
     }
@@ -729,8 +816,9 @@ impl OneRealNodeCluster {
             &peer.identity.public_key,
             &peer.identity.proof_of_work_stamp,
             Nonce::random(),
-            NetworkVersion::new("TEZOS_MAINNET".to_owned(), 0, 1)
-        ).unwrap();
+            NetworkVersion::new("TEZOS_MAINNET".to_owned(), 0, 1),
+        )
+        .unwrap();
 
         peer.send_conn_msg(&sent_conn_msg);
         self.add_readable_event(peer_id, None)
@@ -741,10 +829,15 @@ impl OneRealNodeCluster {
         let conn_msg = self.get_peer(peer_id).read_conn_msg();
 
         let nonce_pair = generate_nonces(
-            &BinaryChunk::from_content(&sent_conn_msg.as_bytes().unwrap()).unwrap().raw(),
-            &BinaryChunk::from_content(&conn_msg.as_bytes().unwrap()).unwrap().raw(),
+            &BinaryChunk::from_content(&sent_conn_msg.as_bytes().unwrap())
+                .unwrap()
+                .raw(),
+            &BinaryChunk::from_content(&conn_msg.as_bytes().unwrap())
+                .unwrap()
+                .raw(),
             incoming,
-        ).unwrap();
+        )
+        .unwrap();
 
         let peer = self.get_peer(peer_id);
 
@@ -791,13 +884,16 @@ impl OneRealNodeCluster {
     }
 
     pub fn add_tick_for_current_time(&mut self) {
-        self.proposer.manager.events.push_back(Event::Tick(self.time));
+        self.proposer
+            .manager
+            .events
+            .push_back(Event::Tick(self.time));
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use tezedge_state::{TezedgeConfig, sample_tezedge_state};
+    use tezedge_state::{sample_tezedge_state, TezedgeConfig};
 
     use super::*;
 
@@ -810,28 +906,33 @@ mod tests {
                 wait_for_events_timeout: Some(Duration::from_millis(250)),
                 events_limit: 1024,
             },
-            sample_tezedge_state::build(initial_time, TezedgeConfig {
-                port: 9732,
-                disable_mempool: true,
-                private_node: true,
-                min_connected_peers: 1,
-                max_connected_peers: 100,
-                max_pending_peers: 100,
-                max_potential_peers: 1000,
-                periodic_react_interval: Duration::from_millis(250),
-                peer_blacklist_duration: Duration::from_secs(15 * 60),
-                peer_timeout: Duration::from_secs(8),
-                // use high number to speed up identity generation.
-                pow_target: 1.0,
-            }),
+            sample_tezedge_state::build(
+                initial_time,
+                TezedgeConfig {
+                    port: 9732,
+                    disable_mempool: true,
+                    private_node: true,
+                    min_connected_peers: 1,
+                    max_connected_peers: 100,
+                    max_pending_peers: 100,
+                    max_potential_peers: 1000,
+                    periodic_react_interval: Duration::from_millis(250),
+                    peer_blacklist_duration: Duration::from_secs(15 * 60),
+                    peer_timeout: Duration::from_secs(8),
+                    // use high number to speed up identity generation.
+                    pow_target: 1.0,
+                },
+            ),
         );
 
         let peer_id = cluster.init_new_fake_peer();
 
         cluster
-            .connect_to_node(peer_id).unwrap()
+            .connect_to_node(peer_id)
+            .unwrap()
             .make_progress()
-            .do_handshake(peer_id).unwrap()
+            .do_handshake(peer_id)
+            .unwrap()
             .make_progress();
     }
 
@@ -844,20 +945,23 @@ mod tests {
                 wait_for_events_timeout: Some(Duration::from_millis(250)),
                 events_limit: 1024,
             },
-            sample_tezedge_state::build(initial_time, TezedgeConfig {
-                port: 9732,
-                disable_mempool: true,
-                private_node: true,
-                min_connected_peers: 1,
-                max_connected_peers: 100,
-                max_pending_peers: 100,
-                max_potential_peers: 1000,
-                periodic_react_interval: Duration::from_millis(250),
-                peer_blacklist_duration: Duration::from_secs(15 * 60),
-                peer_timeout: Duration::from_secs(8),
-                // use high number to speed up identity generation.
-                pow_target: 1.0,
-            }),
+            sample_tezedge_state::build(
+                initial_time,
+                TezedgeConfig {
+                    port: 9732,
+                    disable_mempool: true,
+                    private_node: true,
+                    min_connected_peers: 1,
+                    max_connected_peers: 100,
+                    max_pending_peers: 100,
+                    max_potential_peers: 1000,
+                    periodic_react_interval: Duration::from_millis(250),
+                    peer_blacklist_duration: Duration::from_secs(15 * 60),
+                    peer_timeout: Duration::from_secs(8),
+                    // use high number to speed up identity generation.
+                    pow_target: 1.0,
+                },
+            ),
         );
 
         let peer_id = cluster.init_new_fake_peer();
@@ -865,7 +969,8 @@ mod tests {
         cluster
             .connect_from_node(peer_id)
             .make_progress()
-            .do_handshake(peer_id).unwrap()
+            .do_handshake(peer_id)
+            .unwrap()
             .make_progress();
     }
 }

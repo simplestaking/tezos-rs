@@ -14,8 +14,8 @@ use riker::actors::*;
 use slog::{warn, Logger};
 
 use crypto::hash::{BlockHash, ChainId};
+use networking::p2p::network_channel::{NetworkChannelMsg, NetworkChannelRef, NetworkChannelTopic};
 use networking::PeerId;
-use networking::p2p::network_channel::{NetworkChannelRef, NetworkChannelMsg, NetworkChannelTopic};
 use storage::{BlockMetaStorage, BlockMetaStorageReader, OperationsMetaStorage};
 use tezos_messages::p2p::encoding::limits;
 use tezos_messages::p2p::encoding::prelude::{
@@ -496,10 +496,13 @@ pub fn tell_peer(
     peer_id: &PeerId,
     msg: Arc<PeerMessageResponse>,
 ) {
-    network_channel.tell(Publish {
-        msg: NetworkChannelMsg::SendMessage(Arc::new(peer_id.clone()), msg),
-        topic: NetworkChannelTopic::NetworkCommands.into(),
-    }, None);
+    network_channel.tell(
+        Publish {
+            msg: NetworkChannelMsg::SendMessage(Arc::new(peer_id.clone()), msg),
+            topic: NetworkChannelTopic::NetworkCommands.into(),
+        },
+        None,
+    );
 }
 
 // #[cfg(test)]

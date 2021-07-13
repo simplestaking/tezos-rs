@@ -604,32 +604,34 @@ impl BootstrapState {
                     continue;
                 }
             }
-            branches
-                .retain(|branch| {
-                    if branch.is_done() {
-                        info!(log, "Finished branch bootstrapping process";
+            branches.retain(|branch| {
+                if branch.is_done() {
+                    info!(log, "Finished branch bootstrapping process";
                             "to_level" => &branch.to_level,
                             "peer_ip" => peer_id.address.to_string());
 
-                        // send for peer just once
-                        if !(*is_bootstrapped) {
-                            *is_bootstrapped = true;
-                            shell_channel.tell(
-                                Publish {
-                                    msg: ShellChannelMsg::PeerBranchSynchronizationDone(
-                                        PeerBranchSynchronizationDone::new(peer_id.clone(), branch.to_level),
+                    // send for peer just once
+                    if !(*is_bootstrapped) {
+                        *is_bootstrapped = true;
+                        shell_channel.tell(
+                            Publish {
+                                msg: ShellChannelMsg::PeerBranchSynchronizationDone(
+                                    PeerBranchSynchronizationDone::new(
+                                        peer_id.clone(),
+                                        branch.to_level,
                                     ),
-                                    topic: ShellChannelTopic::ShellCommands.into(),
-                                },
-                                None,
-                            );
-                        }
-
-                        false
-                    } else {
-                        true
+                                ),
+                                topic: ShellChannelTopic::ShellCommands.into(),
+                            },
+                            None,
+                        );
                     }
-                });
+
+                    false
+                } else {
+                    true
+                }
+            });
 
             if branches.is_empty() && empty_bootstrap_state.is_none() {
                 *empty_bootstrap_state = Some(Instant::now());

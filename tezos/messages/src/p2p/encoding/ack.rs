@@ -10,9 +10,9 @@ use nom::{
     combinator::{map, success},
     sequence::preceded,
 };
-use serde::{Deserialize, Serialize};
-use quickcheck_derive::Arbitrary;
 use quickcheck::Arbitrary;
+use quickcheck_derive::Arbitrary;
+use serde::{Deserialize, Serialize};
 
 use tezos_encoding::{
     encoding::HasEncoding,

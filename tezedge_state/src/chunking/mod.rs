@@ -55,7 +55,7 @@ pub enum WriteMessageError {
     IO(io::Error),
     Encode(BinaryWriterError),
     Crypto(CryptoError),
-    BinaryChunk(BinaryChunkError)
+    BinaryChunk(BinaryChunkError),
 }
 
 impl From<io::Error> for WriteMessageError {

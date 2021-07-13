@@ -1,8 +1,8 @@
 use std::time::Instant;
 
-use tla_sm::Proposal;
-use tezos_messages::p2p::encoding::peer::PeerMessage;
 use crate::PeerAddress;
+use tezos_messages::p2p::encoding::peer::PeerMessage;
+use tla_sm::Proposal;
 
 #[derive(Debug, Clone)]
 pub struct PeerMessageProposal {

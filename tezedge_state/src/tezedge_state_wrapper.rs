@@ -4,7 +4,9 @@ use std::time::Instant;
 use tla_sm::GetRequests;
 use tla_sm::{Acceptor, Proposal};
 
-use crate::{PeerAddress, TezedgeState, TezedgeConfig, TezedgeStats, TezedgeRequest, DefaultEffects};
+use crate::{
+    DefaultEffects, PeerAddress, TezedgeConfig, TezedgeRequest, TezedgeState, TezedgeStats,
+};
 
 #[derive(Debug, Clone)]
 pub struct TezedgeStateWrapper<E = DefaultEffects>(TezedgeState<E>);
@@ -37,8 +39,9 @@ impl<E> TezedgeStateWrapper<E> {
 }
 
 impl<E, P> Acceptor<P> for TezedgeStateWrapper<E>
-    where P: Proposal + Debug,
-          TezedgeState<E>: Acceptor<P>,
+where
+    P: Proposal + Debug,
+    TezedgeState<E>: Acceptor<P>,
 {
     #[inline]
     fn accept(&mut self, proposal: P) {

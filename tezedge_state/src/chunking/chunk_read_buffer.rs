@@ -28,7 +28,6 @@ impl<'a> BinaryMessageContent for BinaryChunkRef<'a> {
     fn binary_message_content(&self) -> &[u8] {
         self.content()
     }
-
 }
 
 impl BinaryMessageContent for BinaryChunk {
@@ -82,8 +81,7 @@ impl HandshakeReadBuffer {
             self.index += size;
 
             if self.expected_len == 0 && self.index >= CONTENT_LENGTH_FIELD_BYTES {
-                self.expected_len = CONTENT_LENGTH_FIELD_BYTES +
-                    (&self.buf[..]).get_u16() as usize;
+                self.expected_len = CONTENT_LENGTH_FIELD_BYTES + (&self.buf[..]).get_u16() as usize;
             }
             if self.is_finished() {
                 return Ok(());

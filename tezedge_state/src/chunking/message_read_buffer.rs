@@ -1,10 +1,13 @@
 use std::io::{self, Read};
 
 use bytes::Buf;
-use tezos_messages::p2p::{binary_message::{BinaryChunk, BinaryRead, CONTENT_LENGTH_FIELD_BYTES, SizeFromChunk}, encoding::peer::{PeerMessage, PeerMessageResponse}};
+use tezos_messages::p2p::{
+    binary_message::{BinaryChunk, BinaryRead, SizeFromChunk, CONTENT_LENGTH_FIELD_BYTES},
+    encoding::peer::{PeerMessage, PeerMessageResponse},
+};
 
+use super::{ChunkReadBuffer, ReadMessageError};
 use crate::PeerCrypto;
-use super::{ReadMessageError, ChunkReadBuffer};
 
 /// Read buffer for connected peer(`PeerMessage`).
 ///
@@ -37,8 +40,7 @@ impl MessageReadBuffer {
         &mut self,
         reader: &mut R,
         crypto: &mut PeerCrypto,
-    ) -> Result<PeerMessage, ReadMessageError>
-    {
+    ) -> Result<PeerMessage, ReadMessageError> {
         loop {
             self.chunk_reader.read_from(reader)?;
             // TODO: stop reading if message_len < message_buf.len() + chunk_expected_len
@@ -59,8 +61,7 @@ impl MessageReadBuffer {
     }
 
     fn take_and_decode(&mut self) -> Result<PeerMessage, ReadMessageError> {
-        let result = PeerMessageResponse::from_bytes(&self.message_buf)
-            .map(|resp| resp.message);
+        let result = PeerMessageResponse::from_bytes(&self.message_buf).map(|resp| resp.message);
 
         self.clear();
         Ok(result?)

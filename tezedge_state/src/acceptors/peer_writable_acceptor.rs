@@ -1,14 +1,15 @@
 use std::io::{Read, Write};
 
+use crate::chunking::WriteMessageError;
+use crate::proposals::{PeerReadableProposal, PeerWritableProposal};
+use crate::{Effects, HandshakeMessageType, P2pState, TezedgeState};
 use tezos_messages::p2p::encoding::ack::{AckMessage, NackMotive};
 use tla_sm::Acceptor;
-use crate::{TezedgeState, P2pState, Effects, HandshakeMessageType};
-use crate::proposals::{PeerReadableProposal, PeerWritableProposal};
-use crate::chunking::WriteMessageError;
 
 impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
-    where E: Effects,
-          S: Read + Write,
+where
+    E: Effects,
+    S: Read + Write,
 {
     fn accept(&mut self, proposal: PeerWritableProposal<S>) {
         if let Err(_err) = self.validate_proposal(&proposal) {
@@ -22,8 +23,7 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
             loop {
                 match peer.write_to(proposal.stream) {
                     Ok(()) => {}
-                    Err(WriteMessageError::Empty)
-                    | Err(WriteMessageError::Pending) => break,
+                    Err(WriteMessageError::Empty) | Err(WriteMessageError::Pending) => break,
                     Err(err) => {
                         slog::error!(&self.log, "Write failed!"; "description" => "error while trying to write to connected peer stream.", "error" => format!("{:?}", err));
                         self.blacklist_peer(proposal.at, proposal.peer);
@@ -48,11 +48,14 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
                                     peer.send_ack_msg_successful(proposal.at);
                                     if peer.is_handshake_finished() {
                                         let nack_motive = peer.nack_motive();
-                                        let peer = self.pending_peers
-                                            .remove(&proposal.peer)
-                                            .unwrap();
+                                        let peer =
+                                            self.pending_peers.remove(&proposal.peer).unwrap();
                                         if let Some(result) = peer.to_handshake_result() {
-                                            self.set_peer_connected(proposal.at, proposal.peer, result);
+                                            self.set_peer_connected(
+                                                proposal.at,
+                                                proposal.peer,
+                                                result,
+                                            );
                                             self.adjust_p2p_state(time);
                                             // try to write and read from peer
                                             // after successful handshake.
@@ -64,11 +67,11 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
                                             return self.accept(proposal);
                                         } else {
                                             slog::warn!(&self.log, "Blacklisting peer";
-                                                "peer_address" => proposal.peer.to_string(),
-                                                "reason" => format!("Sent Nack({:?})", match nack_motive {
-                                                    Some(motive) => motive.to_string(),
-                                                    None => "[Unknown]".to_string(),
-                                                }));
+                                            "peer_address" => proposal.peer.to_string(),
+                                            "reason" => format!("Sent Nack({:?})", match nack_motive {
+                                                Some(motive) => motive.to_string(),
+                                                None => "[Unknown]".to_string(),
+                                            }));
                                             slog::warn!(&self.log, "Blacklisting peer"; "peer_address" => proposal.peer.to_string(), "reason" => "Sent Nack");
                                             self.blacklist_peer(proposal.at, proposal.peer);
                                             self.adjust_p2p_state(time);
@@ -85,7 +88,8 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
                             let effects = &mut self.effects;
                             let potential_peers = &self.potential_peers;
 
-                            let result = peer.enqueue_send_conn_msg(proposal.at)
+                            let result = peer
+                                .enqueue_send_conn_msg(proposal.at)
                                 .and_then(|enqueued| {
                                     if !enqueued {
                                         peer.enqueue_send_meta_msg(proposal.at, meta_msg.clone())
@@ -99,15 +103,15 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
                                             P2pState::Pending
                                             | P2pState::PendingFull
                                             | P2pState::Ready
-                                            | P2pState::ReadyFull
-                                            => {}
+                                            | P2pState::ReadyFull => {}
                                             P2pState::ReadyMaxed => {
                                                 peer.nack_peer(NackMotive::TooManyConnections);
                                             }
                                         }
 
                                         peer.enqueue_send_ack_msg(proposal.at, || {
-                                            effects.choose_potential_peers_for_nack(potential_peers)
+                                            effects
+                                                .choose_potential_peers_for_nack(potential_peers)
                                                 .into_iter()
                                                 .map(|x| x.to_string())
                                                 .collect()
@@ -119,17 +123,22 @@ impl<'a, E, S> Acceptor<PeerWritableProposal<'a, S>> for TezedgeState<E>
                             match result {
                                 Ok(true) => {}
                                 Ok(false) => break,
-                                Err(err) =>  {
+                                Err(err) => {
                                     slog::error!(&self.log, "Failed to enqueue send handshake message!"; "error" => format!("{:?}", err));
                                     #[cfg(test)]
-                                    unreachable!("enqueueing handshake messages should always succeed");
+                                    unreachable!(
+                                        "enqueueing handshake messages should always succeed"
+                                    );
                                     break;
                                 }
                             }
                         }
                         Err(WriteMessageError::Pending) => {}
                         Err(err) => {
-                            eprintln!("error sending handshake message to peer({}): {:?}", proposal.peer, err);
+                            eprintln!(
+                                "error sending handshake message to peer({}): {:?}",
+                                proposal.peer, err
+                            );
                             self.blacklist_peer(proposal.at, proposal.peer);
                             break;
                         }

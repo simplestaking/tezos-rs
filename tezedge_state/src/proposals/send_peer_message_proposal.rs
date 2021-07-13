@@ -1,7 +1,7 @@
 use std::fmt::{self, Debug};
 use std::time::Instant;
-use tla_sm::Proposal;
 use tezos_messages::p2p::encoding::peer::PeerMessage;
+use tla_sm::Proposal;
 
 use crate::PeerAddress;
 

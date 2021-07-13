@@ -1,8 +1,8 @@
-use tezos_messages::p2p::binary_message::{BinaryRead, BinaryChunk};
-use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, MetadataMessage, AckMessage};
+use tezos_messages::p2p::binary_message::{BinaryChunk, BinaryRead};
+use tezos_messages::p2p::encoding::prelude::{AckMessage, ConnectionMessage, MetadataMessage};
 
-use crate::PeerCrypto;
 use super::{PeerHandshakeMessage, PeerHandshakeMessageError};
+use crate::PeerCrypto;
 
 #[derive(Debug, Clone)]
 pub struct PeerBinaryHandshakeMessage {
@@ -23,7 +23,10 @@ impl PeerHandshakeMessage for PeerBinaryHandshakeMessage {
         Ok(ConnectionMessage::from_bytes(self.bytes.content())?)
     }
 
-    fn as_metadata_msg(&mut self, crypto: &mut PeerCrypto) -> Result<MetadataMessage, PeerHandshakeMessageError> {
+    fn as_metadata_msg(
+        &mut self,
+        crypto: &mut PeerCrypto,
+    ) -> Result<MetadataMessage, PeerHandshakeMessageError> {
         if let Some(decrypted) = self.decrypted.as_ref() {
             Ok(MetadataMessage::from_bytes(decrypted)?)
         } else {
@@ -32,7 +35,10 @@ impl PeerHandshakeMessage for PeerBinaryHandshakeMessage {
         }
     }
 
-    fn as_ack_msg(&mut self, crypto: &mut PeerCrypto) -> Result<AckMessage, PeerHandshakeMessageError> {
+    fn as_ack_msg(
+        &mut self,
+        crypto: &mut PeerCrypto,
+    ) -> Result<AckMessage, PeerHandshakeMessageError> {
         if let Some(decrypted) = self.decrypted.as_ref() {
             Ok(AckMessage::from_bytes(decrypted)?)
         } else {
@@ -44,6 +50,9 @@ impl PeerHandshakeMessage for PeerBinaryHandshakeMessage {
 
 impl PeerBinaryHandshakeMessage {
     pub fn new(bytes: BinaryChunk) -> Self {
-        Self { bytes, decrypted: None }
+        Self {
+            bytes,
+            decrypted: None,
+        }
     }
 }

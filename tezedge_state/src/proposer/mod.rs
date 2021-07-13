@@ -1,36 +1,39 @@
-use std::time::{Instant, Duration};
-use std::io::{self, Read, Write};
-use std::fmt::{self, Debug};
 use bytes::Buf;
+use std::fmt::{self, Debug};
+use std::io::{self, Read, Write};
+use std::time::{Duration, Instant};
 
 use crypto::hash::CryptoboxPublicKeyHash;
 use tla_sm::{Acceptor, GetRequests};
 
-use tezos_messages::p2p::encoding::peer::{PeerMessage, PeerMessageResponse};
-use tezos_messages::p2p::binary_message::{BinaryMessage, BinaryChunk, BinaryChunkError, CONTENT_LENGTH_FIELD_BYTES};
-use tezos_messages::p2p::encoding::prelude::{
-    ConnectionMessage, MetadataMessage, AckMessage, NetworkVersion,
+use crate::proposals::{
+    NewPeerConnectProposal, PeerBlacklistProposal, PeerDisconnectProposal,
+    PeerDisconnectedProposal, PeerReadableProposal, PeerWritableProposal, PendingRequestMsg,
+    PendingRequestProposal, SendPeerMessageProposal, TickProposal,
 };
 use crate::{Effects, PeerAddress, PeerCrypto, TezedgeRequest, TezedgeState, TezedgeStateWrapper};
-use crate::proposals::{
-    TickProposal,
-    NewPeerConnectProposal,
-    PeerReadableProposal,
-    PeerWritableProposal,
-    SendPeerMessageProposal,
-    PeerDisconnectProposal,
-    PeerDisconnectedProposal,
-    PeerBlacklistProposal,
-    PendingRequestProposal, PendingRequestMsg,
+use tezos_messages::p2p::binary_message::{
+    BinaryChunk, BinaryChunkError, BinaryMessage, CONTENT_LENGTH_FIELD_BYTES,
+};
+use tezos_messages::p2p::encoding::peer::{PeerMessage, PeerMessageResponse};
+use tezos_messages::p2p::encoding::prelude::{
+    AckMessage, ConnectionMessage, MetadataMessage, NetworkVersion,
 };
 
 pub mod mio_manager;
 
 #[derive(Debug, Clone)]
 pub enum Notification {
-    PeerDisconnected { peer: PeerAddress },
-    PeerBlacklisted { peer: PeerAddress },
-    MessageReceived { peer: PeerAddress, message: PeerMessageResponse },
+    PeerDisconnected {
+        peer: PeerAddress,
+    },
+    PeerBlacklisted {
+        peer: PeerAddress,
+    },
+    MessageReceived {
+        peer: PeerAddress,
+        message: PeerMessageResponse,
+    },
     HandshakeSuccessful {
         peer_address: PeerAddress,
         peer_public_key_hash: CryptoboxPublicKeyHash,
@@ -64,7 +67,8 @@ impl<NetE: NetworkEvent> Event<NetE> {
 }
 
 impl<NetE> From<NetE> for Event<NetE>
-    where NetE: NetworkEvent,
+where
+    NetE: NetworkEvent,
 {
     fn from(event: NetE) -> Self {
         Self::Network(event)
@@ -98,10 +102,7 @@ pub struct Peer<S> {
 
 impl<S> Peer<S> {
     pub fn new(address: PeerAddress, stream: S) -> Self {
-        Self {
-            address,
-            stream,
-        }
+        Self { address, stream }
     }
 
     pub fn address(&self) -> &PeerAddress {
@@ -140,8 +141,14 @@ pub trait Manager {
     fn wait_for_events(&mut self, events_container: &mut Self::Events, timeout: Option<Duration>);
 
     fn get_peer(&mut self, address: &PeerAddress) -> Option<&mut Peer<Self::Stream>>;
-    fn get_peer_or_connect_mut(&mut self, address: &PeerAddress) -> io::Result<&mut Peer<Self::Stream>>;
-    fn get_peer_for_event_mut(&mut self, event: &Self::NetworkEvent) -> Option<&mut Peer<Self::Stream>>;
+    fn get_peer_or_connect_mut(
+        &mut self,
+        address: &PeerAddress,
+    ) -> io::Result<&mut Peer<Self::Stream>>;
+    fn get_peer_for_event_mut(
+        &mut self,
+        event: &Self::NetworkEvent,
+    ) -> Option<&mut Peer<Self::Stream>>;
 
     fn disconnect_peer(&mut self, peer: &PeerAddress);
 }
@@ -163,15 +170,12 @@ pub struct TezedgeProposer<Es, Efs, M> {
 }
 
 impl<Es, Efs, M> TezedgeProposer<Es, Efs, M>
-    where Es: Events,
+where
+    Es: Events,
 {
-    pub fn new<S>(
-        config: TezedgeProposerConfig,
-        state: S,
-        mut events: Es,
-        manager: M,
-    ) -> Self
-        where S: Into<TezedgeStateWrapper<Efs>>,
+    pub fn new<S>(config: TezedgeProposerConfig, state: S, mut events: Es, manager: M) -> Self
+    where
+        S: Into<TezedgeStateWrapper<Efs>>,
     {
         events.set_limit(config.events_limit);
         Self {
@@ -186,10 +190,11 @@ impl<Es, Efs, M> TezedgeProposer<Es, Efs, M>
 }
 
 impl<S, NetE, Es, Efs, M> TezedgeProposer<Es, Efs, M>
-    where S: Read + Write,
-          NetE: NetworkEvent + Debug,
-          Efs: Effects,
-          M: Manager<Stream = S, NetworkEvent = NetE, Events = Es>,
+where
+    S: Read + Write,
+    NetE: NetworkEvent + Debug,
+    Efs: Effects,
+    M: Manager<Stream = S, NetworkEvent = NetE, Events = Es>,
 {
     fn handle_event(
         event: Event<NetE>,
@@ -353,7 +358,11 @@ impl<S, NetE, Es, Efs, M> TezedgeProposer<Es, Efs, M>
                     });
                     notifications.push(Notification::PeerBlacklisted { peer });
                 }
-                TezedgeRequest::PeerMessageReceived { req_id, peer, message } => {
+                TezedgeRequest::PeerMessageReceived {
+                    req_id,
+                    peer,
+                    message,
+                } => {
                     state.accept(PendingRequestProposal {
                         req_id,
                         at: state.newest_time_seen(),
@@ -362,7 +371,11 @@ impl<S, NetE, Es, Efs, M> TezedgeProposer<Es, Efs, M>
                     notifications.push(Notification::MessageReceived { peer, message });
                 }
                 TezedgeRequest::NotifyHandshakeSuccessful {
-                    req_id, peer_address, peer_public_key_hash, metadata, network_version
+                    req_id,
+                    peer_address,
+                    peer_public_key_hash,
+                    metadata,
+                    network_version,
                 } => {
                     notifications.push(Notification::HandshakeSuccessful {
                         peer_address,
@@ -382,11 +395,13 @@ impl<S, NetE, Es, Efs, M> TezedgeProposer<Es, Efs, M>
 
     fn wait_for_events(&mut self) {
         let wait_for_events_timeout = self.config.wait_for_events_timeout;
-        self.manager.wait_for_events(&mut self.events, wait_for_events_timeout)
+        self.manager
+            .wait_for_events(&mut self.events, wait_for_events_timeout)
     }
 
     pub fn make_progress(&mut self)
-        where for<'a> &'a Es: IntoIterator<Item = EventRef<'a, NetE>>,
+    where
+        for<'a> &'a Es: IntoIterator<Item = EventRef<'a, NetE>>,
     {
         self.wait_for_events();
 
@@ -404,12 +419,13 @@ impl<S, NetE, Es, Efs, M> TezedgeProposer<Es, Efs, M>
             &mut self.requests,
             &mut self.notifications,
             &mut self.state,
-            &mut self.manager
+            &mut self.manager,
         );
     }
 
     pub fn make_progress_owned(&mut self)
-        where for<'a> &'a Es: IntoIterator<Item = Event<NetE>>,
+    where
+        for<'a> &'a Es: IntoIterator<Item = Event<NetE>>,
     {
         let time = Instant::now();
         self.wait_for_events();
@@ -427,14 +443,18 @@ impl<S, NetE, Es, Efs, M> TezedgeProposer<Es, Efs, M>
                 &mut self.manager,
             );
         }
-        eprintln!("handled {} events in: {}ms", count, time.elapsed().as_millis());
+        eprintln!(
+            "handled {} events in: {}ms",
+            count,
+            time.elapsed().as_millis()
+        );
 
         let time = Instant::now();
         Self::execute_requests(
             &mut self.requests,
             &mut self.notifications,
             &mut self.state,
-            &mut self.manager
+            &mut self.manager,
         );
         eprintln!("executed requests in: {}ms", time.elapsed().as_millis());
     }
@@ -482,8 +502,7 @@ impl<S, NetE, Es, Efs, M> TezedgeProposer<Es, Efs, M>
         at: Instant,
         addr: PeerAddress,
         message: PeerMessage,
-    ) -> io::Result<()>
-    {
+    ) -> io::Result<()> {
         let peer = match self.manager.get_peer(&addr) {
             Some(peer) => peer,
             None => return Err(io::Error::new(io::ErrorKind::NotFound, "peer not found!")),
@@ -555,6 +574,9 @@ impl Write for WriteOnlyBuffer {
 #[cfg(feature = "blocking")]
 impl Read for WriteOnlyBuffer {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        Err(io::Error::new(io::ErrorKind::WouldBlock, "write only buffer!"))
+        Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "write only buffer!",
+        ))
     }
 }

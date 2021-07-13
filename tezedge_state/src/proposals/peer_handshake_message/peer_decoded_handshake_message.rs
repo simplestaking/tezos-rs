@@ -1,8 +1,8 @@
 use tezos_messages::p2p::binary_message::BinaryChunk;
-use tezos_messages::p2p::encoding::prelude::{ConnectionMessage, MetadataMessage, AckMessage};
+use tezos_messages::p2p::encoding::prelude::{AckMessage, ConnectionMessage, MetadataMessage};
 
-use crate::PeerCrypto;
 use super::{PeerHandshakeMessage, PeerHandshakeMessageError};
+use crate::PeerCrypto;
 
 #[derive(Debug, Clone)]
 pub enum PeerDecodedHanshakeMessageType {
@@ -47,24 +47,39 @@ impl PeerHandshakeMessage for PeerDecodedHanshakeMessage {
     fn as_connection_msg(&mut self) -> Result<ConnectionMessage, PeerHandshakeMessageError> {
         match &self.decoded {
             PeerDecodedHanshakeMessageType::Connection(msg) => Ok(msg.clone()),
-            PeerDecodedHanshakeMessageType::Metadata(_) => Err(PeerHandshakeMessageError::InvalidMessage),
-            PeerDecodedHanshakeMessageType::Ack(_) => Err(PeerHandshakeMessageError::InvalidMessage),
+            PeerDecodedHanshakeMessageType::Metadata(_) => {
+                Err(PeerHandshakeMessageError::InvalidMessage)
+            }
+            PeerDecodedHanshakeMessageType::Ack(_) => {
+                Err(PeerHandshakeMessageError::InvalidMessage)
+            }
         }
     }
 
-    fn as_metadata_msg(&mut self, _: &mut PeerCrypto) -> Result<MetadataMessage, PeerHandshakeMessageError> {
+    fn as_metadata_msg(
+        &mut self,
+        _: &mut PeerCrypto,
+    ) -> Result<MetadataMessage, PeerHandshakeMessageError> {
         match &self.decoded {
             PeerDecodedHanshakeMessageType::Metadata(msg) => Ok(msg.clone()),
-            PeerDecodedHanshakeMessageType::Connection(_) => Err(PeerHandshakeMessageError::InvalidMessage),
-            PeerDecodedHanshakeMessageType::Ack(_) => Err(PeerHandshakeMessageError::InvalidMessage),
+            PeerDecodedHanshakeMessageType::Connection(_) => {
+                Err(PeerHandshakeMessageError::InvalidMessage)
+            }
+            PeerDecodedHanshakeMessageType::Ack(_) => {
+                Err(PeerHandshakeMessageError::InvalidMessage)
+            }
         }
     }
 
     fn as_ack_msg(&mut self, _: &mut PeerCrypto) -> Result<AckMessage, PeerHandshakeMessageError> {
         match &self.decoded {
             PeerDecodedHanshakeMessageType::Ack(msg) => Ok(msg.clone()),
-            PeerDecodedHanshakeMessageType::Connection(_) => Err(PeerHandshakeMessageError::InvalidMessage),
-            PeerDecodedHanshakeMessageType::Metadata(_) => Err(PeerHandshakeMessageError::InvalidMessage),
+            PeerDecodedHanshakeMessageType::Connection(_) => {
+                Err(PeerHandshakeMessageError::InvalidMessage)
+            }
+            PeerDecodedHanshakeMessageType::Metadata(_) => {
+                Err(PeerHandshakeMessageError::InvalidMessage)
+            }
         }
     }
 }
