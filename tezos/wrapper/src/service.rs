@@ -1195,6 +1195,6 @@ impl<Runner: ProtocolRunner + 'static> ProtocolRunnerEndpoint<Runner> {
     /// Starts protocol runner sub-process just once and you can take care of it
     pub fn start(&self) -> Result<Runner::Subprocess, ProtocolRunnerError> {
         debug!(self.log, "Starting protocol runner process");
-        self.runner.spawn()
+        self.runner.spawn(self.log.clone())
     }
 }

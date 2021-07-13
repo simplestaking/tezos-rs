@@ -1,16 +1,16 @@
 // Copyright (c) SimpleStaking, Viable Systems and Tezedge Contributors
 // SPDX-License-Identifier: MIT
 
-use std::io;
+use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use failure::Fail;
 use nix::sys::signal;
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
-use slog::Level;
+use slog::{info, warn, Level, Logger};
 use wait_timeout::ChildExt;
 
 use crate::ProtocolEndpointConfiguration;
@@ -70,6 +70,48 @@ impl ExecutableProtocolRunner {
             }
         }
     }
+
+    /// Starts a new thread to read and lot the subprocess output
+    fn log_subprocess_output(&self, process: &mut Child, log: Logger) {
+        let stdout_log = log.clone();
+        let stderr_log = log.clone();
+        let stdout = process.stdout.take().unwrap();
+        let stderr = process.stderr.take().unwrap();
+
+        let stdout_logger = std::thread::Builder::new()
+            .name(format!("{}-stdout-logger", self.endpoint_name))
+            .spawn(move || {
+                let stdout_reader = BufReader::new(stdout);
+                stdout_reader
+                    .lines()
+                    .filter_map(|line| line.ok())
+                    .for_each(|line| info!(stdout_log, "[OCaml-out] {}", line));
+            });
+
+        let stderr_logger = std::thread::Builder::new()
+            .name(format!("{}-stderr-logger", self.endpoint_name))
+            .spawn(move || {
+                let stderr_reader = BufReader::new(stderr);
+                stderr_reader
+                    .lines()
+                    .filter_map(|line| line.ok())
+                    .for_each(|line| info!(stderr_log, "[OCaml-err] {}", line));
+            });
+
+        if let Err(err) = stdout_logger {
+            warn!(
+                log,
+                "Failed to launch stdout logger thread for OCaml subprocess: {:?}", err
+            );
+        }
+
+        if let Err(err) = stderr_logger {
+            warn!(
+                log,
+                "Failed to launch stdout logger thread for OCaml subprocess: {:?}", err
+            );
+        }
+    }
 }
 
 impl ProtocolRunner for ExecutableProtocolRunner {
@@ -94,8 +136,10 @@ impl ProtocolRunner for ExecutableProtocolRunner {
         }
     }
 
-    fn spawn(&self) -> Result<Self::Subprocess, ProtocolRunnerError> {
-        let process = Command::new(&self.executable_path)
+    fn spawn(&self, log: Logger) -> Result<Self::Subprocess, ProtocolRunnerError> {
+        let mut process = Command::new(&self.executable_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .arg("--sock-cmd")
             .arg(&self.sock_cmd_path)
             .arg("--endpoint")
@@ -104,6 +148,9 @@ impl ProtocolRunner for ExecutableProtocolRunner {
             .arg(&self.log_level.as_str().to_lowercase())
             .spawn()
             .map_err(|err| ProtocolRunnerError::SpawnError { reason: err })?;
+
+        self.log_subprocess_output(&mut process, log.clone());
+
         Ok(process)
     }
 
@@ -136,7 +183,7 @@ pub trait ProtocolRunner: Clone + Send + Sync {
         endpoint_name: String,
     ) -> Self;
 
-    fn spawn(&self) -> Result<Self::Subprocess, ProtocolRunnerError>;
+    fn spawn(&self, log: Logger) -> Result<Self::Subprocess, ProtocolRunnerError>;
 
     /// Give [`wait_timeout`] time to stop process, and after that if tries to terminate/kill it
     fn wait_and_terminate_ref(
