@@ -581,18 +581,21 @@ impl OneRealNodeCluster {
     ) -> OneRealNodeCluster {
         let wait_for_events_timeout = proposer_config.wait_for_events_timeout;
         let pow_target = state.config().pow_target;
+        let mut proposer = TezedgeProposer::new(
+            proposer_config,
+            state,
+            FakeEvents::new(),
+            OneRealNodeManager::new(
+                pow_target,
+                wait_for_events_timeout,
+            ),
+        );
+        // needed to start listening for incoming connections.
+        proposer.make_progress();
 
         Self {
             time: initial_time,
-            proposer: TezedgeProposer::new(
-                proposer_config,
-                state,
-                FakeEvents::new(),
-                OneRealNodeManager::new(
-                    pow_target,
-                    wait_for_events_timeout,
-                ),
-            ),
+            proposer,
         }
     }
 
@@ -793,7 +796,6 @@ mod tests {
         let peer_id = cluster.init_new_fake_peer();
 
         cluster
-            .make_progress()
             .connect_to_node(peer_id).unwrap()
             .make_progress()
             .do_handshake(peer_id).unwrap()
